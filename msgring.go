@@ -6,6 +6,7 @@ const (
 	_ MsgType = iota
 	MSG_PULL_REPLICATION
 	MSG_BULK_SET
+	MSG_BULK_SET_ACK
 )
 
 type MsgRing interface {
