@@ -23,9 +23,10 @@ type Msg interface {
 	Done()
 }
 
-// MsgUnmarshaller will attempt to read desiredBytesToRead from the reader and will return
-// the number of bytes actually read as well as any error that may have ocurred. If error
-// is nil then actualBytesRead must equal desiredBytesToRead.
-type MsgUnmarshaller func(io.Reader, desiredBytesToRead uint64) (actualBytesRead uint64, error)
+// MsgUnmarshaller will attempt to read desiredBytesToRead from the reader and
+// will return the number of bytes actually read as well as any error that may
+// have ocurred. If error is nil then actualBytesRead must equal
+// desiredBytesToRead.
+type MsgUnmarshaller func(reader io.Reader, desiredBytesToRead uint64) (actualBytesRead uint64, err error)
 
 type MsgType uint64
