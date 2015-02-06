@@ -8,22 +8,22 @@ import (
 	"time"
 )
 
-type TestItem struct {
+type TestNode struct {
 	active     bool
 	capacity   uint64
 	tierValues []int
 }
 
-func (item *TestItem) Active() bool {
-	return item.active
+func (node *TestNode) Active() bool {
+	return node.active
 }
 
-func (item *TestItem) Capacity() uint64 {
-	return item.capacity
+func (node *TestNode) Capacity() uint64 {
+	return node.capacity
 }
 
-func (item *TestItem) TierValues() []int {
-	return item.tierValues
+func (node *TestNode) TierValues() []int {
+	return node.tierValues
 }
 
 func TestNewRing(t *testing.T) {
@@ -32,7 +32,7 @@ func TestNewRing(t *testing.T) {
 		t.Fatal(err)
 	}
 	pprof.StartCPUProfile(f)
-	fmt.Println(" items inactive partitions capacity maxunder maxover seconds")
+	fmt.Println(" nodes inactive partitions capacity maxunder maxover seconds")
 	for zones := 10; zones <= 200; {
 		helperTestNewRing(t, zones)
 		if zones < 100 {
@@ -51,7 +51,7 @@ func helperTestNewRing(t *testing.T, zones int) {
 	for zone := 0; zone < zones; zone++ {
 		for server := 0; server < 50; server++ {
 			for device := 0; device < 2; device++ {
-				ring.Add(&TestItem{active: true, capacity: capacity, tierValues: []int{device, server, zone}})
+				ring.Add(&TestNode{active: true, capacity: capacity, tierValues: []int{device, server, zone}})
 				//capacity++
 				//if capacity > 100 {
 				//	capacity = 1
@@ -62,10 +62,10 @@ func helperTestNewRing(t *testing.T, zones int) {
 	start := time.Now()
 	ring.Rebalance()
 	stats := ring.Stats()
-	fmt.Printf("%6d %8d %10d %8d %7.02f%% %6.02f%% %7d\n", stats.ItemCount, stats.InactiveItemCount, stats.PartitionCount, stats.TotalCapacity, stats.MaxUnderItemPercentage, stats.MaxOverItemPercentage, int(time.Now().Sub(start)/time.Second))
-	ring.Item(25).(*TestItem).active = false
+	fmt.Printf("%6d %8d %10d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
+	ring.Node(25).(*TestNode).active = false
 	start = time.Now()
 	ring.Rebalance()
 	stats = ring.Stats()
-	fmt.Printf("%6d %8d %10d %8d %7.02f%% %6.02f%% %7d\n", stats.ItemCount, stats.InactiveItemCount, stats.PartitionCount, stats.TotalCapacity, stats.MaxUnderItemPercentage, stats.MaxOverItemPercentage, int(time.Now().Sub(start)/time.Second))
+	fmt.Printf("%6d %8d %10d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 }
