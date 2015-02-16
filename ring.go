@@ -54,10 +54,16 @@ func (ring *ringImpl) PartitionBits() uint16 {
 }
 
 func (ring *ringImpl) LocalNodeID() uint64 {
+	if ring.localNodeIndex == 0 {
+		return 0
+	}
 	return ring.nodeIDs[ring.localNodeIndex]
 }
 
 func (ring *ringImpl) Responsible(partition uint32) bool {
+	if ring.localNodeIndex == 0 {
+		return false
+	}
 	for _, partition2NodeIndex := range ring.replica2Partition2NodeIndex {
 		if partition2NodeIndex[partition] == ring.localNodeIndex {
 			return true
@@ -70,8 +76,10 @@ type RingBuilder interface {
 	// Ring returns a Ring instance of the data defined by the RingBuilder.
 	// This will cause any pending rebalancing actions to be performed. The
 	// Ring returned will be immutable; to obtain updated ring data, Ring()
-	// must be called again.
-	Ring() Ring
+	// must be called again. The localNodeID is so the Ring instance can
+	// provide local responsibility information; you can give 0 if you don't
+	// intended to use those features.
+	Ring(localNodeID uint64) Ring
 	PartitionCount() int
 	ReplicaCount() int
 	// PointsAllowed is the number of percentage points over or under that the
@@ -158,12 +166,16 @@ func (builder *ringBuilderImpl) Add(node Node) int {
 	return len(builder.nodes) - 1
 }
 
-func (builder *ringBuilderImpl) Ring() Ring {
+func (builder *ringBuilderImpl) Ring(localNodeID uint64) Ring {
 	builder.resizeIfNeeded()
 	newRebalanceContext(builder).rebalance()
+	localNodeIndex := int32(0)
 	nodeIDs := make([]uint64, len(builder.nodes))
 	for i := 0; i < len(nodeIDs); i++ {
 		nodeIDs[i] = builder.nodes[i].NodeID()
+		if nodeIDs[i] == localNodeID {
+			localNodeIndex = int32(i)
+		}
 	}
 	replica2Partition2NodeIndex := make([][]int32, len(builder.replica2Partition2NodeIndex))
 	for i := 0; i < len(replica2Partition2NodeIndex); i++ {
@@ -172,6 +184,7 @@ func (builder *ringBuilderImpl) Ring() Ring {
 	}
 	return &ringImpl{
 		version:                     builder.version,
+		localNodeIndex:              localNodeIndex,
 		partitionBits:               1, // TODO
 		nodeIDs:                     nodeIDs,
 		replica2Partition2NodeIndex: replica2Partition2NodeIndex,

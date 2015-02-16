@@ -67,12 +67,12 @@ func helperTestNewRingBuilder(t *testing.T, zones int) {
 		}
 	}
 	start := time.Now()
-	ring.Ring()
+	ring.Ring(0)
 	stats := ring.Stats()
 	fmt.Printf("%6d %8d %10d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 	ring.Node(25).(*TestNode).active = false
 	start = time.Now()
-	ring.Ring()
+	ring.Ring(0)
 	stats = ring.Stats()
 	fmt.Printf("%6d %8d %10d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 }
