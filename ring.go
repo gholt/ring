@@ -3,7 +3,6 @@
 // the same partitions in as distinct tiered nodes as possible (tiers might be
 // devices, servers, cabinets, rooms, data centers, geographical regions, etc.)
 // TODO:
-//  Actually up version number with changes.
 //  Make partitionBits actually work.
 //  Indexes should be uint32 and not int32; use 0 for nil node.
 package ring
@@ -167,8 +166,16 @@ func (builder *ringBuilderImpl) Add(node Node) int {
 }
 
 func (builder *ringBuilderImpl) Ring(localNodeID uint64) Ring {
-	builder.resizeIfNeeded()
-	newRebalanceContext(builder).rebalance()
+	upVersion := false
+	if builder.resizeIfNeeded() {
+		upVersion = true
+	}
+	if newRebalanceContext(builder).rebalance() {
+		upVersion = true
+	}
+	if upVersion {
+		builder.version++
+	}
 	localNodeIndex := int32(0)
 	nodeIDs := make([]uint64, len(builder.nodes))
 	for i := 0; i < len(nodeIDs); i++ {
@@ -191,7 +198,7 @@ func (builder *ringBuilderImpl) Ring(localNodeID uint64) Ring {
 	}
 }
 
-func (builder *ringBuilderImpl) resizeIfNeeded() {
+func (builder *ringBuilderImpl) resizeIfNeeded() bool {
 	replicaCount := builder.ReplicaCount()
 	// Calculate the partition count needed.
 	// Each node is examined to see how much under or over weight it would be
@@ -237,7 +244,9 @@ func (builder *ringBuilderImpl) resizeIfNeeded() {
 			}
 			builder.replica2Partition2NodeIndex[replica] = partition2NodeIndex
 		}
+		return true
 	}
+	return false
 }
 
 // RingStats can be obtained with RingBuilder.Stats() and gives information

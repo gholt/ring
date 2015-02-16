@@ -127,12 +127,12 @@ func (rebalanceContext *rebalanceContextImpl) initTier2NodeIndex2TierID() {
 	}
 }
 
-func (rebalanceContext *rebalanceContextImpl) rebalance() {
+func (rebalanceContext *rebalanceContextImpl) rebalance() bool {
 	if rebalanceContext.first {
 		rebalanceContext.firstRebalance()
-	} else {
-		rebalanceContext.subsequentRebalance()
+		return true
 	}
+	return rebalanceContext.subsequentRebalance()
 }
 
 // firstRebalance is much simpler than what we have to do to rebalance existing
@@ -192,7 +192,7 @@ func (rebalanceContext *rebalanceContextImpl) firstRebalance() {
 // for users of the ring.
 // Finally, one last pass will be done to reassign replicas to still
 // underweight nodes.
-func (rebalanceContext *rebalanceContextImpl) subsequentRebalance() {
+func (rebalanceContext *rebalanceContextImpl) subsequentRebalance() bool {
 	replicaCount := len(rebalanceContext.builder.replica2Partition2NodeIndex)
 	partitionCount := len(rebalanceContext.builder.replica2Partition2NodeIndex[0])
 	// We'll track how many times we can move replicas for a given partition;
@@ -205,6 +205,7 @@ func (rebalanceContext *rebalanceContextImpl) subsequentRebalance() {
 	for partition := 0; partition < partitionCount; partition++ {
 		partition2MovementsLeft[partition] = movementsPerPartition
 	}
+	altered := false
 	// First we'll reassign any partition replicas assigned to nodes with a
 	// weight less than 0, as this indicates a deleted node.
 	for deletedNodeIndex, deletedNode := range rebalanceContext.builder.nodes {
@@ -236,10 +237,12 @@ func (rebalanceContext *rebalanceContextImpl) subsequentRebalance() {
 				}
 				nodeIndex := rebalanceContext.bestNodeIndex()
 				partition2NodeIndex[partition] = nodeIndex
+				altered = true
 				rebalanceContext.decrementDesire(nodeIndex)
 			}
 		}
 	}
+	return altered
 }
 
 func (rebalanceContext *rebalanceContextImpl) bestNodeIndex() int32 {
