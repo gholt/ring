@@ -2,8 +2,6 @@
 // with replicas, automatic partitioning (ring ranges), and keeping replicas of
 // the same partitions in as distinct tiered nodes as possible (tiers might be
 // devices, servers, cabinets, rooms, data centers, geographical regions, etc.)
-// TODO:
-//  Indexes should be uint32 and not int32; use 0 for nil node.
 package ring
 
 // Long variable names are used in this code because it is tricky to understand
