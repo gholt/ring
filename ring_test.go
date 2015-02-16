@@ -37,7 +37,7 @@ func TestNewRingBuilder(t *testing.T) {
 		t.Fatal(err)
 	}
 	pprof.StartCPUProfile(f)
-	fmt.Println(" nodes inactive partitions capacity maxunder maxover seconds")
+	fmt.Println(" nodes inactive partitions bits capacity maxunder maxover seconds")
 	for zones := 10; zones <= 200; {
 		helperTestNewRingBuilder(t, zones)
 		if zones < 100 {
@@ -69,10 +69,10 @@ func helperTestNewRingBuilder(t *testing.T, zones int) {
 	start := time.Now()
 	ring.Ring(0)
 	stats := ring.Stats()
-	fmt.Printf("%6d %8d %10d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
+	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBits, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 	ring.Node(25).(*TestNode).active = false
 	start = time.Now()
 	ring.Ring(0)
 	stats = ring.Stats()
-	fmt.Printf("%6d %8d %10d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
+	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBits, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 }

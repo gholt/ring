@@ -2,9 +2,6 @@
 // with replicas, automatic partitioning (ring ranges), and keeping replicas of
 // the same partitions in as distinct tiered nodes as possible (tiers might be
 // devices, servers, cabinets, rooms, data centers, geographical regions, etc.)
-// TODO:
-//  Make partitionBits actually work.
-//  Indexes should be uint32 and not int32; use 0 for nil node.
 package ring
 
 // Long variable names are used in this code because it is tricky to understand
@@ -79,6 +76,13 @@ type RingBuilder interface {
 	// provide local responsibility information; you can give 0 if you don't
 	// intended to use those features.
 	Ring(localNodeID uint64) Ring
+	// PartitionBits is the number of bits that can be used to determine a
+	// partition number for the current data in the ring. For example, to
+	// convert a uint64 hash value into a partition number you could use
+	// hashValue >> (64 - ring.PartitionBits()). Note that the builder may
+	// change the number of bits when a call to Ring results in resizing to
+	// rebalance partitions.
+	PartitionBits() uint16
 	PartitionCount() int
 	ReplicaCount() int
 	// PointsAllowed is the number of percentage points over or under that the
@@ -120,6 +124,7 @@ type Node interface {
 type ringBuilderImpl struct {
 	version                     uint64
 	nodes                       []Node
+	partitionBits               uint16
 	replica2Partition2NodeIndex [][]int32
 	pointsAllowed               int
 }
@@ -138,6 +143,10 @@ func NewRingBuilder(replicaCount int) RingBuilder {
 
 func (builder *ringBuilderImpl) ReplicaCount() int {
 	return len(builder.replica2Partition2NodeIndex)
+}
+
+func (builder *ringBuilderImpl) PartitionBits() uint16 {
+	return builder.partitionBits
 }
 
 func (builder *ringBuilderImpl) PartitionCount() int {
@@ -192,7 +201,7 @@ func (builder *ringBuilderImpl) Ring(localNodeID uint64) Ring {
 	return &ringImpl{
 		version:                     builder.version,
 		localNodeIndex:              localNodeIndex,
-		partitionBits:               1, // TODO
+		partitionBits:               builder.partitionBits,
 		nodeIDs:                     nodeIDs,
 		replica2Partition2NodeIndex: replica2Partition2NodeIndex,
 	}
@@ -211,7 +220,6 @@ func (builder *ringBuilderImpl) resizeIfNeeded() bool {
 		}
 	}
 	partitionCount := len(builder.replica2Partition2NodeIndex[0])
-	partitionCountShifts := uint(0)
 	pointsAllowed := float64(builder.pointsAllowed) * 0.01
 	done := false
 	for !done {
@@ -225,7 +233,7 @@ func (builder *ringBuilderImpl) resizeIfNeeded() bool {
 			over := (float64(int(desiredPartitionCount)+1) - desiredPartitionCount) / desiredPartitionCount
 			if under > pointsAllowed || over > pointsAllowed {
 				partitionCount <<= 1
-				partitionCountShifts++
+				builder.partitionBits++
 				if partitionCount >= _MAX_PARTITION_COUNT {
 					done = true
 					break
@@ -240,12 +248,14 @@ func (builder *ringBuilderImpl) resizeIfNeeded() bool {
 		for replica := 0; replica < replicaCount; replica++ {
 			partition2NodeIndex := make([]int32, partitionCount)
 			for partition := 0; partition < partitionCount; partition++ {
-				partition2NodeIndex[partition] = builder.replica2Partition2NodeIndex[replica][partition>>partitionCountShifts]
+				partition2NodeIndex[partition] = builder.replica2Partition2NodeIndex[replica][partition>>builder.partitionBits]
 			}
 			builder.replica2Partition2NodeIndex[replica] = partition2NodeIndex
 		}
 		return true
 	}
+	// Shrinking the partition2NodeIndex slices doesn't happen because it would
+	// cause more data movements than it's worth.
 	return false
 }
 
@@ -256,6 +266,7 @@ type RingStats struct {
 	ReplicaCount      int
 	NodeCount         int
 	InactiveNodeCount int
+	PartitionBits     uint16
 	PartitionCount    int
 	PointsAllowed     int
 	TotalCapacity     uint64
@@ -273,6 +284,7 @@ func (builder *ringBuilderImpl) Stats() *RingStats {
 	stats := &RingStats{
 		ReplicaCount:      builder.ReplicaCount(),
 		NodeCount:         builder.NodeCount(),
+		PartitionBits:     builder.PartitionBits(),
 		PartitionCount:    builder.PartitionCount(),
 		PointsAllowed:     builder.PointsAllowed(),
 		MaxUnderNodeIndex: -1,
