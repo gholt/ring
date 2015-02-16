@@ -242,6 +242,17 @@ func (rebalanceContext *rebalanceContextImpl) subsequentRebalance() bool {
 			}
 		}
 	}
+    // TODO: Then we attempt to reassign at risk partitions. Partitions are
+    // considered at risk if they have multiple replicas on the same node or
+    // within the same tier separation.
+
+    // TODO: Attempt to reassign replicas within tiers, from innermost tier to
+    // outermost, as usually such movements are more efficient for users of the
+    // ring. We do this by selecting the most needy node, and then look for
+    // overweight nodes in the same tier to steal replicas from.
+
+    // TODO: Lastly, we try to reassign replicas from overweight nodes to
+    // underweight ones.
 	return altered
 }
 
