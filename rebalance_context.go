@@ -206,6 +206,7 @@ func (rebalanceContext *rebalanceContextImpl) subsequentRebalance() bool {
 		partition2MovementsLeft[partition] = movementsPerPartition
 	}
 	altered := false
+
 	// First we'll reassign any partition replicas assigned to nodes with a
 	// weight less than 0, as this indicates a deleted node.
 	for deletedNodeIndex, deletedNode := range rebalanceContext.builder.nodes {
@@ -237,22 +238,24 @@ func (rebalanceContext *rebalanceContextImpl) subsequentRebalance() bool {
 				}
 				nodeIndex := rebalanceContext.bestNodeIndex()
 				partition2NodeIndex[partition] = nodeIndex
+				partition2MovementsLeft[partition]--
 				altered = true
 				rebalanceContext.decrementDesire(nodeIndex)
 			}
 		}
 	}
-    // TODO: Then we attempt to reassign at risk partitions. Partitions are
-    // considered at risk if they have multiple replicas on the same node or
-    // within the same tier separation.
 
-    // TODO: Attempt to reassign replicas within tiers, from innermost tier to
-    // outermost, as usually such movements are more efficient for users of the
-    // ring. We do this by selecting the most needy node, and then look for
-    // overweight nodes in the same tier to steal replicas from.
+	// TODO: Then we attempt to reassign at risk partitions. Partitions are
+	// considered at risk if they have multiple replicas on the same node or
+	// within the same tier separation.
 
-    // TODO: Lastly, we try to reassign replicas from overweight nodes to
-    // underweight ones.
+	// TODO: Attempt to reassign replicas within tiers, from innermost tier to
+	// outermost, as usually such movements are more efficient for users of the
+	// ring. We do this by selecting the most needy node, and then look for
+	// overweight nodes in the same tier to steal replicas from.
+
+	// TODO: Lastly, we try to reassign replicas from overweight nodes to
+	// underweight ones.
 	return altered
 }
 
