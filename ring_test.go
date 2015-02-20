@@ -58,7 +58,7 @@ func helperTestNewRingBuilder(t *testing.T, zones int) {
 		for server := 0; server < 50; server++ {
 			for device := 0; device < 2; device++ {
 				nodeID++
-				builder.Add(&TestNode{nodeID: nodeID, active: true, capacity: capacity, tierValues: []int{device, server, zone}})
+				builder.Add(&TestNode{nodeID: nodeID, active: true, capacity: capacity, tierValues: []int{server, zone}})
 				//capacity++
 				//if capacity > 100 {
 				//	capacity = 1

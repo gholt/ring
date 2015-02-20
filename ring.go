@@ -89,10 +89,10 @@ type Node interface {
 	// another resource if that makes more sense to balance.
 	Capacity() uint32
 	// Tiers indicate the layout of the node with respect to other nodes. For
-	// example, the lowest tier, tier 0, would be the node itself (e.g. sdb1).
-	// The next tier might be the server ip, then the power zone the server is
-	// in. The number of tiers is flexible, so later an additional tier for
-	// geographic region could be added, for example.
+	// example, the lowest tier, tier 0, might be the server ip (where each
+	// node represents a drive on that server). The next tier, 1, might then be
+	// the power zone the server is in. The number of tiers is flexible, so
+	// later an additional tier for geographic region could be added.
 	// Here the tier values are represented by ints, presumably as indexes to
 	// the actual values stored elsewhere. This is done for speed during
 	// rebalancing.
