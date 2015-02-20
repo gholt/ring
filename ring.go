@@ -4,6 +4,8 @@
 // devices, servers, cabinets, rooms, data centers, geographical regions, etc.)
 package ring
 
+import "time"
+
 // Long variable names are used in this code because it is tricky to understand
 // and the verbosity can really help.
 
@@ -12,18 +14,19 @@ const _MAX_PARTITION_COUNT = 8388608
 
 type Ring interface {
 	// Version can indicate changes in ring data; for example, if a server is
-	// currently working with version 123 of ring data and receives requests
+	// currently working with one version of ring data and receives requests
 	// that are based on a lesser version of ring data, it can ignore those
 	// requests or send an "obsoleted" response or something along those lines.
 	// Similarly, if the server receives requests for a greater version of ring
 	// data, it can ignore those requests or try to obtain a newer ring
 	// version.
-	Version() uint64
+	Version() int64
 	// PartitionBits is the number of bits that can be used to determine a
 	// partition number for the current data in the ring. For example, to
 	// convert a uint64 hash value into a partition number you could use
 	// hashValue >> (64 - ring.PartitionBits()).
 	PartitionBits() uint16
+	ReplicaCount() int
 	// LocalNodeID is the identifier of the local node; determines which ring
 	// partitions/replicas the local node is responsible for as well as being
 	// used to direct message delivery.
@@ -34,19 +37,23 @@ type Ring interface {
 }
 
 type ringImpl struct {
-	version                     uint64
+	version                     int64
 	localNodeIndex              int32
 	partitionBits               uint16
 	nodeIDs                     []uint64
 	replica2Partition2NodeIndex [][]int32
 }
 
-func (ring *ringImpl) Version() uint64 {
+func (ring *ringImpl) Version() int64 {
 	return ring.version
 }
 
 func (ring *ringImpl) PartitionBits() uint16 {
 	return ring.partitionBits
+}
+
+func (ring *ringImpl) ReplicaCount() int {
+	return len(ring.replica2Partition2NodeIndex)
 }
 
 func (ring *ringImpl) LocalNodeID() uint64 {
@@ -68,163 +75,128 @@ func (ring *ringImpl) Responsible(partition uint32) bool {
 	return false
 }
 
-type RingBuilder interface {
-	// Ring returns a Ring instance of the data defined by the RingBuilder.
-	// This will cause any pending rebalancing actions to be performed. The
-	// Ring returned will be immutable; to obtain updated ring data, Ring()
-	// must be called again. The localNodeID is so the Ring instance can
-	// provide local responsibility information; you can give 0 if you don't
-	// intended to use those features.
-	Ring(localNodeID uint64) Ring
-	// PartitionBits is the number of bits that can be used to determine a
-	// partition number for the current data in the ring. For example, to
-	// convert a uint64 hash value into a partition number you could use
-	// hashValue >> (64 - ring.PartitionBits()). Note that the builder may
-	// change the number of bits when a call to Ring results in resizing to
-	// rebalance partitions.
-	PartitionBits() uint16
-	PartitionCount() int
-	ReplicaCount() int
-	// PointsAllowed is the number of percentage points over or under that the
-	// ring will try to keep data assignments within. The default is 1 for one
-	// percent extra or less data.
-	PointsAllowed() int
-	SetPointsAllowed(points int)
-	NodeCount() int
-	Node(nodeIndex int) Node
-	// Add will add the node to the ring and return its node index.
-	Add(node Node) int
-	Stats() *RingStats
-}
-
 // Node is a single item assigned to a ring, usually a single device like a
 // disk drive.
 type Node interface {
 	// NodeID uniquely identifies this node; this is id is all that is retained
-	// when a RingBuilder returns a Ring representation of the data.
+	// when a Builder returns a Ring representation of the data.
 	NodeID() uint64
 	Active() bool
 	// Capacity indicates the amount of data that should be assigned to a node
 	// relative to other nodes. It can be in any unit of designation as long as
 	// all nodes use the same designation. Most commonly this is the number of
-	// bytes the node can store, but could be based on CPU capacity or another
-	// resource if that makes more sense to balance.
-	Capacity() uint64
+	// gigabytes the node can store, but could be based on CPU capacity or
+	// another resource if that makes more sense to balance.
+	Capacity() uint32
 	// Tiers indicate the layout of the node with respect to other nodes. For
-	// example, the lowest tier, tier 0, would be the node itself (e.g.
-	// "sdb1"). The next tier might be the server ip, then the power zone the
-	// server is in. The number of tiers is flexible, so later an additional
-	// tier for geographic region could be added, for example.
+	// example, the lowest tier, tier 0, would be the node itself (e.g. sdb1).
+	// The next tier might be the server ip, then the power zone the server is
+	// in. The number of tiers is flexible, so later an additional tier for
+	// geographic region could be added, for example.
 	// Here the tier values are represented by ints, presumably as indexes to
 	// the actual values stored elsewhere. This is done for speed during
 	// rebalancing.
 	TierValues() []int
 }
 
-type ringBuilderImpl struct {
-	version                     uint64
+type Builder struct {
+	version                     int64
 	nodes                       []Node
 	partitionBits               uint16
 	replica2Partition2NodeIndex [][]int32
 	pointsAllowed               int
 }
 
-func NewRingBuilder(replicaCount int) RingBuilder {
-	builder := &ringBuilderImpl{
+func NewBuilder(replicaCount int) *Builder {
+	b := &Builder{
 		nodes: make([]Node, 0),
 		replica2Partition2NodeIndex: make([][]int32, replicaCount),
 		pointsAllowed:               1,
 	}
 	for replica := 0; replica < replicaCount; replica++ {
-		builder.replica2Partition2NodeIndex[replica] = []int32{-1}
+		b.replica2Partition2NodeIndex[replica] = []int32{-1}
 	}
-	return builder
+	return b
 }
 
-func (builder *ringBuilderImpl) ReplicaCount() int {
-	return len(builder.replica2Partition2NodeIndex)
+// PointsAllowed is the number of percentage points over or under that the ring
+// will try to keep data assignments within. The default is 1 for one percent
+// extra or less data.
+func (b *Builder) PointsAllowed() int {
+	return b.pointsAllowed
 }
 
-func (builder *ringBuilderImpl) PartitionBits() uint16 {
-	return builder.partitionBits
+func (b *Builder) SetPointsAllowed(points int) {
+	b.pointsAllowed = points
 }
 
-func (builder *ringBuilderImpl) PartitionCount() int {
-	return len(builder.replica2Partition2NodeIndex[0])
+func (b *Builder) NodeCount() int {
+	return len(b.nodes)
 }
 
-func (builder *ringBuilderImpl) PointsAllowed() int {
-	return builder.pointsAllowed
+func (b *Builder) Node(nodeIndex int) Node {
+	return b.nodes[nodeIndex]
 }
 
-func (builder *ringBuilderImpl) SetPointsAllowed(points int) {
-	builder.pointsAllowed = points
+// Add will add the node to the builder's list and return its index in that
+// list.
+func (b *Builder) Add(node Node) int {
+	b.nodes = append(b.nodes, node)
+	return len(b.nodes) - 1
 }
 
-func (builder *ringBuilderImpl) NodeCount() int {
-	return len(builder.nodes)
-}
-
-func (builder *ringBuilderImpl) Node(nodeIndex int) Node {
-	return builder.nodes[nodeIndex]
-}
-
-func (builder *ringBuilderImpl) Add(node Node) int {
-	builder.nodes = append(builder.nodes, node)
-	return len(builder.nodes) - 1
-}
-
-func (builder *ringBuilderImpl) Ring(localNodeID uint64) Ring {
-	upVersion := false
-	if builder.resizeIfNeeded() {
-		upVersion = true
+// Ring returns a Ring instance of the data defined by the builder. This will
+// cause any pending rebalancing actions to be performed. The Ring returned
+// will be immutable; to obtain updated ring data, Ring() must be called again.
+// The localNodeID is so the Ring instance can provide local responsibility
+// information; you can give 0 if you don't intended to use those features.
+func (b *Builder) Ring(localNodeID uint64) Ring {
+	if b.resizeIfNeeded() {
+		b.version = time.Now().UnixNano()
 	}
-	if newRebalanceContext(builder).rebalance() {
-		upVersion = true
-	}
-	if upVersion {
-		builder.version++
+	if newRebalanceContext(b).rebalance() {
+		b.version = time.Now().UnixNano()
 	}
 	localNodeIndex := int32(0)
-	nodeIDs := make([]uint64, len(builder.nodes))
+	nodeIDs := make([]uint64, len(b.nodes))
 	for i := 0; i < len(nodeIDs); i++ {
-		nodeIDs[i] = builder.nodes[i].NodeID()
+		nodeIDs[i] = b.nodes[i].NodeID()
 		if nodeIDs[i] == localNodeID {
 			localNodeIndex = int32(i)
 		}
 	}
-	replica2Partition2NodeIndex := make([][]int32, len(builder.replica2Partition2NodeIndex))
+	replica2Partition2NodeIndex := make([][]int32, len(b.replica2Partition2NodeIndex))
 	for i := 0; i < len(replica2Partition2NodeIndex); i++ {
-		replica2Partition2NodeIndex[i] = make([]int32, len(builder.replica2Partition2NodeIndex[i]))
-		copy(replica2Partition2NodeIndex[i], builder.replica2Partition2NodeIndex[i])
+		replica2Partition2NodeIndex[i] = make([]int32, len(b.replica2Partition2NodeIndex[i]))
+		copy(replica2Partition2NodeIndex[i], b.replica2Partition2NodeIndex[i])
 	}
 	return &ringImpl{
-		version:                     builder.version,
+		version:                     b.version,
 		localNodeIndex:              localNodeIndex,
-		partitionBits:               builder.partitionBits,
+		partitionBits:               b.partitionBits,
 		nodeIDs:                     nodeIDs,
 		replica2Partition2NodeIndex: replica2Partition2NodeIndex,
 	}
 }
 
-func (builder *ringBuilderImpl) resizeIfNeeded() bool {
-	replicaCount := builder.ReplicaCount()
+func (b *Builder) resizeIfNeeded() bool {
+	replicaCount := len(b.replica2Partition2NodeIndex)
 	// Calculate the partition count needed.
 	// Each node is examined to see how much under or over weight it would be
 	// and increasing the partition count until the difference is under the
 	// points allowed.
 	totalCapacity := uint64(0)
-	for _, node := range builder.nodes {
+	for _, node := range b.nodes {
 		if node.Active() {
-			totalCapacity += node.Capacity()
+			totalCapacity += (uint64)(node.Capacity())
 		}
 	}
-	partitionCount := len(builder.replica2Partition2NodeIndex[0])
-	pointsAllowed := float64(builder.pointsAllowed) * 0.01
+	partitionCount := len(b.replica2Partition2NodeIndex[0])
+	pointsAllowed := float64(b.pointsAllowed) * 0.01
 	done := false
 	for !done {
 		done = true
-		for _, node := range builder.nodes {
+		for _, node := range b.nodes {
 			if !node.Active() {
 				continue
 			}
@@ -233,7 +205,7 @@ func (builder *ringBuilderImpl) resizeIfNeeded() bool {
 			over := (float64(int(desiredPartitionCount)+1) - desiredPartitionCount) / desiredPartitionCount
 			if under > pointsAllowed || over > pointsAllowed {
 				partitionCount <<= 1
-				builder.partitionBits++
+				b.partitionBits++
 				if partitionCount >= _MAX_PARTITION_COUNT {
 					done = true
 					break
@@ -244,25 +216,23 @@ func (builder *ringBuilderImpl) resizeIfNeeded() bool {
 		}
 	}
 	// Grow the partition2NodeIndex slices if the partition count grew.
-	if partitionCount > len(builder.replica2Partition2NodeIndex[0]) {
+	if partitionCount > len(b.replica2Partition2NodeIndex[0]) {
 		for replica := 0; replica < replicaCount; replica++ {
 			partition2NodeIndex := make([]int32, partitionCount)
 			for partition := 0; partition < partitionCount; partition++ {
-				partition2NodeIndex[partition] = builder.replica2Partition2NodeIndex[replica][partition>>builder.partitionBits]
+				partition2NodeIndex[partition] = b.replica2Partition2NodeIndex[replica][partition>>b.partitionBits]
 			}
-			builder.replica2Partition2NodeIndex[replica] = partition2NodeIndex
+			b.replica2Partition2NodeIndex[replica] = partition2NodeIndex
 		}
 		return true
 	}
 	// Shrinking the partition2NodeIndex slices doesn't happen because it would
-	// cause more data movements than it's worth.
+	// normally cause more data movements than it's worth. Perhaps in the
+	// future we can add detection of cases when shrinking makes sense.
 	return false
 }
 
-// RingStats can be obtained with RingBuilder.Stats() and gives information
-// about the builder and its health. The MaxUnder and MaxOver values specifically
-// indicate how balanced the builder is at this time.
-type RingStats struct {
+type BuilderStats struct {
 	ReplicaCount      int
 	NodeCount         int
 	InactiveNodeCount int
@@ -270,40 +240,45 @@ type RingStats struct {
 	PartitionCount    int
 	PointsAllowed     int
 	TotalCapacity     uint64
-	// MaxUnderNodePercentage is the percentage an node is underweight, or has
+	// MaxUnderNodePercentage is the percentage a node is underweight, or has
 	// less data assigned to it than its capacity would indicate it desires.
 	MaxUnderNodePercentage float64
 	MaxUnderNodeIndex      int
-	// MaxOverNodePercentage is the percentage an node is overweight, or has
+	// MaxOverNodePercentage is the percentage a node is overweight, or has
 	// more data assigned to it than its capacity would indicate it desires.
 	MaxOverNodePercentage float64
 	MaxOverNodeIndex      int
 }
 
-func (builder *ringBuilderImpl) Stats() *RingStats {
-	stats := &RingStats{
-		ReplicaCount:      builder.ReplicaCount(),
-		NodeCount:         builder.NodeCount(),
-		PartitionBits:     builder.PartitionBits(),
-		PartitionCount:    builder.PartitionCount(),
-		PointsAllowed:     builder.PointsAllowed(),
+// Stats gives information about the builder and its health; note that this
+// will call the Ring method and so could cause rebalancing. The MaxUnder and
+// MaxOver values specifically indicate how balanced the builder is at this
+// time.
+func (b *Builder) Stats() *BuilderStats {
+	ring := b.Ring(0)
+	stats := &BuilderStats{
+		ReplicaCount:      ring.ReplicaCount(),
+		NodeCount:         b.NodeCount(),
+		PartitionBits:     ring.PartitionBits(),
+		PartitionCount:    1 << ring.PartitionBits(),
+		PointsAllowed:     b.PointsAllowed(),
 		MaxUnderNodeIndex: -1,
 		MaxOverNodeIndex:  -1,
 	}
 	nodeIndex2PartitionCount := make([]int, stats.NodeCount)
-	for _, partition2NodeIndex := range builder.replica2Partition2NodeIndex {
+	for _, partition2NodeIndex := range b.replica2Partition2NodeIndex {
 		for _, nodeIndex := range partition2NodeIndex {
 			nodeIndex2PartitionCount[nodeIndex]++
 		}
 	}
-	for _, node := range builder.nodes {
+	for _, node := range b.nodes {
 		if node.Active() {
-			stats.TotalCapacity += node.Capacity()
+			stats.TotalCapacity += (uint64)(node.Capacity())
 		} else {
 			stats.InactiveNodeCount++
 		}
 	}
-	for nodeIndex, node := range builder.nodes {
+	for nodeIndex, node := range b.nodes {
 		if !node.Active() {
 			continue
 		}

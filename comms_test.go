@@ -34,8 +34,12 @@ func (r *TestRing) PartitionBits() uint16 {
 	return uint16(0)
 }
 
-func (r *TestRing) Version() uint64 {
-	return uint64(1)
+func (r *TestRing) ReplicaCount() int {
+	return 0
+}
+
+func (r *TestRing) Version() int64 {
+	return int64(1)
 }
 
 type TestMsg struct {

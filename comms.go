@@ -15,9 +15,8 @@ var (
 	default_timeout   time.Duration = 2 * time.Second // 2 seconds
 )
 
-// TimeoutReader is an bufio.Reader that reads in chunks of ChunkSize and
-// will return a timeout error if the chunk is not read in the Timeout
-// time.
+// TimeoutReader is a bufio.Reader that reads in chunks of ChunkSize and will
+// return a timeout error if the chunk is not read in the Timeout time.
 // TODO: Add chunking - or do we even need chunking at this layer?
 // TODO: Add other bufio functions
 type TimeoutReader struct {
@@ -52,9 +51,8 @@ func (r *TimeoutReader) ReadByte() (c byte, err error) {
 	return b, err
 }
 
-// TimeoutWriter is an bufio.Writer that reads in chunks of ChunkSize and
-// will return a timeout error if the chunk is not read in the Timeout
-// time.
+// TimeoutWriter is a bufio.Writer that reads in chunks of ChunkSize and will
+// return a timeout error if the chunk is not read in the Timeout time.
 // TODO: Add chunking
 type TimeoutWriter struct {
 	Timeout   time.Duration

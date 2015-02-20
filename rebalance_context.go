@@ -1,25 +1,26 @@
 package ring
 
 import (
+	"math"
 	"sort"
 )
 
 type rebalanceContextImpl struct {
-	builder                         *ringBuilderImpl
+	builder                         *Builder
 	first                           bool
 	nodeIndex2DesiredPartitionCount []int32
 	nodeIndexesByDesire             []int32
 	nodeIndex2Used                  []bool
 	tierCount                       int
-	tier2TierIDs                    [][]*tierIDImpl
-	tier2NodeIndex2TierID           [][]*tierIDImpl
+	tier2TierSeps                   [][]*tierSeparation
+	tier2NodeIndex2TierSep          [][]*tierSeparation
 }
 
-func newRebalanceContext(builder *ringBuilderImpl) *rebalanceContextImpl {
+func newRebalanceContext(builder *Builder) *rebalanceContextImpl {
 	rebalanceContext := &rebalanceContextImpl{builder: builder}
 	rebalanceContext.initTierCount()
-	rebalanceContext.initNodeIndex2DesiredPartitionCount()
-	rebalanceContext.initTier2NodeIndex2TierID()
+	rebalanceContext.initNodeDesires()
+	rebalanceContext.initTierInfo()
 	return rebalanceContext
 }
 
@@ -36,11 +37,11 @@ func (rebalanceContext *rebalanceContextImpl) initTierCount() {
 	}
 }
 
-func (rebalanceContext *rebalanceContextImpl) initNodeIndex2DesiredPartitionCount() {
+func (rebalanceContext *rebalanceContextImpl) initNodeDesires() {
 	totalCapacity := uint64(0)
 	for _, node := range rebalanceContext.builder.nodes {
 		if node.Active() {
-			totalCapacity += node.Capacity()
+			totalCapacity += (uint64)(node.Capacity())
 		}
 	}
 	nodeIndex2PartitionCount := make([]int32, len(rebalanceContext.builder.nodes))
@@ -59,7 +60,7 @@ func (rebalanceContext *rebalanceContextImpl) initNodeIndex2DesiredPartitionCoun
 		if node.Active() {
 			rebalanceContext.nodeIndex2DesiredPartitionCount[nodeIndex] = int32(float64(node.Capacity())/float64(totalCapacity)*float64(allPartitionsCount)+0.5) - nodeIndex2PartitionCount[nodeIndex]
 		} else {
-			rebalanceContext.nodeIndex2DesiredPartitionCount[nodeIndex] = -2147483648
+			rebalanceContext.nodeIndex2DesiredPartitionCount[nodeIndex] = math.MinInt32
 		}
 	}
 	rebalanceContext.nodeIndexesByDesire = make([]int32, 0, len(rebalanceContext.builder.nodes))
@@ -68,59 +69,59 @@ func (rebalanceContext *rebalanceContextImpl) initNodeIndex2DesiredPartitionCoun
 			rebalanceContext.nodeIndexesByDesire = append(rebalanceContext.nodeIndexesByDesire, int32(nodeIndex))
 		}
 	}
-	sort.Sort(&nodeIndexByDesireSorterImpl{
+	sort.Sort(&nodeIndexByDesireSorter{
 		nodeIndexesByDesire:             rebalanceContext.nodeIndexesByDesire,
 		nodeIndex2DesiredPartitionCount: rebalanceContext.nodeIndex2DesiredPartitionCount,
 	})
 }
 
-func (rebalanceContext *rebalanceContextImpl) initTier2NodeIndex2TierID() {
-	rebalanceContext.tier2NodeIndex2TierID = make([][]*tierIDImpl, rebalanceContext.tierCount)
-	rebalanceContext.tier2TierIDs = make([][]*tierIDImpl, rebalanceContext.tierCount)
+func (rebalanceContext *rebalanceContextImpl) initTierInfo() {
+	rebalanceContext.tier2NodeIndex2TierSep = make([][]*tierSeparation, rebalanceContext.tierCount)
+	rebalanceContext.tier2TierSeps = make([][]*tierSeparation, rebalanceContext.tierCount)
 	for tier := 1; tier < rebalanceContext.tierCount; tier++ {
-		rebalanceContext.tier2NodeIndex2TierID[tier] = make([]*tierIDImpl, len(rebalanceContext.builder.nodes))
-		rebalanceContext.tier2TierIDs[tier] = make([]*tierIDImpl, 0)
+		rebalanceContext.tier2NodeIndex2TierSep[tier] = make([]*tierSeparation, len(rebalanceContext.builder.nodes))
+		rebalanceContext.tier2TierSeps[tier] = make([]*tierSeparation, 0)
 	}
 	for nodeIndex, node := range rebalanceContext.builder.nodes {
 		nodeTierValues := node.TierValues()
 		for tier := 1; tier < rebalanceContext.tierCount; tier++ {
-			var tierID *tierIDImpl
-			for _, candidateTierID := range rebalanceContext.tier2TierIDs[tier] {
-				tierID = candidateTierID
+			var tierSep *tierSeparation
+			for _, candidateTierSep := range rebalanceContext.tier2TierSeps[tier] {
+				tierSep = candidateTierSep
 				for valueIndex := 0; valueIndex < rebalanceContext.tierCount-tier; valueIndex++ {
 					value := 0
 					if valueIndex+tier < len(nodeTierValues) {
 						value = nodeTierValues[valueIndex+tier]
 					}
-					if tierID.values[valueIndex] != value {
-						tierID = nil
+					if tierSep.values[valueIndex] != value {
+						tierSep = nil
 						break
 					}
 				}
-				if tierID != nil {
+				if tierSep != nil {
 					break
 				}
 			}
-			if tierID == nil {
-				tierID = &tierIDImpl{values: make([]int, rebalanceContext.tierCount-tier), nodeIndexesByDesire: []int32{int32(nodeIndex)}}
+			if tierSep == nil {
+				tierSep = &tierSeparation{values: make([]int, rebalanceContext.tierCount-tier), nodeIndexesByDesire: []int32{int32(nodeIndex)}}
 				for valueIndex := 0; valueIndex < rebalanceContext.tierCount-tier; valueIndex++ {
 					value := 0
 					if valueIndex+tier < len(nodeTierValues) {
 						value = nodeTierValues[valueIndex+tier]
 					}
-					tierID.values[valueIndex] = value
+					tierSep.values[valueIndex] = value
 				}
-				rebalanceContext.tier2TierIDs[tier] = append(rebalanceContext.tier2TierIDs[tier], tierID)
+				rebalanceContext.tier2TierSeps[tier] = append(rebalanceContext.tier2TierSeps[tier], tierSep)
 			} else {
-				tierID.nodeIndexesByDesire = append(tierID.nodeIndexesByDesire, int32(nodeIndex))
+				tierSep.nodeIndexesByDesire = append(tierSep.nodeIndexesByDesire, int32(nodeIndex))
 			}
-			rebalanceContext.tier2NodeIndex2TierID[tier][int32(nodeIndex)] = tierID
+			rebalanceContext.tier2NodeIndex2TierSep[tier][int32(nodeIndex)] = tierSep
 		}
 	}
 	for tier := 1; tier < rebalanceContext.tierCount; tier++ {
-		for _, tierID := range rebalanceContext.tier2TierIDs[tier] {
-			sort.Sort(&nodeIndexByDesireSorterImpl{
-				nodeIndexesByDesire:             tierID.nodeIndexesByDesire,
+		for _, tierSep := range rebalanceContext.tier2TierSeps[tier] {
+			sort.Sort(&nodeIndexByDesireSorter{
+				nodeIndexesByDesire:             tierSep.nodeIndexesByDesire,
 				nodeIndex2DesiredPartitionCount: rebalanceContext.nodeIndex2DesiredPartitionCount,
 			})
 		}
@@ -146,9 +147,9 @@ func (rebalanceContext *rebalanceContextImpl) firstRebalance() {
 	// so that we can try to avoid assigning further replicas to similar nodes.
 	otherNodeIndexes := make([]int32, replicaCount)
 	rebalanceContext.nodeIndex2Used = make([]bool, len(rebalanceContext.builder.nodes))
-	tier2OtherTierIDs := make([][]*tierIDImpl, rebalanceContext.tierCount)
+	tier2OtherTierSeps := make([][]*tierSeparation, rebalanceContext.tierCount)
 	for tier := 1; tier < rebalanceContext.tierCount; tier++ {
-		tier2OtherTierIDs[tier] = make([]*tierIDImpl, replicaCount)
+		tier2OtherTierSeps[tier] = make([]*tierSeparation, replicaCount)
 	}
 	for partition := 0; partition < partitionCount; partition++ {
 		for replica := 0; replica < replicaCount; replica++ {
@@ -159,10 +160,10 @@ func (rebalanceContext *rebalanceContextImpl) firstRebalance() {
 		}
 		for tier := 1; tier < rebalanceContext.tierCount; tier++ {
 			for replica := 0; replica < replicaCount; replica++ {
-				if tier2OtherTierIDs[tier][replica] != nil {
-					tier2OtherTierIDs[tier][replica].used = false
+				if tier2OtherTierSeps[tier][replica] != nil {
+					tier2OtherTierSeps[tier][replica].used = false
 				}
-				tier2OtherTierIDs[tier][replica] = nil
+				tier2OtherTierSeps[tier][replica] = nil
 			}
 		}
 		for replica := 0; replica < replicaCount; replica++ {
@@ -172,9 +173,9 @@ func (rebalanceContext *rebalanceContextImpl) firstRebalance() {
 			rebalanceContext.nodeIndex2Used[nodeIndex] = true
 			otherNodeIndexes[replica] = nodeIndex
 			for tier := 1; tier < rebalanceContext.tierCount; tier++ {
-				tierID := rebalanceContext.tier2NodeIndex2TierID[tier][nodeIndex]
-				tierID.used = true
-				tier2OtherTierIDs[tier][replica] = tierID
+				tierSep := rebalanceContext.tier2NodeIndex2TierSep[tier][nodeIndex]
+				tierSep.used = true
+				tier2OtherTierSeps[tier][replica] = tierSep
 			}
 		}
 	}
@@ -224,16 +225,16 @@ func (rebalanceContext *rebalanceContextImpl) subsequentRebalance() bool {
 				// replicas to similar nodes.
 				otherNodeIndexes := make([]int32, replicaCount)
 				rebalanceContext.nodeIndex2Used = make([]bool, len(rebalanceContext.builder.nodes))
-				tier2OtherTierIDs := make([][]*tierIDImpl, rebalanceContext.tierCount)
+				tier2OtherTierSeps := make([][]*tierSeparation, rebalanceContext.tierCount)
 				for tier := 1; tier < rebalanceContext.tierCount; tier++ {
-					tier2OtherTierIDs[tier] = make([]*tierIDImpl, replicaCount)
+					tier2OtherTierSeps[tier] = make([]*tierSeparation, replicaCount)
 				}
 				for replicaB := 0; replicaB < replicaCount; replicaB++ {
 					otherNodeIndexes[replicaB] = rebalanceContext.builder.replica2Partition2NodeIndex[replicaB][partition]
 					for tier := 1; tier < rebalanceContext.tierCount; tier++ {
-						tierID := rebalanceContext.tier2NodeIndex2TierID[tier][otherNodeIndexes[replicaB]]
-						tierID.used = true
-						tier2OtherTierIDs[tier][replicaB] = tierID
+						tierSep := rebalanceContext.tier2NodeIndex2TierSep[tier][otherNodeIndexes[replicaB]]
+						tierSep.used = true
+						tier2OtherTierSeps[tier][replicaB] = tierSep
 					}
 				}
 				nodeIndex := rebalanceContext.bestNodeIndex()
@@ -263,15 +264,15 @@ func (rebalanceContext *rebalanceContextImpl) bestNodeIndex() int32 {
 	bestNodeIndex := int32(-1)
 	bestNodeDesiredPartitionCount := ^int32(0)
 	nodeIndex2DesiredPartitionCount := rebalanceContext.nodeIndex2DesiredPartitionCount
-	var tierID *tierIDImpl
+	var tierSep *tierSeparation
 	var nodeIndex int32
-	tier2TierIDs := rebalanceContext.tier2TierIDs
+	tier2TierSeps := rebalanceContext.tier2TierSeps
 	for tier := rebalanceContext.tierCount - 1; tier > 0; tier-- {
-		// We will go through all tierIDs for a tier to get the
-		// best node at that tier.
-		for _, tierID = range tier2TierIDs[tier] {
-			if !tierID.used {
-				nodeIndex = tierID.nodeIndexesByDesire[0]
+		// We will go through all tier separations for a tier to get the best
+		// node at that tier.
+		for _, tierSep = range tier2TierSeps[tier] {
+			if !tierSep.used {
+				nodeIndex = tierSep.nodeIndexesByDesire[0]
 				if bestNodeDesiredPartitionCount < nodeIndex2DesiredPartitionCount[nodeIndex] {
 					bestNodeIndex = nodeIndex
 					bestNodeDesiredPartitionCount = nodeIndex2DesiredPartitionCount[nodeIndex]
@@ -324,7 +325,7 @@ func (rebalanceContext *rebalanceContextImpl) decrementDesire(nodeIndex int32) {
 		nodeIndexesByDesire[prev], nodeIndexesByDesire[swapWith] = nodeIndexesByDesire[swapWith], nodeIndexesByDesire[prev]
 	}
 	for tier := 1; tier < rebalanceContext.tierCount; tier++ {
-		nodeIndexesByDesire := rebalanceContext.tier2NodeIndex2TierID[tier][nodeIndex].nodeIndexesByDesire
+		nodeIndexesByDesire := rebalanceContext.tier2NodeIndex2TierSep[tier][nodeIndex].nodeIndexesByDesire
 		swapWith = 0
 		hi = len(nodeIndexesByDesire)
 		mid = 0
@@ -351,7 +352,7 @@ func (rebalanceContext *rebalanceContextImpl) decrementDesire(nodeIndex int32) {
 	nodeIndex2DesiredPartitionCount[nodeIndex]--
 }
 
-type tierIDImpl struct {
+type tierSeparation struct {
 	values              []int
 	nodeIndexesByDesire []int32
 	used                bool
