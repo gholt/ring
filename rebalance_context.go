@@ -73,6 +73,7 @@ func (context *rebalanceContext) initNodeDesires() {
 		nodeIndexes:      context.nodeIndexesByDesire,
 		nodeIndex2Desire: context.nodeIndex2Desire,
 	})
+	context.nodeIndex2Used = make([]bool, len(context.builder.nodes))
 }
 
 func (context *rebalanceContext) initTierInfo() {
@@ -141,41 +142,48 @@ func (context *rebalanceContext) rebalance() bool {
 // replica of that partition to the next most-desired node, keeping in mind
 // tier separation preferences.
 func (context *rebalanceContext) firstRebalance() {
-	replicaCount := len(context.builder.replica2Partition2NodeIndex)
-	partitionCount := len(context.builder.replica2Partition2NodeIndex[0])
-	// We track the other nodes and tiers we've assigned partition replicas to
-	// so that we can try to avoid assigning further replicas to similar nodes.
-	otherNodeIndexes := make([]int32, replicaCount)
-	context.nodeIndex2Used = make([]bool, len(context.builder.nodes))
-	tier2OtherTierSeps := make([][]*tierSeparation, context.tierCount)
-	for tier := 0; tier < context.tierCount; tier++ {
-		tier2OtherTierSeps[tier] = make([]*tierSeparation, replicaCount)
+	replica2Partition2NodeIndex := context.builder.replica2Partition2NodeIndex
+	maxReplica := len(replica2Partition2NodeIndex) - 1
+	maxPartition := len(replica2Partition2NodeIndex[0]) - 1
+	maxTier := context.tierCount - 1
+	nodeIndex2Used := context.nodeIndex2Used
+	tier2NodeIndex2TierSep := context.tier2NodeIndex2TierSep
+
+	usedNodeIndexes := make([]int32, maxReplica+1)
+	tier2UsedTierSeps := make([][]*tierSeparation, maxTier+1)
+	for tier := maxTier; tier >= 0; tier-- {
+		tier2UsedTierSeps[tier] = make([]*tierSeparation, maxReplica+1)
 	}
-	for partition := 0; partition < partitionCount; partition++ {
-		for replica := 0; replica < replicaCount; replica++ {
-			if otherNodeIndexes[replica] != -1 {
-				context.nodeIndex2Used[otherNodeIndexes[replica]] = false
+	for partition := maxPartition; partition >= 0; partition-- {
+		// Clear the previous partition's used flags.
+		for replica := maxReplica; replica >= 0; replica-- {
+			if usedNodeIndexes[replica] != -1 {
+				nodeIndex2Used[usedNodeIndexes[replica]] = false
+				usedNodeIndexes[replica] = -1
 			}
-			otherNodeIndexes[replica] = -1
 		}
-		for tier := 0; tier < context.tierCount; tier++ {
-			for replica := 0; replica < replicaCount; replica++ {
-				if tier2OtherTierSeps[tier][replica] != nil {
-					tier2OtherTierSeps[tier][replica].used = false
+		for tier := maxTier; tier >= 0; tier-- {
+			for replica := maxReplica; replica >= 0; replica-- {
+				if tier2UsedTierSeps[tier][replica] != nil {
+					tier2UsedTierSeps[tier][replica].used = false
 				}
-				tier2OtherTierSeps[tier][replica] = nil
+				tier2UsedTierSeps[tier][replica] = nil
 			}
 		}
-		for replica := 0; replica < replicaCount; replica++ {
+		// Now assign this partition's replicas.
+		for replica := maxReplica; replica >= 0; replica-- {
 			nodeIndex := context.bestNodeIndex()
-			context.builder.replica2Partition2NodeIndex[replica][partition] = nodeIndex
+			if nodeIndex < 0 {
+				continue
+			}
+			replica2Partition2NodeIndex[replica][partition] = nodeIndex
 			context.decrementDesire(nodeIndex)
-			context.nodeIndex2Used[nodeIndex] = true
-			otherNodeIndexes[replica] = nodeIndex
-			for tier := 0; tier < context.tierCount; tier++ {
-				tierSep := context.tier2NodeIndex2TierSep[tier][nodeIndex]
+			nodeIndex2Used[nodeIndex] = true
+			usedNodeIndexes[replica] = nodeIndex
+			for tier := maxTier; tier >= 0; tier-- {
+				tierSep := tier2NodeIndex2TierSep[tier][nodeIndex]
 				tierSep.used = true
-				tier2OtherTierSeps[tier][replica] = tierSep
+				tier2UsedTierSeps[tier][replica] = tierSep
 			}
 		}
 	}
@@ -238,6 +246,9 @@ func (context *rebalanceContext) subsequentRebalance() bool {
 					}
 				}
 				nodeIndex := context.bestNodeIndex()
+				if nodeIndex < 0 {
+					continue
+				}
 				partition2NodeIndex[partition] = nodeIndex
 				partition2MovementsLeft[partition]--
 				altered = true
@@ -293,9 +304,8 @@ func (context *rebalanceContext) bestNodeIndex() int32 {
 			return nodeIndex
 		}
 	}
-	// If we still found no good candidates, we'll have to just take the
-	// node with the highest desire.
-	return context.nodeIndexesByDesire[0]
+	// If we still found no good candidates...
+	return -1
 }
 
 func (context *rebalanceContext) decrementDesire(nodeIndex int32) {
