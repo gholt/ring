@@ -126,7 +126,7 @@ func (m *TCPMsgRing) GetAddressForNode(nodeID uint64) string {
 	return "127.0.0.1:9999"
 }
 
-func (m *TCPMsgRing) GetNodesForPart(ringID uint64, partition uint32) []uint64 {
+func (m *TCPMsgRing) GetNodesForPart(ringVersion int64, partition uint32) []uint64 {
 	// Just a dummy function for now
 	return []uint64{uint64(1), uint64(2)}
 }
@@ -182,8 +182,8 @@ func (m *TCPMsgRing) MsgToNodeChan(nodeID uint64, msg Msg, retchan chan bool) {
 	retchan <- val
 }
 
-func (m *TCPMsgRing) MsgToOtherReplicas(ringID uint64, partition uint32, msg Msg) bool {
-	nodes := m.GetNodesForPart(ringID, partition)
+func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg) bool {
+	nodes := m.GetNodesForPart(ringVersion, partition)
 	retchan := make(chan bool, 2)
 	for _, nodeID := range nodes {
 		go m.MsgToNodeChan(nodeID, msg, retchan)

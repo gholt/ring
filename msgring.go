@@ -13,7 +13,7 @@ type MsgRing interface {
 	Ring
 	SetMsgHandler(t MsgType, h MsgUnmarshaller)
 	MsgToNode(nodeID uint64, msg Msg) bool
-	MsgToOtherReplicas(ringID uint64, partition uint32, msg Msg) bool
+	MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg) bool
 }
 
 type Msg interface {

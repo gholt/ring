@@ -258,7 +258,7 @@ func Test_MsgToOtherReplicas(t *testing.T) {
 	addr := msgring.GetAddressForNode(uint64(1))
 	msgring.conns[addr] = NewLockConn(conn)
 	msg := TestMsg{}
-	success := msgring.MsgToOtherReplicas(uint64(1), uint32(1), &msg)
+	success := msgring.MsgToOtherReplicas(int64(1), uint32(1), &msg)
 	if !success {
 		t.Error("MsgToNode failed")
 	}
