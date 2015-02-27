@@ -177,7 +177,7 @@ func (context *rebalanceContext) firstRebalance() {
 				continue
 			}
 			replica2Partition2NodeIndex[replica][partition] = nodeIndex
-			context.decrementDesire(nodeIndex)
+			context.changeDesire(nodeIndex, false)
 			nodeIndex2Used[nodeIndex] = true
 			usedNodeIndexes[replica] = nodeIndex
 			for tier := maxTier; tier >= 0; tier-- {
@@ -189,77 +189,166 @@ func (context *rebalanceContext) firstRebalance() {
 	}
 }
 
-// subsequentRebalance is much more complicated than firstRebalance.
-// First we'll reassign any partition replicas assigned to nodes with a
-// weight less than 0, as this indicates a deleted node.
-// Then we'll attempt to reassign partition replicas that are at extremely
-// high risk because they're on the exact same node.
-// Next we'll attempt to reassign partition replicas that are at some risk
-// because they are currently assigned within the same tier separation.
-// Then, we'll attempt to reassign replicas within tiers to achieve better
-// distribution, as usually such intra-tier movements are more efficient
-// for users of the ring.
-// Finally, one last pass will be done to reassign replicas to still
-// underweight nodes.
+// subsequentRebalance is much more complicated than firstRebalance. It makes
+// multiple passes based on different scenarios (deactivated nodes, redundant
+// assignments, changing node weights) and reassigns replicas as it can.
 func (context *rebalanceContext) subsequentRebalance() bool {
-	replicaCount := len(context.builder.replica2Partition2NodeIndex)
-	partitionCount := len(context.builder.replica2Partition2NodeIndex[0])
-	// We'll track how many times we can move replicas for a given partition;
-	// we want to leave at least half a partition's replicas in place.
-	movementsPerPartition := byte(replicaCount / 2)
+	altered := false
+	replica2Partition2NodeIndex := context.builder.replica2Partition2NodeIndex
+	maxReplica := len(replica2Partition2NodeIndex) - 1
+	maxPartition := len(replica2Partition2NodeIndex[0]) - 1
+	maxTier := context.tierCount - 1
+	nodes := context.builder.nodes
+	nodeIndex2Used := context.nodeIndex2Used
+	tier2NodeIndex2TierSep := context.tier2NodeIndex2TierSep
+
+	// Track how many times we can move replicas for a given partition; we want
+	// to leave the majority of a partition's replicas in place, if possible.
+	movementsPerPartition := byte(maxReplica / 2)
 	if movementsPerPartition < 1 {
 		movementsPerPartition = 1
 	}
-	partition2MovementsLeft := make([]byte, partitionCount)
-	for partition := 0; partition < partitionCount; partition++ {
+	partition2MovementsLeft := make([]byte, maxPartition+1)
+	for partition := maxPartition; partition >= 0; partition-- {
 		partition2MovementsLeft[partition] = movementsPerPartition
 	}
-	altered := false
 
-	// First we'll reassign any partition replicas assigned to nodes with a
-	// weight less than 0, as this indicates a deleted node.
-	for deletedNodeIndex, deletedNode := range context.builder.nodes {
+	usedNodeIndexes := make([]int32, maxReplica+1)
+	tier2UsedTierSeps := make([][]*tierSeparation, maxTier+1)
+	for tier := maxTier; tier >= 0; tier-- {
+		tier2UsedTierSeps[tier] = make([]*tierSeparation, maxReplica+1)
+	}
+	clearUsed := func() {
+		for replica := maxReplica; replica >= 0; replica-- {
+			if usedNodeIndexes[replica] != -1 {
+				nodeIndex2Used[usedNodeIndexes[replica]] = false
+				usedNodeIndexes[replica] = -1
+			}
+		}
+		for tier := maxTier; tier >= 0; tier-- {
+			for replica := maxReplica; replica >= 0; replica-- {
+				if tier2UsedTierSeps[tier][replica] != nil {
+					tier2UsedTierSeps[tier][replica].used = false
+				}
+				tier2UsedTierSeps[tier][replica] = nil
+			}
+		}
+	}
+	markUsed := func(partition int) {
+		for replica := maxReplica; replica >= 0; replica-- {
+			nodeIndex := replica2Partition2NodeIndex[replica][partition]
+			usedNodeIndexes[replica] = nodeIndex
+			nodeIndex2Used[nodeIndex] = true
+			for tier := maxTier; tier >= 0; tier-- {
+				tierSep := tier2NodeIndex2TierSep[tier][nodeIndex]
+				tierSep.used = true
+				tier2UsedTierSeps[tier][replica] = tierSep
+			}
+		}
+	}
+
+	// We'll reassign any partition replicas assigned to nodes not marked
+	// active (deleted or failed nodes).
+	for deletedNodeIndex, deletedNode := range nodes {
 		if deletedNode.Active() {
 			continue
 		}
-		for replica := 0; replica < replicaCount; replica++ {
-			partition2NodeIndex := context.builder.replica2Partition2NodeIndex[replica]
-			for partition := 0; partition < partitionCount; partition++ {
+		for replica := maxReplica; replica >= 0; replica-- {
+			partition2NodeIndex := replica2Partition2NodeIndex[replica]
+			for partition := maxPartition; partition >= 0; partition-- {
 				if partition2NodeIndex[partition] != int32(deletedNodeIndex) {
 					continue
 				}
-				// We track the other nodes and tiers we've assigned partition
-				// replicas to so that we can try to avoid assigning further
-				// replicas to similar nodes.
-				otherNodeIndexes := make([]int32, replicaCount)
-				context.nodeIndex2Used = make([]bool, len(context.builder.nodes))
-				tier2OtherTierSeps := make([][]*tierSeparation, context.tierCount)
-				for tier := 0; tier < context.tierCount; tier++ {
-					tier2OtherTierSeps[tier] = make([]*tierSeparation, replicaCount)
-				}
-				for replicaB := 0; replicaB < replicaCount; replicaB++ {
-					otherNodeIndexes[replicaB] = context.builder.replica2Partition2NodeIndex[replicaB][partition]
-					for tier := 0; tier < context.tierCount; tier++ {
-						tierSep := context.tier2NodeIndex2TierSep[tier][otherNodeIndexes[replicaB]]
-						tierSep.used = true
-						tier2OtherTierSeps[tier][replicaB] = tierSep
-					}
-				}
+				clearUsed()
+				markUsed(partition)
 				nodeIndex := context.bestNodeIndex()
 				if nodeIndex < 0 {
 					continue
 				}
 				partition2NodeIndex[partition] = nodeIndex
+				context.changeDesire(nodeIndex, false)
 				partition2MovementsLeft[partition]--
 				altered = true
-				context.decrementDesire(nodeIndex)
 			}
 		}
 	}
 
-	// TODO: Then we attempt to reassign at risk partitions. Partitions are
-	// considered at risk if they have multiple replicas on the same node or
-	// within the same tier separation.
+	// Look for replicas assigned to the same node more than once. This
+	// shouldn't be a common use case; but if it turns out to be, it might be
+	// worthwhile to reassign the worst duplicates first. For example, a
+	// partition with only 1 distinct replica node would be fixed before
+	// others. Another example, a partition that has two duplicate nodes but
+	// one has more replicas than the other, it would be fixed first.
+DupLoopPartition:
+	for partition := maxPartition; partition >= 0; partition-- {
+		if partition2MovementsLeft[partition] < 1 {
+			continue
+		}
+	DupLoopReplica:
+		for replica := maxReplica; replica > 0; replica-- {
+			for replicaB := replica - 1; replicaB >= 0; replicaB-- {
+				if replica2Partition2NodeIndex[replica][partition] == replica2Partition2NodeIndex[replicaB][partition] {
+					clearUsed()
+					markUsed(partition)
+					nodeIndex := context.bestNodeIndex()
+					if nodeIndex < 0 {
+						continue
+					}
+					// No sense reassigning a duplicate to another duplicate.
+					for replicaC := maxReplica; replicaC >= 0; replicaC-- {
+						if nodeIndex == replica2Partition2NodeIndex[replicaC][partition] {
+							continue DupLoopReplica
+						}
+					}
+					context.changeDesire(replica2Partition2NodeIndex[replica][partition], true)
+					replica2Partition2NodeIndex[replica][partition] = nodeIndex
+					context.changeDesire(nodeIndex, false)
+					partition2MovementsLeft[partition]--
+					altered = true
+					if partition2MovementsLeft[partition] < 1 {
+						continue DupLoopPartition
+					}
+				}
+			}
+		}
+	}
+
+	// Look for replicas assigned to the same tier more than once.
+	for tier := maxTier; tier >= 0; tier-- {
+	DupTierLoopPartition:
+		for partition := maxPartition; partition >= 0; partition-- {
+			if partition2MovementsLeft[partition] < 1 {
+				continue
+			}
+		DupTierLoopReplica:
+			for replica := maxReplica; replica > 0; replica-- {
+				for replicaB := replica - 1; replicaB >= 0; replicaB-- {
+					if tier2NodeIndex2TierSep[tier][replica2Partition2NodeIndex[replica][partition]] == tier2NodeIndex2TierSep[tier][replica2Partition2NodeIndex[replicaB][partition]] {
+						clearUsed()
+						markUsed(partition)
+						nodeIndex := context.bestNodeIndex()
+						if nodeIndex < 0 {
+							continue
+						}
+						// No sense reassigning a duplicate to another duplicate.
+						for replicaC := maxReplica; replicaC >= 0; replicaC-- {
+							if tier2NodeIndex2TierSep[tier][nodeIndex] == tier2NodeIndex2TierSep[tier][replica2Partition2NodeIndex[replicaC][partition]] {
+								continue DupTierLoopReplica
+							}
+						}
+						context.changeDesire(replica2Partition2NodeIndex[replica][partition], true)
+						replica2Partition2NodeIndex[replica][partition] = nodeIndex
+						context.changeDesire(nodeIndex, false)
+						partition2MovementsLeft[partition]--
+						altered = true
+						if partition2MovementsLeft[partition] < 1 {
+							continue DupTierLoopPartition
+						}
+					}
+				}
+			}
+		}
+	}
 
 	// TODO: Attempt to reassign replicas within tiers, from innermost tier to
 	// outermost, as usually such movements are more efficient for users of the
@@ -308,10 +397,15 @@ func (context *rebalanceContext) bestNodeIndex() int32 {
 	return -1
 }
 
-func (context *rebalanceContext) decrementDesire(nodeIndex int32) {
+func (context *rebalanceContext) changeDesire(nodeIndex int32, increment bool) {
 	nodeIndex2Desire := context.nodeIndex2Desire
 	nodeIndexesByDesire := context.nodeIndexesByDesire
-	scanDesiredPartitionCount := nodeIndex2Desire[nodeIndex] - 1
+	scanDesiredPartitionCount := nodeIndex2Desire[nodeIndex]
+	if increment {
+		scanDesiredPartitionCount++
+	} else {
+		scanDesiredPartitionCount--
+	}
 	swapWith := 0
 	hi := len(nodeIndexesByDesire)
 	mid := 0
@@ -359,7 +453,11 @@ func (context *rebalanceContext) decrementDesire(nodeIndex int32) {
 			nodeIndexesByDesire[prev], nodeIndexesByDesire[swapWith] = nodeIndexesByDesire[swapWith], nodeIndexesByDesire[prev]
 		}
 	}
-	nodeIndex2Desire[nodeIndex]--
+	if increment {
+		nodeIndex2Desire[nodeIndex]++
+	} else {
+		nodeIndex2Desire[nodeIndex]--
+	}
 }
 
 type tierSeparation struct {
