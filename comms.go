@@ -95,29 +95,30 @@ func (w *TimeoutWriter) Flush() error {
 
 }
 
-type LockConn struct {
-	// We need lockable connections
-	conn net.Conn
+type RingConn struct {
+	Conn   net.Conn
+	Writer *TimeoutWriter
 	sync.Mutex
 }
 
-func NewLockConn(c net.Conn) *LockConn {
-	return &LockConn{
-		conn: c,
+func NewRingConn(conn net.Conn) *RingConn {
+	return &RingConn{
+		Conn:   conn,
+		Writer: NewTimeoutWriter(conn),
 	}
 }
 
 type TCPMsgRing struct {
 	Ring         Ring
-	msg_handlers map[uint]MsgUnmarshaller
-	conns        map[string]*LockConn
+	msg_handlers map[uint64]MsgUnmarshaller
+	conns        map[string]*RingConn
 }
 
 func NewTCPMsgRing(r Ring) *TCPMsgRing {
 	return &TCPMsgRing{
 		Ring:         r,
-		msg_handlers: make(map[uint]MsgUnmarshaller),
-		conns:        make(map[string]*LockConn),
+		msg_handlers: make(map[uint64]MsgUnmarshaller),
+		conns:        make(map[string]*RingConn),
 	}
 }
 
@@ -132,7 +133,7 @@ func (m *TCPMsgRing) GetNodesForPart(ringVersion int64, partition uint32) []uint
 }
 
 func (m *TCPMsgRing) SetMsgHandler(msg_type MsgType, handler MsgUnmarshaller) {
-	m.msg_handlers[uint(msg_type)] = handler
+	m.msg_handlers[uint64(msg_type)] = handler
 }
 
 func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) bool {
@@ -143,26 +144,24 @@ func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) bool {
 	if !ok {
 		// We need to open a connection
 		// TODO: Handle connection timeouts
-		//var err error = nil
-		tcpconn, err := net.DialTimeout("tcp", address, 3*time.Second)
+		tcpconn, err := net.DialTimeout("tcp", address, default_timeout)
 		if err != nil {
 			log.Println("ERR: Trying to connect to", address, err)
 			return false
 		}
-		conn := NewLockConn(tcpconn)
+		conn := NewRingConn(tcpconn)
 		m.conns[address] = conn
 	}
 	conn.Lock() // Make sure we only have one writer at a time
-	writer := NewTimeoutWriter(conn.conn)
 	// TODO: Handle write timeouts
 	// write the msg type
-	writer.WriteByte(byte(msg.MsgType()))
+	binary.Write(conn.Writer, binary.LittleEndian, msg.MsgType())
 	// Write the msg size
-	binary.Write(writer, binary.LittleEndian, msg.MsgLength())
+	binary.Write(conn.Writer, binary.LittleEndian, msg.MsgLength())
 	// Write the msg
-	length, err := msg.WriteContent(writer)
+	length, err := msg.WriteContent(conn.Writer)
 	// Make sure we flush the data
-	writer.Flush()
+	conn.Writer.Flush()
 	conn.Unlock()
 	msg.Done()
 	if err != nil {
@@ -203,14 +202,15 @@ func (m *TCPMsgRing) handle(conn net.Conn) error {
 	reader := NewTimeoutReader(conn)
 	var length uint64
 	for {
-		// for v.00001 of this we will just store the msg type in the 1st byte
-		msg_type, err := reader.ReadByte()
+		// for v.00002 we will store this in the fist 8 bytes
+		var msg_type uint64
+		err := binary.Read(reader, binary.LittleEndian, &msg_type)
 		if err != nil {
 			log.Println("Closing connection")
 			conn.Close()
 			return err
 		}
-		handle, ok := m.msg_handlers[uint(msg_type)]
+		handle, ok := m.msg_handlers[msg_type]
 		if !ok {
 			log.Println("ERR: Unknown message type", msg_type)
 			// TODO: Handle errors better
@@ -218,7 +218,7 @@ func (m *TCPMsgRing) handle(conn net.Conn) error {
 			conn.Close()
 			return errors.New("Unknown message type")
 		}
-		// for v.00001 the msg length will be the next 8 bytes
+		// for v.00002 the msg length will be the next 8 bytes
 		err = binary.Read(reader, binary.LittleEndian, &length)
 		if err != nil {
 			log.Println("ERR: Error reading length")
