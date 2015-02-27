@@ -182,7 +182,7 @@ func Test_WriteTimeout(t *testing.T) {
 
 func Test_handle(t *testing.T) {
 	conn := new(testConn)
-	conn.readBuf.WriteByte(byte(MsgType(1)))
+	binary.Write(&conn.readBuf, binary.LittleEndian, uint64(1))
 	binary.Write(&conn.readBuf, binary.LittleEndian, uint64(7))
 	conn.readBuf.WriteString("Testing")
 	r := TestRing{}
@@ -199,13 +199,14 @@ func Test_MsgToNode(t *testing.T) {
 	r := TestRing{}
 	msgring := NewTCPMsgRing(&r)
 	addr := msgring.GetAddressForNode(uint64(1))
-	msgring.conns[addr] = NewLockConn(conn)
+	msgring.conns[addr] = NewRingConn(conn)
 	msg := TestMsg{}
 	success := msgring.MsgToNode(uint64(1), &msg)
 	if !success {
 		t.Error("MsgToNode failed")
 	}
-	msgtype, _ := conn.writeBuf.ReadByte()
+	var msgtype uint64
+	binary.Read(&conn.writeBuf, binary.LittleEndian, &msgtype)
 	if int(msgtype) != 1 {
 		t.Error("Message type not written correctly")
 	}
@@ -226,7 +227,7 @@ func Test_MsgToNodeChan(t *testing.T) {
 	r := TestRing{}
 	msgring := NewTCPMsgRing(&r)
 	addr := msgring.GetAddressForNode(uint64(1))
-	msgring.conns[addr] = NewLockConn(conn)
+	msgring.conns[addr] = NewRingConn(conn)
 	msg := TestMsg{}
 	retch := make(chan bool)
 	go msgring.MsgToNodeChan(uint64(1), &msg, retch)
@@ -235,7 +236,8 @@ func Test_MsgToNodeChan(t *testing.T) {
 		t.Error("MsgToNode failed")
 		// The following should be written twice
 	}
-	msgtype, _ := conn.writeBuf.ReadByte()
+	var msgtype uint64
+	binary.Read(&conn.writeBuf, binary.LittleEndian, &msgtype)
 	if int(msgtype) != 1 {
 		t.Error("Message type not written correctly")
 	}
@@ -256,7 +258,7 @@ func Test_MsgToOtherReplicas(t *testing.T) {
 	r := TestRing{}
 	msgring := NewTCPMsgRing(&r)
 	addr := msgring.GetAddressForNode(uint64(1))
-	msgring.conns[addr] = NewLockConn(conn)
+	msgring.conns[addr] = NewRingConn(conn)
 	msg := TestMsg{}
 	success := msgring.MsgToOtherReplicas(int64(1), uint32(1), &msg)
 	if !success {
@@ -264,7 +266,8 @@ func Test_MsgToOtherReplicas(t *testing.T) {
 	}
 	// The following should be written twice
 	for i := 0; i < 2; i++ {
-		msgtype, _ := conn.writeBuf.ReadByte()
+		var msgtype uint64
+		binary.Read(&conn.writeBuf, binary.LittleEndian, &msgtype)
 		if int(msgtype) != 1 {
 			t.Error("Message type not written correctly")
 		}
