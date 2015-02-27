@@ -6,14 +6,14 @@ import (
 )
 
 type rebalanceContext struct {
-	builder                *Builder
-	first                  bool
-	nodeIndex2Desire       []int32
-	nodeIndexesByDesire    []int32
-	nodeIndex2Used         []bool
-	tierCount              int
-	tier2TierSeps          [][]*tierSeparation
-	tier2NodeIndex2TierSep [][]*tierSeparation
+	builder                  *Builder
+	first                    bool
+	nodeIndexToDesire        []int32
+	nodeIndexesByDesire      []int32
+	nodeIndexToUsed          []bool
+	tierCount                int
+	tierToTierSeps           [][]*tierSeparation
+	tierToNodeIndexToTierSep [][]*tierSeparation
 }
 
 func newRebalanceContext(builder *Builder) *rebalanceContext {
@@ -44,23 +44,23 @@ func (context *rebalanceContext) initNodeDesires() {
 			totalCapacity += (uint64)(node.Capacity())
 		}
 	}
-	nodeIndex2PartitionCount := make([]int32, len(context.builder.nodes))
+	nodeIndexToPartitionCount := make([]int32, len(context.builder.nodes))
 	context.first = true
-	for _, partition2NodeIndex := range context.builder.replica2Partition2NodeIndex {
-		for _, nodeIndex := range partition2NodeIndex {
+	for _, partitionToNodeIndex := range context.builder.replicaToPartitionToNodeIndex {
+		for _, nodeIndex := range partitionToNodeIndex {
 			if nodeIndex >= 0 {
-				nodeIndex2PartitionCount[nodeIndex]++
+				nodeIndexToPartitionCount[nodeIndex]++
 				context.first = false
 			}
 		}
 	}
-	context.nodeIndex2Desire = make([]int32, len(context.builder.nodes))
-	allPartitionsCount := len(context.builder.replica2Partition2NodeIndex) * len(context.builder.replica2Partition2NodeIndex[0])
+	context.nodeIndexToDesire = make([]int32, len(context.builder.nodes))
+	allPartitionsCount := len(context.builder.replicaToPartitionToNodeIndex) * len(context.builder.replicaToPartitionToNodeIndex[0])
 	for nodeIndex, node := range context.builder.nodes {
 		if node.Active() {
-			context.nodeIndex2Desire[nodeIndex] = int32(float64(node.Capacity())/float64(totalCapacity)*float64(allPartitionsCount)+0.5) - nodeIndex2PartitionCount[nodeIndex]
+			context.nodeIndexToDesire[nodeIndex] = int32(float64(node.Capacity())/float64(totalCapacity)*float64(allPartitionsCount)+0.5) - nodeIndexToPartitionCount[nodeIndex]
 		} else {
-			context.nodeIndex2Desire[nodeIndex] = math.MinInt32
+			context.nodeIndexToDesire[nodeIndex] = math.MinInt32
 		}
 	}
 	context.nodeIndexesByDesire = make([]int32, 0, len(context.builder.nodes))
@@ -70,24 +70,24 @@ func (context *rebalanceContext) initNodeDesires() {
 		}
 	}
 	sort.Sort(&nodeIndexByDesireSorter{
-		nodeIndexes:      context.nodeIndexesByDesire,
-		nodeIndex2Desire: context.nodeIndex2Desire,
+		nodeIndexes:       context.nodeIndexesByDesire,
+		nodeIndexToDesire: context.nodeIndexToDesire,
 	})
-	context.nodeIndex2Used = make([]bool, len(context.builder.nodes))
+	context.nodeIndexToUsed = make([]bool, len(context.builder.nodes))
 }
 
 func (context *rebalanceContext) initTierInfo() {
-	context.tier2NodeIndex2TierSep = make([][]*tierSeparation, context.tierCount)
-	context.tier2TierSeps = make([][]*tierSeparation, context.tierCount)
+	context.tierToNodeIndexToTierSep = make([][]*tierSeparation, context.tierCount)
+	context.tierToTierSeps = make([][]*tierSeparation, context.tierCount)
 	for tier := 0; tier < context.tierCount; tier++ {
-		context.tier2NodeIndex2TierSep[tier] = make([]*tierSeparation, len(context.builder.nodes))
-		context.tier2TierSeps[tier] = make([]*tierSeparation, 0)
+		context.tierToNodeIndexToTierSep[tier] = make([]*tierSeparation, len(context.builder.nodes))
+		context.tierToTierSeps[tier] = make([]*tierSeparation, 0)
 	}
 	for nodeIndex, node := range context.builder.nodes {
 		nodeTierValues := node.TierValues()
 		for tier := 0; tier < context.tierCount; tier++ {
 			var tierSep *tierSeparation
-			for _, candidateTierSep := range context.tier2TierSeps[tier] {
+			for _, candidateTierSep := range context.tierToTierSeps[tier] {
 				tierSep = candidateTierSep
 				for valueIndex := 0; valueIndex < context.tierCount-tier; valueIndex++ {
 					value := 0
@@ -112,18 +112,18 @@ func (context *rebalanceContext) initTierInfo() {
 					}
 					tierSep.values[valueIndex] = value
 				}
-				context.tier2TierSeps[tier] = append(context.tier2TierSeps[tier], tierSep)
+				context.tierToTierSeps[tier] = append(context.tierToTierSeps[tier], tierSep)
 			} else {
 				tierSep.nodeIndexesByDesire = append(tierSep.nodeIndexesByDesire, int32(nodeIndex))
 			}
-			context.tier2NodeIndex2TierSep[tier][int32(nodeIndex)] = tierSep
+			context.tierToNodeIndexToTierSep[tier][int32(nodeIndex)] = tierSep
 		}
 	}
 	for tier := 0; tier < context.tierCount; tier++ {
-		for _, tierSep := range context.tier2TierSeps[tier] {
+		for _, tierSep := range context.tierToTierSeps[tier] {
 			sort.Sort(&nodeIndexByDesireSorter{
-				nodeIndexes:      tierSep.nodeIndexesByDesire,
-				nodeIndex2Desire: context.nodeIndex2Desire,
+				nodeIndexes:       tierSep.nodeIndexesByDesire,
+				nodeIndexToDesire: context.nodeIndexToDesire,
 			})
 		}
 	}
@@ -142,32 +142,32 @@ func (context *rebalanceContext) rebalance() bool {
 // replica of that partition to the next most-desired node, keeping in mind
 // tier separation preferences.
 func (context *rebalanceContext) firstRebalance() {
-	replica2Partition2NodeIndex := context.builder.replica2Partition2NodeIndex
-	maxReplica := len(replica2Partition2NodeIndex) - 1
-	maxPartition := len(replica2Partition2NodeIndex[0]) - 1
+	replicaToPartitionToNodeIndex := context.builder.replicaToPartitionToNodeIndex
+	maxReplica := len(replicaToPartitionToNodeIndex) - 1
+	maxPartition := len(replicaToPartitionToNodeIndex[0]) - 1
 	maxTier := context.tierCount - 1
-	nodeIndex2Used := context.nodeIndex2Used
-	tier2NodeIndex2TierSep := context.tier2NodeIndex2TierSep
+	nodeIndexToUsed := context.nodeIndexToUsed
+	tierToNodeIndexToTierSep := context.tierToNodeIndexToTierSep
 
 	usedNodeIndexes := make([]int32, maxReplica+1)
-	tier2UsedTierSeps := make([][]*tierSeparation, maxTier+1)
+	tierToUsedTierSeps := make([][]*tierSeparation, maxTier+1)
 	for tier := maxTier; tier >= 0; tier-- {
-		tier2UsedTierSeps[tier] = make([]*tierSeparation, maxReplica+1)
+		tierToUsedTierSeps[tier] = make([]*tierSeparation, maxReplica+1)
 	}
 	for partition := maxPartition; partition >= 0; partition-- {
 		// Clear the previous partition's used flags.
 		for replica := maxReplica; replica >= 0; replica-- {
 			if usedNodeIndexes[replica] != -1 {
-				nodeIndex2Used[usedNodeIndexes[replica]] = false
+				nodeIndexToUsed[usedNodeIndexes[replica]] = false
 				usedNodeIndexes[replica] = -1
 			}
 		}
 		for tier := maxTier; tier >= 0; tier-- {
 			for replica := maxReplica; replica >= 0; replica-- {
-				if tier2UsedTierSeps[tier][replica] != nil {
-					tier2UsedTierSeps[tier][replica].used = false
+				if tierToUsedTierSeps[tier][replica] != nil {
+					tierToUsedTierSeps[tier][replica].used = false
 				}
-				tier2UsedTierSeps[tier][replica] = nil
+				tierToUsedTierSeps[tier][replica] = nil
 			}
 		}
 		// Now assign this partition's replicas.
@@ -176,14 +176,14 @@ func (context *rebalanceContext) firstRebalance() {
 			if nodeIndex < 0 {
 				continue
 			}
-			replica2Partition2NodeIndex[replica][partition] = nodeIndex
+			replicaToPartitionToNodeIndex[replica][partition] = nodeIndex
 			context.changeDesire(nodeIndex, false)
-			nodeIndex2Used[nodeIndex] = true
+			nodeIndexToUsed[nodeIndex] = true
 			usedNodeIndexes[replica] = nodeIndex
 			for tier := maxTier; tier >= 0; tier-- {
-				tierSep := tier2NodeIndex2TierSep[tier][nodeIndex]
+				tierSep := tierToNodeIndexToTierSep[tier][nodeIndex]
 				tierSep.used = true
-				tier2UsedTierSeps[tier][replica] = tierSep
+				tierToUsedTierSeps[tier][replica] = tierSep
 			}
 		}
 	}
@@ -194,13 +194,13 @@ func (context *rebalanceContext) firstRebalance() {
 // assignments, changing node weights) and reassigns replicas as it can.
 func (context *rebalanceContext) subsequentRebalance() bool {
 	altered := false
-	replica2Partition2NodeIndex := context.builder.replica2Partition2NodeIndex
-	maxReplica := len(replica2Partition2NodeIndex) - 1
-	maxPartition := len(replica2Partition2NodeIndex[0]) - 1
+	replicaToPartitionToNodeIndex := context.builder.replicaToPartitionToNodeIndex
+	maxReplica := len(replicaToPartitionToNodeIndex) - 1
+	maxPartition := len(replicaToPartitionToNodeIndex[0]) - 1
 	maxTier := context.tierCount - 1
 	nodes := context.builder.nodes
-	nodeIndex2Used := context.nodeIndex2Used
-	tier2NodeIndex2TierSep := context.tier2NodeIndex2TierSep
+	nodeIndexToUsed := context.nodeIndexToUsed
+	tierToNodeIndexToTierSep := context.tierToNodeIndexToTierSep
 
 	// Track how many times we can move replicas for a given partition; we want
 	// to leave the majority of a partition's replicas in place, if possible.
@@ -208,41 +208,41 @@ func (context *rebalanceContext) subsequentRebalance() bool {
 	if movementsPerPartition < 1 {
 		movementsPerPartition = 1
 	}
-	partition2MovementsLeft := make([]byte, maxPartition+1)
+	partitionToMovementsLeft := make([]byte, maxPartition+1)
 	for partition := maxPartition; partition >= 0; partition-- {
-		partition2MovementsLeft[partition] = movementsPerPartition
+		partitionToMovementsLeft[partition] = movementsPerPartition
 	}
 
 	usedNodeIndexes := make([]int32, maxReplica+1)
-	tier2UsedTierSeps := make([][]*tierSeparation, maxTier+1)
+	tierToUsedTierSeps := make([][]*tierSeparation, maxTier+1)
 	for tier := maxTier; tier >= 0; tier-- {
-		tier2UsedTierSeps[tier] = make([]*tierSeparation, maxReplica+1)
+		tierToUsedTierSeps[tier] = make([]*tierSeparation, maxReplica+1)
 	}
 	clearUsed := func() {
 		for replica := maxReplica; replica >= 0; replica-- {
 			if usedNodeIndexes[replica] != -1 {
-				nodeIndex2Used[usedNodeIndexes[replica]] = false
+				nodeIndexToUsed[usedNodeIndexes[replica]] = false
 				usedNodeIndexes[replica] = -1
 			}
 		}
 		for tier := maxTier; tier >= 0; tier-- {
 			for replica := maxReplica; replica >= 0; replica-- {
-				if tier2UsedTierSeps[tier][replica] != nil {
-					tier2UsedTierSeps[tier][replica].used = false
+				if tierToUsedTierSeps[tier][replica] != nil {
+					tierToUsedTierSeps[tier][replica].used = false
 				}
-				tier2UsedTierSeps[tier][replica] = nil
+				tierToUsedTierSeps[tier][replica] = nil
 			}
 		}
 	}
 	markUsed := func(partition int) {
 		for replica := maxReplica; replica >= 0; replica-- {
-			nodeIndex := replica2Partition2NodeIndex[replica][partition]
+			nodeIndex := replicaToPartitionToNodeIndex[replica][partition]
 			usedNodeIndexes[replica] = nodeIndex
-			nodeIndex2Used[nodeIndex] = true
+			nodeIndexToUsed[nodeIndex] = true
 			for tier := maxTier; tier >= 0; tier-- {
-				tierSep := tier2NodeIndex2TierSep[tier][nodeIndex]
+				tierSep := tierToNodeIndexToTierSep[tier][nodeIndex]
 				tierSep.used = true
-				tier2UsedTierSeps[tier][replica] = tierSep
+				tierToUsedTierSeps[tier][replica] = tierSep
 			}
 		}
 	}
@@ -254,9 +254,9 @@ func (context *rebalanceContext) subsequentRebalance() bool {
 			continue
 		}
 		for replica := maxReplica; replica >= 0; replica-- {
-			partition2NodeIndex := replica2Partition2NodeIndex[replica]
+			partitionToNodeIndex := replicaToPartitionToNodeIndex[replica]
 			for partition := maxPartition; partition >= 0; partition-- {
-				if partition2NodeIndex[partition] != int32(deletedNodeIndex) {
+				if partitionToNodeIndex[partition] != int32(deletedNodeIndex) {
 					continue
 				}
 				clearUsed()
@@ -265,9 +265,9 @@ func (context *rebalanceContext) subsequentRebalance() bool {
 				if nodeIndex < 0 {
 					continue
 				}
-				partition2NodeIndex[partition] = nodeIndex
+				partitionToNodeIndex[partition] = nodeIndex
 				context.changeDesire(nodeIndex, false)
-				partition2MovementsLeft[partition]--
+				partitionToMovementsLeft[partition]--
 				altered = true
 			}
 		}
@@ -281,13 +281,13 @@ func (context *rebalanceContext) subsequentRebalance() bool {
 	// one has more replicas than the other, it would be fixed first.
 DupLoopPartition:
 	for partition := maxPartition; partition >= 0; partition-- {
-		if partition2MovementsLeft[partition] < 1 {
+		if partitionToMovementsLeft[partition] < 1 {
 			continue
 		}
 	DupLoopReplica:
 		for replica := maxReplica; replica > 0; replica-- {
 			for replicaB := replica - 1; replicaB >= 0; replicaB-- {
-				if replica2Partition2NodeIndex[replica][partition] == replica2Partition2NodeIndex[replicaB][partition] {
+				if replicaToPartitionToNodeIndex[replica][partition] == replicaToPartitionToNodeIndex[replicaB][partition] {
 					clearUsed()
 					markUsed(partition)
 					nodeIndex := context.bestNodeIndex()
@@ -296,16 +296,16 @@ DupLoopPartition:
 					}
 					// No sense reassigning a duplicate to another duplicate.
 					for replicaC := maxReplica; replicaC >= 0; replicaC-- {
-						if nodeIndex == replica2Partition2NodeIndex[replicaC][partition] {
+						if nodeIndex == replicaToPartitionToNodeIndex[replicaC][partition] {
 							continue DupLoopReplica
 						}
 					}
-					context.changeDesire(replica2Partition2NodeIndex[replica][partition], true)
-					replica2Partition2NodeIndex[replica][partition] = nodeIndex
+					context.changeDesire(replicaToPartitionToNodeIndex[replica][partition], true)
+					replicaToPartitionToNodeIndex[replica][partition] = nodeIndex
 					context.changeDesire(nodeIndex, false)
-					partition2MovementsLeft[partition]--
+					partitionToMovementsLeft[partition]--
 					altered = true
-					if partition2MovementsLeft[partition] < 1 {
+					if partitionToMovementsLeft[partition] < 1 {
 						continue DupLoopPartition
 					}
 				}
@@ -317,31 +317,32 @@ DupLoopPartition:
 	for tier := maxTier; tier >= 0; tier-- {
 	DupTierLoopPartition:
 		for partition := maxPartition; partition >= 0; partition-- {
-			if partition2MovementsLeft[partition] < 1 {
+			if partitionToMovementsLeft[partition] < 1 {
 				continue
 			}
 		DupTierLoopReplica:
 			for replica := maxReplica; replica > 0; replica-- {
 				for replicaB := replica - 1; replicaB >= 0; replicaB-- {
-					if tier2NodeIndex2TierSep[tier][replica2Partition2NodeIndex[replica][partition]] == tier2NodeIndex2TierSep[tier][replica2Partition2NodeIndex[replicaB][partition]] {
+					if tierToNodeIndexToTierSep[tier][replicaToPartitionToNodeIndex[replica][partition]] == tierToNodeIndexToTierSep[tier][replicaToPartitionToNodeIndex[replicaB][partition]] {
 						clearUsed()
 						markUsed(partition)
 						nodeIndex := context.bestNodeIndex()
 						if nodeIndex < 0 {
 							continue
 						}
-						// No sense reassigning a duplicate to another duplicate.
+						// No sense reassigning a duplicate to another
+						// duplicate.
 						for replicaC := maxReplica; replicaC >= 0; replicaC-- {
-							if tier2NodeIndex2TierSep[tier][nodeIndex] == tier2NodeIndex2TierSep[tier][replica2Partition2NodeIndex[replicaC][partition]] {
+							if tierToNodeIndexToTierSep[tier][nodeIndex] == tierToNodeIndexToTierSep[tier][replicaToPartitionToNodeIndex[replicaC][partition]] {
 								continue DupTierLoopReplica
 							}
 						}
-						context.changeDesire(replica2Partition2NodeIndex[replica][partition], true)
-						replica2Partition2NodeIndex[replica][partition] = nodeIndex
+						context.changeDesire(replicaToPartitionToNodeIndex[replica][partition], true)
+						replicaToPartitionToNodeIndex[replica][partition] = nodeIndex
 						context.changeDesire(nodeIndex, false)
-						partition2MovementsLeft[partition]--
+						partitionToMovementsLeft[partition]--
 						altered = true
-						if partition2MovementsLeft[partition] < 1 {
+						if partitionToMovementsLeft[partition] < 1 {
 							continue DupTierLoopPartition
 						}
 					}
@@ -363,19 +364,19 @@ DupLoopPartition:
 func (context *rebalanceContext) bestNodeIndex() int32 {
 	bestNodeIndex := int32(-1)
 	bestNodeDesiredPartitionCount := int32(math.MinInt32)
-	nodeIndex2Desire := context.nodeIndex2Desire
+	nodeIndexToDesire := context.nodeIndexToDesire
 	var tierSep *tierSeparation
 	var nodeIndex int32
-	tier2TierSeps := context.tier2TierSeps
+	tierToTierSeps := context.tierToTierSeps
 	for tier := context.tierCount - 1; tier >= 0; tier-- {
 		// We will go through all tier separations for a tier to get the best
 		// node at that tier.
-		for _, tierSep = range tier2TierSeps[tier] {
+		for _, tierSep = range tierToTierSeps[tier] {
 			if !tierSep.used {
 				nodeIndex = tierSep.nodeIndexesByDesire[0]
-				if bestNodeDesiredPartitionCount < nodeIndex2Desire[nodeIndex] {
+				if bestNodeDesiredPartitionCount < nodeIndexToDesire[nodeIndex] {
 					bestNodeIndex = nodeIndex
-					bestNodeDesiredPartitionCount = nodeIndex2Desire[nodeIndex]
+					bestNodeDesiredPartitionCount = nodeIndexToDesire[nodeIndex]
 				}
 			}
 		}
@@ -389,7 +390,7 @@ func (context *rebalanceContext) bestNodeIndex() int32 {
 	// take the node with the highest desire that hasn't already been
 	// selected.
 	for _, nodeIndex := range context.nodeIndexesByDesire {
-		if !context.nodeIndex2Used[nodeIndex] {
+		if !context.nodeIndexToUsed[nodeIndex] {
 			return nodeIndex
 		}
 	}
@@ -398,9 +399,9 @@ func (context *rebalanceContext) bestNodeIndex() int32 {
 }
 
 func (context *rebalanceContext) changeDesire(nodeIndex int32, increment bool) {
-	nodeIndex2Desire := context.nodeIndex2Desire
+	nodeIndexToDesire := context.nodeIndexToDesire
 	nodeIndexesByDesire := context.nodeIndexesByDesire
-	scanDesiredPartitionCount := nodeIndex2Desire[nodeIndex]
+	scanDesiredPartitionCount := nodeIndexToDesire[nodeIndex]
 	if increment {
 		scanDesiredPartitionCount++
 	} else {
@@ -411,7 +412,7 @@ func (context *rebalanceContext) changeDesire(nodeIndex int32, increment bool) {
 	mid := 0
 	for swapWith < hi {
 		mid = (swapWith + hi) / 2
-		if nodeIndex2Desire[nodeIndexesByDesire[mid]] > scanDesiredPartitionCount {
+		if nodeIndexToDesire[nodeIndexesByDesire[mid]] > scanDesiredPartitionCount {
 			swapWith = mid + 1
 		} else {
 			hi = mid
@@ -429,13 +430,13 @@ func (context *rebalanceContext) changeDesire(nodeIndex int32, increment bool) {
 		nodeIndexesByDesire[prev], nodeIndexesByDesire[swapWith] = nodeIndexesByDesire[swapWith], nodeIndexesByDesire[prev]
 	}
 	for tier := 0; tier < context.tierCount; tier++ {
-		nodeIndexesByDesire := context.tier2NodeIndex2TierSep[tier][nodeIndex].nodeIndexesByDesire
+		nodeIndexesByDesire := context.tierToNodeIndexToTierSep[tier][nodeIndex].nodeIndexesByDesire
 		swapWith = 0
 		hi = len(nodeIndexesByDesire)
 		mid = 0
 		for swapWith < hi {
 			mid = (swapWith + hi) / 2
-			if nodeIndex2Desire[nodeIndexesByDesire[mid]] > scanDesiredPartitionCount {
+			if nodeIndexToDesire[nodeIndexesByDesire[mid]] > scanDesiredPartitionCount {
 				swapWith = mid + 1
 			} else {
 				hi = mid
@@ -454,9 +455,9 @@ func (context *rebalanceContext) changeDesire(nodeIndex int32, increment bool) {
 		}
 	}
 	if increment {
-		nodeIndex2Desire[nodeIndex]++
+		nodeIndexToDesire[nodeIndex]++
 	} else {
-		nodeIndex2Desire[nodeIndex]--
+		nodeIndexToDesire[nodeIndex]--
 	}
 }
 

@@ -37,11 +37,11 @@ type Ring interface {
 }
 
 type ringImpl struct {
-	version                     int64
-	localNodeIndex              int32
-	partitionBits               uint16
-	nodeIDs                     []uint64
-	replica2Partition2NodeIndex [][]int32
+	version                       int64
+	localNodeIndex                int32
+	partitionBits                 uint16
+	nodeIDs                       []uint64
+	replicaToPartitionToNodeIndex [][]int32
 }
 
 func (ring *ringImpl) Version() int64 {
@@ -53,7 +53,7 @@ func (ring *ringImpl) PartitionBits() uint16 {
 }
 
 func (ring *ringImpl) ReplicaCount() int {
-	return len(ring.replica2Partition2NodeIndex)
+	return len(ring.replicaToPartitionToNodeIndex)
 }
 
 func (ring *ringImpl) LocalNodeID() uint64 {
@@ -67,8 +67,8 @@ func (ring *ringImpl) Responsible(partition uint32) bool {
 	if ring.localNodeIndex == 0 {
 		return false
 	}
-	for _, partition2NodeIndex := range ring.replica2Partition2NodeIndex {
-		if partition2NodeIndex[partition] == ring.localNodeIndex {
+	for _, partitionToNodeIndex := range ring.replicaToPartitionToNodeIndex {
+		if partitionToNodeIndex[partition] == ring.localNodeIndex {
 			return true
 		}
 	}
@@ -100,21 +100,21 @@ type Node interface {
 }
 
 type Builder struct {
-	version                     int64
-	nodes                       []Node
-	partitionBits               uint16
-	replica2Partition2NodeIndex [][]int32
-	pointsAllowed               int
+	version                       int64
+	nodes                         []Node
+	partitionBits                 uint16
+	replicaToPartitionToNodeIndex [][]int32
+	pointsAllowed                 int
 }
 
 func NewBuilder(replicaCount int) *Builder {
 	b := &Builder{
 		nodes: make([]Node, 0),
-		replica2Partition2NodeIndex: make([][]int32, replicaCount),
-		pointsAllowed:               1,
+		replicaToPartitionToNodeIndex: make([][]int32, replicaCount),
+		pointsAllowed:                 1,
 	}
 	for replica := 0; replica < replicaCount; replica++ {
-		b.replica2Partition2NodeIndex[replica] = []int32{-1}
+		b.replicaToPartitionToNodeIndex[replica] = []int32{-1}
 	}
 	return b
 }
@@ -165,22 +165,22 @@ func (b *Builder) Ring(localNodeID uint64) Ring {
 			localNodeIndex = int32(i)
 		}
 	}
-	replica2Partition2NodeIndex := make([][]int32, len(b.replica2Partition2NodeIndex))
-	for i := 0; i < len(replica2Partition2NodeIndex); i++ {
-		replica2Partition2NodeIndex[i] = make([]int32, len(b.replica2Partition2NodeIndex[i]))
-		copy(replica2Partition2NodeIndex[i], b.replica2Partition2NodeIndex[i])
+	replicaToPartitionToNodeIndex := make([][]int32, len(b.replicaToPartitionToNodeIndex))
+	for i := 0; i < len(replicaToPartitionToNodeIndex); i++ {
+		replicaToPartitionToNodeIndex[i] = make([]int32, len(b.replicaToPartitionToNodeIndex[i]))
+		copy(replicaToPartitionToNodeIndex[i], b.replicaToPartitionToNodeIndex[i])
 	}
 	return &ringImpl{
-		version:                     b.version,
-		localNodeIndex:              localNodeIndex,
-		partitionBits:               b.partitionBits,
-		nodeIDs:                     nodeIDs,
-		replica2Partition2NodeIndex: replica2Partition2NodeIndex,
+		version:        b.version,
+		localNodeIndex: localNodeIndex,
+		partitionBits:  b.partitionBits,
+		nodeIDs:        nodeIDs,
+		replicaToPartitionToNodeIndex: replicaToPartitionToNodeIndex,
 	}
 }
 
 func (b *Builder) resizeIfNeeded() bool {
-	replicaCount := len(b.replica2Partition2NodeIndex)
+	replicaCount := len(b.replicaToPartitionToNodeIndex)
 	// Calculate the partition count needed.
 	// Each node is examined to see how much under or over weight it would be
 	// and increasing the partition count until the difference is under the
@@ -191,7 +191,7 @@ func (b *Builder) resizeIfNeeded() bool {
 			totalCapacity += (uint64)(node.Capacity())
 		}
 	}
-	partitionCount := len(b.replica2Partition2NodeIndex[0])
+	partitionCount := len(b.replicaToPartitionToNodeIndex[0])
 	pointsAllowed := float64(b.pointsAllowed) * 0.01
 	done := false
 	for !done {
@@ -215,18 +215,18 @@ func (b *Builder) resizeIfNeeded() bool {
 			}
 		}
 	}
-	// Grow the partition2NodeIndex slices if the partition count grew.
-	if partitionCount > len(b.replica2Partition2NodeIndex[0]) {
+	// Grow the partitionToNodeIndex slices if the partition count grew.
+	if partitionCount > len(b.replicaToPartitionToNodeIndex[0]) {
 		for replica := 0; replica < replicaCount; replica++ {
-			partition2NodeIndex := make([]int32, partitionCount)
+			partitionToNodeIndex := make([]int32, partitionCount)
 			for partition := 0; partition < partitionCount; partition++ {
-				partition2NodeIndex[partition] = b.replica2Partition2NodeIndex[replica][partition>>b.partitionBits]
+				partitionToNodeIndex[partition] = b.replicaToPartitionToNodeIndex[replica][partition>>b.partitionBits]
 			}
-			b.replica2Partition2NodeIndex[replica] = partition2NodeIndex
+			b.replicaToPartitionToNodeIndex[replica] = partitionToNodeIndex
 		}
 		return true
 	}
-	// Shrinking the partition2NodeIndex slices doesn't happen because it would
+	// Shrinking the partitionToNodeIndex slices doesn't happen because it would
 	// normally cause more data movements than it's worth. Perhaps in the
 	// future we can add detection of cases when shrinking makes sense.
 	return false
@@ -265,10 +265,10 @@ func (b *Builder) Stats() *BuilderStats {
 		MaxUnderNodeIndex: -1,
 		MaxOverNodeIndex:  -1,
 	}
-	nodeIndex2PartitionCount := make([]int, stats.NodeCount)
-	for _, partition2NodeIndex := range b.replica2Partition2NodeIndex {
-		for _, nodeIndex := range partition2NodeIndex {
-			nodeIndex2PartitionCount[nodeIndex]++
+	nodeIndexToPartitionCount := make([]int, stats.NodeCount)
+	for _, partitionToNodeIndex := range b.replicaToPartitionToNodeIndex {
+		for _, nodeIndex := range partitionToNodeIndex {
+			nodeIndexToPartitionCount[nodeIndex]++
 		}
 	}
 	for _, node := range b.nodes {
@@ -283,7 +283,7 @@ func (b *Builder) Stats() *BuilderStats {
 			continue
 		}
 		desiredPartitionCount := float64(node.Capacity()) / float64(stats.TotalCapacity) * float64(stats.PartitionCount) * float64(stats.ReplicaCount)
-		actualPartitionCount := float64(nodeIndex2PartitionCount[nodeIndex])
+		actualPartitionCount := float64(nodeIndexToPartitionCount[nodeIndex])
 		if desiredPartitionCount > actualPartitionCount {
 			under := 100.0 * (desiredPartitionCount - actualPartitionCount) / desiredPartitionCount
 			if under > stats.MaxUnderNodePercentage {

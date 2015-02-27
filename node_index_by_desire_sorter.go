@@ -1,8 +1,8 @@
 package ring
 
 type nodeIndexByDesireSorter struct {
-	nodeIndexes      []int32
-	nodeIndex2Desire []int32
+	nodeIndexes       []int32
+	nodeIndexToDesire []int32
 }
 
 func (sorter *nodeIndexByDesireSorter) Len() int {
@@ -14,5 +14,5 @@ func (sorter *nodeIndexByDesireSorter) Swap(x int, y int) {
 }
 
 func (sorter *nodeIndexByDesireSorter) Less(x int, y int) bool {
-	return sorter.nodeIndex2Desire[sorter.nodeIndexes[x]] > sorter.nodeIndex2Desire[sorter.nodeIndexes[y]]
+	return sorter.nodeIndexToDesire[sorter.nodeIndexes[x]] > sorter.nodeIndexToDesire[sorter.nodeIndexes[y]]
 }
