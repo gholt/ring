@@ -1,6 +1,7 @@
 package ring
 
 import (
+	"fmt"
 	"math"
 	"sort"
 )
@@ -174,7 +175,7 @@ func (context *rebalanceContext) firstRebalance() {
 		for replica := maxReplica; replica >= 0; replica-- {
 			nodeIndex := context.bestNodeIndex()
 			if nodeIndex < 0 {
-				continue
+				nodeIndex = context.nodeIndexesByDesire[0]
 			}
 			replicaToPartitionToNodeIndex[replica][partition] = nodeIndex
 			context.changeDesire(nodeIndex, false)
@@ -208,6 +209,8 @@ func (context *rebalanceContext) subsequentRebalance() bool {
 	if movementsPerPartition < 1 {
 		movementsPerPartition = 1
 	}
+	// TODO: debug
+	movementsPerPartition = 255
 	partitionToMovementsLeft := make([]byte, maxPartition+1)
 	for partition := maxPartition; partition >= 0; partition-- {
 		partitionToMovementsLeft[partition] = movementsPerPartition
@@ -238,6 +241,11 @@ func (context *rebalanceContext) subsequentRebalance() bool {
 		for replica := maxReplica; replica >= 0; replica-- {
 			nodeIndex := replicaToPartitionToNodeIndex[replica][partition]
 			usedNodeIndexes[replica] = nodeIndex
+			// TODO: debug code
+			if nodeIndex < 0 || nodeIndex >= int32(len(nodeIndexToUsed)) {
+				fmt.Println("was", nodeIndex)
+				panic("me")
+			}
 			nodeIndexToUsed[nodeIndex] = true
 			for tier := maxTier; tier >= 0; tier-- {
 				tierSep := tierToNodeIndexToTierSep[tier][nodeIndex]
@@ -263,7 +271,7 @@ func (context *rebalanceContext) subsequentRebalance() bool {
 				markUsed(partition)
 				nodeIndex := context.bestNodeIndex()
 				if nodeIndex < 0 {
-					continue
+					nodeIndex = context.nodeIndexesByDesire[0]
 				}
 				partitionToNodeIndex[partition] = nodeIndex
 				context.changeDesire(nodeIndex, false)
@@ -353,11 +361,49 @@ DupLoopPartition:
 
 	// TODO: Attempt to reassign replicas within tiers, from innermost tier to
 	// outermost, as usually such movements are more efficient for users of the
-	// ring. We do this by selecting the most needy node, and then look for
-	// overweight nodes in the same tier to steal replicas from.
+	// ring (doesn't span switches, for example). Could be done by selecting
+	// the most needy node, and then look for overweight nodes in the same tier
+	// to steal replicas from.
 
 	// TODO: Lastly, we try to reassign replicas from overweight nodes to
 	// underweight ones.
+OverweightLoop:
+	for i := int32(len(context.nodeIndexesByDesire) - 1); i >= 0; i-- {
+		overweightNodeIndex := context.nodeIndexesByDesire[i]
+		if !nodes[overweightNodeIndex].Active() || context.nodeIndexToDesire[overweightNodeIndex] >= 0 {
+			continue
+		}
+		for replica := maxReplica; replica >= 0; replica-- {
+			partitionToNodeIndex := replicaToPartitionToNodeIndex[replica]
+			for partition := maxPartition; partition >= 0; partition-- {
+				if partitionToMovementsLeft[partition] < 1 || partitionToNodeIndex[partition] != overweightNodeIndex {
+					continue
+				}
+				clearUsed()
+				markUsed(partition)
+				nodeIndex := context.bestNodeIndex()
+				if nodeIndex < 0 || context.nodeIndexToDesire[nodeIndex] <= 0 {
+					continue
+				}
+				context.changeDesire(overweightNodeIndex, true)
+				partitionToNodeIndex[partition] = nodeIndex
+				context.changeDesire(nodeIndex, false)
+				partitionToMovementsLeft[partition]--
+				altered = true
+				if context.nodeIndexToDesire[overweightNodeIndex] >= 0 {
+					i++
+					continue OverweightLoop
+				}
+			}
+		}
+	}
+	/*
+	   fmt.Print("|")
+	   for i:=int32(0); i<int32(len(context.nodeIndexesByDesire));i++{
+	       fmt.Print(" ", context.nodeIndexToDesire[context.nodeIndexesByDesire[i]])
+	   }
+	   fmt.Println(" * ",context.nodeIndexesByDesire[len(context.nodeIndexesByDesire)-1])
+	*/
 	return altered
 }
 
@@ -382,7 +428,7 @@ func (context *rebalanceContext) bestNodeIndex() int32 {
 		}
 		// If we found a node at this tier, we don't need to check the lower
 		// tiers.
-		if bestNodeIndex >= 0 {
+		if bestNodeIndex > 0 && bestNodeDesiredPartitionCount > 0 {
 			return bestNodeIndex
 		}
 	}
@@ -390,6 +436,9 @@ func (context *rebalanceContext) bestNodeIndex() int32 {
 	// take the node with the highest desire that hasn't already been
 	// selected.
 	for _, nodeIndex := range context.nodeIndexesByDesire {
+		if nodeIndexToDesire[nodeIndex] <= 0 {
+			break
+		}
 		if !context.nodeIndexToUsed[nodeIndex] {
 			return nodeIndex
 		}
@@ -401,64 +450,120 @@ func (context *rebalanceContext) bestNodeIndex() int32 {
 func (context *rebalanceContext) changeDesire(nodeIndex int32, increment bool) {
 	nodeIndexToDesire := context.nodeIndexToDesire
 	nodeIndexesByDesire := context.nodeIndexesByDesire
-	scanDesiredPartitionCount := nodeIndexToDesire[nodeIndex]
+	prev := 0
+	for nodeIndexesByDesire[prev] != nodeIndex {
+		prev++
+	}
+	newDesire := nodeIndexToDesire[nodeIndex]
 	if increment {
-		scanDesiredPartitionCount++
+		newDesire++
 	} else {
-		scanDesiredPartitionCount--
+		newDesire--
 	}
 	swapWith := 0
 	hi := len(nodeIndexesByDesire)
 	mid := 0
-	for swapWith < hi {
-		mid = (swapWith + hi) / 2
-		if nodeIndexToDesire[nodeIndexesByDesire[mid]] > scanDesiredPartitionCount {
-			swapWith = mid + 1
-		} else {
-			hi = mid
-		}
-	}
-	prev := swapWith
-	if prev >= len(nodeIndexesByDesire) {
-		prev--
-	}
-	swapWith--
-	for nodeIndexesByDesire[prev] != nodeIndex {
-		prev--
-	}
-	if prev != swapWith {
-		nodeIndexesByDesire[prev], nodeIndexesByDesire[swapWith] = nodeIndexesByDesire[swapWith], nodeIndexesByDesire[prev]
-	}
-	for tier := 0; tier < context.tierCount; tier++ {
-		nodeIndexesByDesire := context.tierToNodeIndexToTierSep[tier][nodeIndex].nodeIndexesByDesire
-		swapWith = 0
-		hi = len(nodeIndexesByDesire)
-		mid = 0
+	if increment {
 		for swapWith < hi {
 			mid = (swapWith + hi) / 2
-			if nodeIndexToDesire[nodeIndexesByDesire[mid]] > scanDesiredPartitionCount {
+			if nodeIndexToDesire[nodeIndexesByDesire[mid]] >= newDesire {
 				swapWith = mid + 1
 			} else {
 				hi = mid
 			}
 		}
-		prev = swapWith
-		if prev >= len(nodeIndexesByDesire) {
-			prev--
+		if swapWith >= len(nodeIndexesByDesire) {
+			swapWith--
 		}
-		swapWith--
+	} else {
+		for swapWith < hi {
+			mid = (swapWith + hi) / 2
+			if nodeIndexToDesire[nodeIndexesByDesire[mid]] > newDesire {
+				swapWith = mid + 1
+			} else {
+				hi = mid
+			}
+		}
+		if swapWith > 0 {
+			swapWith--
+		}
+	}
+	if prev != swapWith {
+		nodeIndexesByDesire[prev], nodeIndexesByDesire[swapWith] = nodeIndexesByDesire[swapWith], nodeIndexesByDesire[prev]
+	}
+	for tier := 0; tier < context.tierCount; tier++ {
+		nodeIndexesByDesire = context.tierToNodeIndexToTierSep[tier][nodeIndex].nodeIndexesByDesire
+		prev = 0
 		for nodeIndexesByDesire[prev] != nodeIndex {
-			prev--
+			prev++
+		}
+		swapWith = 0
+		hi = len(nodeIndexesByDesire)
+		mid = 0
+		if increment {
+			for swapWith < hi {
+				mid = (swapWith + hi) / 2
+				if nodeIndexToDesire[nodeIndexesByDesire[mid]] >= newDesire {
+					swapWith = mid + 1
+				} else {
+					hi = mid
+				}
+			}
+			if swapWith >= len(nodeIndexesByDesire) {
+				swapWith--
+			}
+		} else {
+			for swapWith < hi {
+				mid = (swapWith + hi) / 2
+				if nodeIndexToDesire[nodeIndexesByDesire[mid]] > newDesire {
+					swapWith = mid + 1
+				} else {
+					hi = mid
+				}
+			}
+			if swapWith > 0 {
+				swapWith--
+			}
 		}
 		if prev != swapWith {
 			nodeIndexesByDesire[prev], nodeIndexesByDesire[swapWith] = nodeIndexesByDesire[swapWith], nodeIndexesByDesire[prev]
 		}
 	}
-	if increment {
-		nodeIndexToDesire[nodeIndex]++
-	} else {
-		nodeIndexToDesire[nodeIndex]--
-	}
+	nodeIndexToDesire[nodeIndex] = newDesire
+	/*
+		    // TODO: Begin assert code
+			nodeIndexesByDesire = context.nodeIndexesByDesire
+		    last:=nodeIndexToDesire[nodeIndexesByDesire[0]]
+		    for i:=0;i<len(nodeIndexesByDesire);i++{
+		        this:=nodeIndexToDesire[nodeIndexesByDesire[i]]
+		        if this>last {
+		            fmt.Print("|")
+		            for j:=0;j<len(nodeIndexesByDesire);j++{
+		                fmt.Print(" ", nodeIndexToDesire[nodeIndexesByDesire[j]])
+		            }
+		            fmt.Println()
+		            panic("me2")
+		        }
+		        last=this
+		    }
+			for tier := 0; tier < context.tierCount; tier++ {
+				nodeIndexesByDesire = context.tierToNodeIndexToTierSep[tier][nodeIndex].nodeIndexesByDesire
+		        last:=nodeIndexToDesire[nodeIndexesByDesire[0]]
+		        for i:=0;i<len(nodeIndexesByDesire);i++{
+		            this:=nodeIndexToDesire[nodeIndexesByDesire[i]]
+		            if this>last {
+		                fmt.Print("|")
+		                for j:=0;j<len(nodeIndexesByDesire);j++{
+		                    fmt.Print(" ", nodeIndexToDesire[nodeIndexesByDesire[j]])
+		                }
+		                fmt.Println()
+		                panic("me2")
+		            }
+		            last=this
+		        }
+		    }
+		    // TODO: End assert code
+	*/
 }
 
 type tierSeparation struct {
