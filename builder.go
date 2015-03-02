@@ -32,7 +32,7 @@ type Node interface {
 type Builder struct {
 	version                       int64
 	nodes                         []Node
-	partitionBits                 uint16
+	partitionBitCount             uint16
 	replicaToPartitionToNodeIndex [][]int32
 	pointsAllowed                 int
 }
@@ -101,10 +101,10 @@ func (b *Builder) Ring(localNodeID uint64) Ring {
 		copy(replicaToPartitionToNodeIndex[i], b.replicaToPartitionToNodeIndex[i])
 	}
 	return &ringImpl{
-		version:        b.version,
-		localNodeIndex: localNodeIndex,
-		partitionBits:  b.partitionBits,
-		nodeIDs:        nodeIDs,
+		version:           b.version,
+		localNodeIndex:    localNodeIndex,
+		partitionBitCount: b.partitionBitCount,
+		nodeIDs:           nodeIDs,
 		replicaToPartitionToNodeIndex: replicaToPartitionToNodeIndex,
 	}
 }
@@ -122,7 +122,7 @@ func (b *Builder) resizeIfNeeded() bool {
 		}
 	}
 	partitionCount := len(b.replicaToPartitionToNodeIndex[0])
-	partitionBits := b.partitionBits
+	partitionBitCount := b.partitionBitCount
 	pointsAllowed := float64(b.pointsAllowed) * 0.01
 	done := false
 	for !done {
@@ -136,7 +136,7 @@ func (b *Builder) resizeIfNeeded() bool {
 			over := (float64(int(desiredPartitionCount)+1) - desiredPartitionCount) / desiredPartitionCount
 			if under > pointsAllowed || over > pointsAllowed {
 				partitionCount <<= 1
-				partitionBits++
+				partitionBitCount++
 				if partitionCount >= _MAX_PARTITION_COUNT {
 					done = true
 					break
@@ -148,7 +148,7 @@ func (b *Builder) resizeIfNeeded() bool {
 	}
 	// Grow the partitionToNodeIndex slices if the partition count grew.
 	if partitionCount > len(b.replicaToPartitionToNodeIndex[0]) {
-		shift := partitionBits - b.partitionBits
+		shift := partitionBitCount - b.partitionBitCount
 		for replica := 0; replica < replicaCount; replica++ {
 			partitionToNodeIndex := make([]int32, partitionCount)
 			for partition := 0; partition < partitionCount; partition++ {
@@ -156,7 +156,7 @@ func (b *Builder) resizeIfNeeded() bool {
 			}
 			b.replicaToPartitionToNodeIndex[replica] = partitionToNodeIndex
 		}
-		b.partitionBits = partitionBits
+		b.partitionBitCount = partitionBitCount
 		return true
 	}
 	// Shrinking the partitionToNodeIndex slices doesn't happen because it would
@@ -169,7 +169,7 @@ type BuilderStats struct {
 	ReplicaCount      int
 	NodeCount         int
 	InactiveNodeCount int
-	PartitionBits     uint16
+	PartitionBitCount uint16
 	PartitionCount    int
 	PointsAllowed     int
 	TotalCapacity     uint64
@@ -192,8 +192,8 @@ func (b *Builder) Stats() *BuilderStats {
 	stats := &BuilderStats{
 		ReplicaCount:      ring.ReplicaCount(),
 		NodeCount:         b.NodeCount(),
-		PartitionBits:     ring.PartitionBits(),
-		PartitionCount:    1 << ring.PartitionBits(),
+		PartitionBitCount: ring.PartitionBitCount(),
+		PartitionCount:    1 << ring.PartitionBitCount(),
 		PointsAllowed:     b.PointsAllowed(),
 		MaxUnderNodeIndex: -1,
 		MaxOverNodeIndex:  -1,

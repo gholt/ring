@@ -30,7 +30,11 @@ func (r *TestRing) Responsible(part uint32) bool {
 	return true
 }
 
-func (r *TestRing) PartitionBits() uint16 {
+func (r *TestRing) ResponsibleIDs(part uint32) []uint64 {
+	return []uint64{}
+}
+
+func (r *TestRing) PartitionBitCount() uint16 {
 	return uint16(0)
 }
 
