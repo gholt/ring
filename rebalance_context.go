@@ -1,7 +1,6 @@
 package ring
 
 import (
-	"fmt"
 	"math"
 	"sort"
 )
@@ -201,6 +200,7 @@ func (context *rebalanceContext) subsequentRebalance() bool {
 	maxTier := context.tierCount - 1
 	nodes := context.builder.nodes
 	nodeIndexToUsed := context.nodeIndexToUsed
+	nodeIndexToDesire := context.nodeIndexToDesire
 	tierToNodeIndexToTierSep := context.tierToNodeIndexToTierSep
 
 	// Track how many times we can move replicas for a given partition; we want
@@ -209,8 +209,6 @@ func (context *rebalanceContext) subsequentRebalance() bool {
 	if movementsPerPartition < 1 {
 		movementsPerPartition = 1
 	}
-	// TODO: debug
-	movementsPerPartition = 255
 	partitionToMovementsLeft := make([]byte, maxPartition+1)
 	for partition := maxPartition; partition >= 0; partition-- {
 		partitionToMovementsLeft[partition] = movementsPerPartition
@@ -241,11 +239,6 @@ func (context *rebalanceContext) subsequentRebalance() bool {
 		for replica := maxReplica; replica >= 0; replica-- {
 			nodeIndex := replicaToPartitionToNodeIndex[replica][partition]
 			usedNodeIndexes[replica] = nodeIndex
-			// TODO: debug code
-			if nodeIndex < 0 || nodeIndex >= int32(len(nodeIndexToUsed)) {
-				fmt.Println("was", nodeIndex)
-				panic("me")
-			}
 			nodeIndexToUsed[nodeIndex] = true
 			for tier := maxTier; tier >= 0; tier-- {
 				tierSep := tierToNodeIndexToTierSep[tier][nodeIndex]
@@ -299,7 +292,7 @@ DupLoopPartition:
 					clearUsed()
 					markUsed(partition)
 					nodeIndex := context.bestNodeIndex()
-					if nodeIndex < 0 {
+					if nodeIndex < 0 || nodeIndexToDesire[nodeIndex] < 1 {
 						continue
 					}
 					// No sense reassigning a duplicate to another duplicate.
@@ -335,7 +328,7 @@ DupLoopPartition:
 						clearUsed()
 						markUsed(partition)
 						nodeIndex := context.bestNodeIndex()
-						if nodeIndex < 0 {
+						if nodeIndex < 0 || nodeIndexToDesire[nodeIndex] < 1 {
 							continue
 						}
 						// No sense reassigning a duplicate to another
@@ -365,14 +358,19 @@ DupLoopPartition:
 	// the most needy node, and then look for overweight nodes in the same tier
 	// to steal replicas from.
 
-	// TODO: Lastly, we try to reassign replicas from overweight nodes to
-	// underweight ones.
+	// Lastly, we try to reassign replicas from overweight nodes to underweight
+	// ones.
+	visited := make([]bool, len(nodes))
 OverweightLoop:
-	for i := int32(len(context.nodeIndexesByDesire) - 1); i >= 0; i-- {
+	for i := len(context.nodeIndexesByDesire) - 1; i >= 0; i-- {
 		overweightNodeIndex := context.nodeIndexesByDesire[i]
-		if !nodes[overweightNodeIndex].Active() || context.nodeIndexToDesire[overweightNodeIndex] >= 0 {
+		if nodeIndexToDesire[overweightNodeIndex] >= 0 {
+			break
+		}
+		if visited[overweightNodeIndex] || !nodes[overweightNodeIndex].Active() {
 			continue
 		}
+		// First pass to reassign to only underweight nodes.
 		for replica := maxReplica; replica >= 0; replica-- {
 			partitionToNodeIndex := replicaToPartitionToNodeIndex[replica]
 			for partition := maxPartition; partition >= 0; partition-- {
@@ -382,7 +380,7 @@ OverweightLoop:
 				clearUsed()
 				markUsed(partition)
 				nodeIndex := context.bestNodeIndex()
-				if nodeIndex < 0 || context.nodeIndexToDesire[nodeIndex] <= 0 {
+				if nodeIndex < 0 || nodeIndexToDesire[nodeIndex] < 1 {
 					continue
 				}
 				context.changeDesire(overweightNodeIndex, true)
@@ -390,26 +388,46 @@ OverweightLoop:
 				context.changeDesire(nodeIndex, false)
 				partitionToMovementsLeft[partition]--
 				altered = true
-				if context.nodeIndexToDesire[overweightNodeIndex] >= 0 {
-					i++
+				if nodeIndexToDesire[overweightNodeIndex] >= 0 {
+					visited[overweightNodeIndex] = true
+					i = len(context.nodeIndexesByDesire)
 					continue OverweightLoop
 				}
 			}
 		}
+		// Second pass to reassign to any node not as overweight.
+		for replica := maxReplica; replica >= 0; replica-- {
+			partitionToNodeIndex := replicaToPartitionToNodeIndex[replica]
+			for partition := maxPartition; partition >= 0; partition-- {
+				if partitionToMovementsLeft[partition] < 1 || partitionToNodeIndex[partition] != overweightNodeIndex {
+					continue
+				}
+				clearUsed()
+				markUsed(partition)
+				nodeIndex := context.bestNodeIndex()
+				if nodeIndex < 0 || nodeIndexToDesire[nodeIndex] <= nodeIndexToDesire[overweightNodeIndex] {
+					continue
+				}
+				context.changeDesire(overweightNodeIndex, true)
+				partitionToNodeIndex[partition] = nodeIndex
+				context.changeDesire(nodeIndex, false)
+				partitionToMovementsLeft[partition]--
+				altered = true
+				if nodeIndexToDesire[overweightNodeIndex] >= 0 {
+					visited[overweightNodeIndex] = true
+					i = len(context.nodeIndexesByDesire)
+					continue OverweightLoop
+				}
+			}
+		}
+		visited[overweightNodeIndex] = true
 	}
-	/*
-	   fmt.Print("|")
-	   for i:=int32(0); i<int32(len(context.nodeIndexesByDesire));i++{
-	       fmt.Print(" ", context.nodeIndexToDesire[context.nodeIndexesByDesire[i]])
-	   }
-	   fmt.Println(" * ",context.nodeIndexesByDesire[len(context.nodeIndexesByDesire)-1])
-	*/
 	return altered
 }
 
 func (context *rebalanceContext) bestNodeIndex() int32 {
 	bestNodeIndex := int32(-1)
-	bestNodeDesiredPartitionCount := int32(math.MinInt32)
+	bestDesire := int32(math.MinInt32)
 	nodeIndexToDesire := context.nodeIndexToDesire
 	var tierSep *tierSeparation
 	var nodeIndex int32
@@ -420,15 +438,15 @@ func (context *rebalanceContext) bestNodeIndex() int32 {
 		for _, tierSep = range tierToTierSeps[tier] {
 			if !tierSep.used {
 				nodeIndex = tierSep.nodeIndexesByDesire[0]
-				if bestNodeDesiredPartitionCount < nodeIndexToDesire[nodeIndex] {
+				if bestDesire < nodeIndexToDesire[nodeIndex] {
 					bestNodeIndex = nodeIndex
-					bestNodeDesiredPartitionCount = nodeIndexToDesire[nodeIndex]
+					bestDesire = nodeIndexToDesire[nodeIndex]
 				}
 			}
 		}
 		// If we found a node at this tier, we don't need to check the lower
 		// tiers.
-		if bestNodeIndex > 0 && bestNodeDesiredPartitionCount > 0 {
+		if bestNodeIndex >= 0 {
 			return bestNodeIndex
 		}
 	}
@@ -436,9 +454,6 @@ func (context *rebalanceContext) bestNodeIndex() int32 {
 	// take the node with the highest desire that hasn't already been
 	// selected.
 	for _, nodeIndex := range context.nodeIndexesByDesire {
-		if nodeIndexToDesire[nodeIndex] <= 0 {
-			break
-		}
 		if !context.nodeIndexToUsed[nodeIndex] {
 			return nodeIndex
 		}
@@ -530,40 +545,6 @@ func (context *rebalanceContext) changeDesire(nodeIndex int32, increment bool) {
 		}
 	}
 	nodeIndexToDesire[nodeIndex] = newDesire
-	/*
-		    // TODO: Begin assert code
-			nodeIndexesByDesire = context.nodeIndexesByDesire
-		    last:=nodeIndexToDesire[nodeIndexesByDesire[0]]
-		    for i:=0;i<len(nodeIndexesByDesire);i++{
-		        this:=nodeIndexToDesire[nodeIndexesByDesire[i]]
-		        if this>last {
-		            fmt.Print("|")
-		            for j:=0;j<len(nodeIndexesByDesire);j++{
-		                fmt.Print(" ", nodeIndexToDesire[nodeIndexesByDesire[j]])
-		            }
-		            fmt.Println()
-		            panic("me2")
-		        }
-		        last=this
-		    }
-			for tier := 0; tier < context.tierCount; tier++ {
-				nodeIndexesByDesire = context.tierToNodeIndexToTierSep[tier][nodeIndex].nodeIndexesByDesire
-		        last:=nodeIndexToDesire[nodeIndexesByDesire[0]]
-		        for i:=0;i<len(nodeIndexesByDesire);i++{
-		            this:=nodeIndexToDesire[nodeIndexesByDesire[i]]
-		            if this>last {
-		                fmt.Print("|")
-		                for j:=0;j<len(nodeIndexesByDesire);j++{
-		                    fmt.Print(" ", nodeIndexToDesire[nodeIndexesByDesire[j]])
-		                }
-		                fmt.Println()
-		                panic("me2")
-		            }
-		            last=this
-		        }
-		    }
-		    // TODO: End assert code
-	*/
 }
 
 type tierSeparation struct {

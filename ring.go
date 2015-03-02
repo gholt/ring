@@ -192,6 +192,7 @@ func (b *Builder) resizeIfNeeded() bool {
 		}
 	}
 	partitionCount := len(b.replicaToPartitionToNodeIndex[0])
+	partitionBits := b.partitionBits
 	pointsAllowed := float64(b.pointsAllowed) * 0.01
 	done := false
 	for !done {
@@ -205,7 +206,7 @@ func (b *Builder) resizeIfNeeded() bool {
 			over := (float64(int(desiredPartitionCount)+1) - desiredPartitionCount) / desiredPartitionCount
 			if under > pointsAllowed || over > pointsAllowed {
 				partitionCount <<= 1
-				b.partitionBits++
+				partitionBits++
 				if partitionCount >= _MAX_PARTITION_COUNT {
 					done = true
 					break
@@ -217,13 +218,15 @@ func (b *Builder) resizeIfNeeded() bool {
 	}
 	// Grow the partitionToNodeIndex slices if the partition count grew.
 	if partitionCount > len(b.replicaToPartitionToNodeIndex[0]) {
+		shift := partitionBits - b.partitionBits
 		for replica := 0; replica < replicaCount; replica++ {
 			partitionToNodeIndex := make([]int32, partitionCount)
 			for partition := 0; partition < partitionCount; partition++ {
-				partitionToNodeIndex[partition] = b.replicaToPartitionToNodeIndex[replica][partition>>b.partitionBits]
+				partitionToNodeIndex[partition] = b.replicaToPartitionToNodeIndex[replica][partition>>shift]
 			}
 			b.replicaToPartitionToNodeIndex[replica] = partitionToNodeIndex
 		}
+		b.partitionBits = partitionBits
 		return true
 	}
 	// Shrinking the partitionToNodeIndex slices doesn't happen because it would
