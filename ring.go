@@ -24,7 +24,8 @@ type Ring interface {
 	ReplicaCount() int
 	// LocalNodeID is the identifier of the local node; determines which ring
 	// partitions/replicas the local node is responsible for as well as being
-	// used to direct message delivery.
+	// used to direct message delivery. If this instance of the ring has no
+	// local node information, 0 will be returned.
 	LocalNodeID() uint64
 	// Responsible will return true if the local node is considered responsible
 	// for a replica of the partition given.
@@ -56,14 +57,14 @@ func (ring *ringImpl) ReplicaCount() int {
 }
 
 func (ring *ringImpl) LocalNodeID() uint64 {
-	if ring.localNodeIndex == 0 {
+	if ring.localNodeIndex == -1 {
 		return 0
 	}
 	return ring.nodeIDs[ring.localNodeIndex]
 }
 
 func (ring *ringImpl) Responsible(partition uint32) bool {
-	if ring.localNodeIndex == 0 {
+	if ring.localNodeIndex == -1 {
 		return false
 	}
 	for _, partitionToNodeIndex := range ring.replicaToPartitionToNodeIndex {
