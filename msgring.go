@@ -11,6 +11,9 @@ const (
 
 type MsgRing interface {
 	Ring
+	// MaxMsgLength indicates the maximum number of bytes the content of a
+	// message may contain.
+	MaxMsgLength() uint64
 	SetMsgHandler(t MsgType, h MsgUnmarshaller)
 	MsgToNode(nodeID uint64, msg Msg) bool
 	MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg) bool

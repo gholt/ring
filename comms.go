@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"log"
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -130,6 +131,10 @@ func (m *TCPMsgRing) GetAddressForNode(nodeID uint64) string {
 func (m *TCPMsgRing) GetNodesForPart(ringVersion int64, partition uint32) []uint64 {
 	// Just a dummy function for now
 	return []uint64{uint64(1), uint64(2)}
+}
+
+func (m *TCPMsgRing) MaxMsgLenght() uint64 {
+	return math.MaxUint64
 }
 
 func (m *TCPMsgRing) SetMsgHandler(msg_type MsgType, handler MsgUnmarshaller) {
