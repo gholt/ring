@@ -30,6 +30,15 @@ func (r *TestRing) Nodes() []Node {
 	return []Node{&testNode{id: 1}}
 }
 
+func (r *TestRing) Node(id uint64) Node {
+	for _, node := range r.Nodes() {
+		if node.NodeID() == id {
+			return node
+		}
+	}
+	return nil
+}
+
 func (r *TestRing) LocalNode() Node {
 	return &testNode{id: 1}
 }

@@ -24,6 +24,7 @@ type Ring interface {
 	ReplicaCount() int
 	// Nodes returns a list of nodes referenced by the ring.
 	Nodes() []Node
+	Node(id uint64) Node
 	// LocalNode contains the information for the local node; determining which
 	// ring partitions/replicas the local node is responsible for as well as
 	// being used to direct message delivery. If this instance of the ring has
@@ -61,6 +62,15 @@ func (ring *ringImpl) Nodes() []Node {
 	nodes := make([]Node, len(ring.nodes))
 	copy(nodes, ring.nodes)
 	return nodes
+}
+
+func (ring *ringImpl) Node(id uint64) Node {
+	for _, node := range ring.nodes {
+		if node.NodeID() == id {
+			return node
+		}
+	}
+	return nil
 }
 
 func (ring *ringImpl) LocalNode() Node {
