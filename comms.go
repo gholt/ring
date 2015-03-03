@@ -141,7 +141,12 @@ func (m *TCPMsgRing) SetMsgHandler(msg_type MsgType, handler MsgUnmarshaller) {
 	m.msg_handlers[uint64(msg_type)] = handler
 }
 
-func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) bool {
+func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) {
+	m.msgToNode(nodeID, msg)
+	msg.Done()
+}
+
+func (m *TCPMsgRing) msgToNode(nodeID uint64, msg Msg) {
 	// TODO: Add retry functionality
 	address := m.GetAddressForNode(nodeID)
 	// See if we have a connection already
@@ -152,7 +157,7 @@ func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) bool {
 		tcpconn, err := net.DialTimeout("tcp", address, default_timeout)
 		if err != nil {
 			log.Println("ERR: Trying to connect to", address, err)
-			return false
+			return
 		}
 		conn := NewRingConn(tcpconn)
 		m.conns[address] = conn
@@ -168,39 +173,31 @@ func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) bool {
 	// Make sure we flush the data
 	conn.Writer.Flush()
 	conn.Unlock()
-	msg.Done()
 	if err != nil {
 		log.Println("ERR: Sending content - ", err)
-		return false
+		return
 	}
 	if length != msg.MsgLength() {
 		log.Println("ERR: Didn't send enough data", length, msg.MsgLength())
-		return false
+		return
 	}
-	// If we get here then things must have gone alright
-	return true
 }
 
-func (m *TCPMsgRing) MsgToNodeChan(nodeID uint64, msg Msg, retchan chan bool) {
-	val := m.MsgToNode(nodeID, msg)
-	retchan <- val
+func (m *TCPMsgRing) MsgToNodeChan(nodeID uint64, msg Msg, retchan chan struct{}) {
+	m.msgToNode(nodeID, msg)
+	retchan <- struct{}{}
 }
 
-func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg) bool {
+func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg) {
 	nodes := m.GetNodesForPart(ringVersion, partition)
-	retchan := make(chan bool, 2)
+	retchan := make(chan struct{}, 2)
 	for _, nodeID := range nodes {
 		go m.MsgToNodeChan(nodeID, msg, retchan)
 	}
 	for i := 0; i < len(nodes); i++ {
-		val := <-retchan
-		if !val {
-			// One of the failed, so return false
-			return false
-		}
+		<-retchan
 	}
-	// If we get here then things must have gone alright
-	return true
+	msg.Done()
 }
 
 func (m *TCPMsgRing) handle(conn net.Conn) error {

@@ -205,10 +205,7 @@ func Test_MsgToNode(t *testing.T) {
 	addr := msgring.GetAddressForNode(uint64(1))
 	msgring.conns[addr] = NewRingConn(conn)
 	msg := TestMsg{}
-	success := msgring.MsgToNode(uint64(1), &msg)
-	if !success {
-		t.Error("MsgToNode failed")
-	}
+	msgring.MsgToNode(uint64(1), &msg)
 	var msgtype uint64
 	binary.Read(&conn.writeBuf, binary.LittleEndian, &msgtype)
 	if int(msgtype) != 1 {
@@ -233,13 +230,9 @@ func Test_MsgToNodeChan(t *testing.T) {
 	addr := msgring.GetAddressForNode(uint64(1))
 	msgring.conns[addr] = NewRingConn(conn)
 	msg := TestMsg{}
-	retch := make(chan bool)
+	retch := make(chan struct{})
 	go msgring.MsgToNodeChan(uint64(1), &msg, retch)
-	success := <-retch
-	if !success {
-		t.Error("MsgToNode failed")
-		// The following should be written twice
-	}
+	<-retch
 	var msgtype uint64
 	binary.Read(&conn.writeBuf, binary.LittleEndian, &msgtype)
 	if int(msgtype) != 1 {
@@ -264,10 +257,7 @@ func Test_MsgToOtherReplicas(t *testing.T) {
 	addr := msgring.GetAddressForNode(uint64(1))
 	msgring.conns[addr] = NewRingConn(conn)
 	msg := TestMsg{}
-	success := msgring.MsgToOtherReplicas(int64(1), uint32(1), &msg)
-	if !success {
-		t.Error("MsgToNode failed")
-	}
+	msgring.MsgToOtherReplicas(int64(1), uint32(1), &msg)
 	// The following should be written twice
 	for i := 0; i < 2; i++ {
 		var msgtype uint64

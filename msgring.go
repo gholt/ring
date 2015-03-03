@@ -15,14 +15,19 @@ type MsgRing interface {
 	// message may contain.
 	MaxMsgLength() uint64
 	SetMsgHandler(t MsgType, h MsgUnmarshaller)
-	MsgToNode(nodeID uint64, msg Msg) bool
-	MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg) bool
+	MsgToNode(nodeID uint64, msg Msg)
+	MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg)
 }
 
 type Msg interface {
 	MsgType() MsgType
 	MsgLength() uint64
+	// WriteContent will send the contents of the message to the given writer;
+	// note that WriteContent may be called multiple times and may be called
+	// concurrently.
 	WriteContent(io.Writer) (uint64, error)
+	// Done will be called when the MsgRing is done processing the message and
+	// allows the message to free any resources it may have.
 	Done()
 }
 

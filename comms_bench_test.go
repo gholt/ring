@@ -13,9 +13,6 @@ func Benchmark_MsgToNode(b *testing.B) {
 	msg := TestMsg{}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		success := msgring.MsgToNode(uint64(1), &msg)
-		if !success {
-			b.Error("MsgToNode failed")
-		}
+		msgring.MsgToNode(uint64(1), &msg)
 	}
 }
