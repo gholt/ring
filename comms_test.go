@@ -14,24 +14,8 @@ import (
 type TestRing struct {
 }
 
-func (r *TestRing) PartitionPower() uint16 {
-	return uint16(1)
-}
-
-func (r *TestRing) NodeID() uint64 {
-	return uint64(1)
-}
-
-func (r *TestRing) LocalNodeID() uint64 {
-	return uint64(1)
-}
-
-func (r *TestRing) Responsible(part uint32) bool {
-	return true
-}
-
-func (r *TestRing) ResponsibleIDs(part uint32) []uint64 {
-	return []uint64{}
+func (r *TestRing) Version() int64 {
+	return int64(1)
 }
 
 func (r *TestRing) PartitionBitCount() uint16 {
@@ -42,8 +26,20 @@ func (r *TestRing) ReplicaCount() int {
 	return 0
 }
 
-func (r *TestRing) Version() int64 {
-	return int64(1)
+func (r *TestRing) Nodes() []Node {
+	return []Node{&testNode{id: 1}}
+}
+
+func (r *TestRing) LocalNode() Node {
+	return &testNode{id: 1}
+}
+
+func (r *TestRing) Responsible(part uint32) bool {
+	return true
+}
+
+func (r *TestRing) ResponsibleNodes(part uint32) []Node {
+	return []Node{&testNode{id: 1}}
 }
 
 type TestMsg struct {
@@ -108,7 +104,7 @@ func (c *testConn) Close() error {
 func Test_NewTCPMsgRing(t *testing.T) {
 	r := TestRing{}
 	msgring := NewTCPMsgRing(&r)
-	if msgring.Ring.LocalNodeID() != 1 {
+	if msgring.Ring.LocalNode().NodeID() != 1 {
 		t.Error("Error initializing TCPMsgRing")
 	}
 }

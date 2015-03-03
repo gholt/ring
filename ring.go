@@ -22,25 +22,26 @@ type Ring interface {
 	// hashValue >> (64 - ring.PartitionBitCount()).
 	PartitionBitCount() uint16
 	ReplicaCount() int
-	// LocalNodeID is the identifier of the local node; determines which ring
-	// partitions/replicas the local node is responsible for as well as being
-	// used to direct message delivery. If this instance of the ring has no
-	// local node information, 0 will be returned.
-	LocalNodeID() uint64
+	// Nodes returns a list of nodes referenced by the ring.
+	Nodes() []Node
+	// LocalNode contains the information for the local node; determining which
+	// ring partitions/replicas the local node is responsible for as well as
+	// being used to direct message delivery. If this instance of the ring has
+	// no local node information, nil will be returned.
+	LocalNode() Node
 	// Responsible will return true if the local node is considered responsible
 	// for a replica of the partition given.
 	Responsible(partition uint32) bool
-	// ResponsibleIDs will return a list of Node IDs (as with LocalNodeID) for
-	// those nodes considered responsible for the replicas of the partition
-	// given.
-	ResponsibleIDs(partition uint32) []uint64
+	// ResponsibleNodes will return a list of nodes for considered responsible
+	// for the replicas of the partition given.
+	ResponsibleNodes(partition uint32) []Node
 }
 
 type ringImpl struct {
 	version                       int64
 	localNodeIndex                int32
 	partitionBitCount             uint16
-	nodeIDs                       []uint64
+	nodes                         []Node
 	replicaToPartitionToNodeIndex [][]int32
 }
 
@@ -56,11 +57,17 @@ func (ring *ringImpl) ReplicaCount() int {
 	return len(ring.replicaToPartitionToNodeIndex)
 }
 
-func (ring *ringImpl) LocalNodeID() uint64 {
+func (ring *ringImpl) Nodes() []Node {
+	nodes := make([]Node, len(ring.nodes))
+	copy(nodes, ring.nodes)
+	return nodes
+}
+
+func (ring *ringImpl) LocalNode() Node {
 	if ring.localNodeIndex == -1 {
-		return 0
+		return nil
 	}
-	return ring.nodeIDs[ring.localNodeIndex]
+	return ring.nodes[ring.localNodeIndex]
 }
 
 func (ring *ringImpl) Responsible(partition uint32) bool {
@@ -75,12 +82,12 @@ func (ring *ringImpl) Responsible(partition uint32) bool {
 	return false
 }
 
-func (ring *ringImpl) ResponsibleIDs(partition uint32) []uint64 {
-	ids := make([]uint64, ring.ReplicaCount())
+func (ring *ringImpl) ResponsibleNodes(partition uint32) []Node {
+	nodes := make([]Node, ring.ReplicaCount())
 	for replica, partitionToNodeIndex := range ring.replicaToPartitionToNodeIndex {
-		ids[replica] = ring.nodeIDs[partitionToNodeIndex[partition]]
+		nodes[replica] = ring.nodes[partitionToNodeIndex[partition]]
 	}
-	return ids
+	return nodes
 }
 
 // Node is a single item assigned to a ring, usually a single device like a

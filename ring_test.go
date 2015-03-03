@@ -2,6 +2,30 @@ package ring
 
 import "testing"
 
+type testNode struct {
+	id uint64
+}
+
+func (n *testNode) NodeID() uint64 {
+	return n.id
+}
+
+func (n *testNode) Active() bool {
+	return true
+}
+
+func (n *testNode) Capacity() uint32 {
+	return 1
+}
+
+func (n *testNode) TierValues() []int {
+	return nil
+}
+
+func (n *testNode) Address() string {
+	return ""
+}
+
 func TestRingVersion(t *testing.T) {
 	v := (&ringImpl{version: 1}).Version()
 	if v != 1 {
@@ -23,18 +47,18 @@ func TestRingReplicaCount(t *testing.T) {
 	}
 }
 
-func TestRingLocalNodeID(t *testing.T) {
-	v := (&ringImpl{localNodeIndex: -1}).LocalNodeID()
-	if v != 0 {
-		t.Fatalf("LocalNodeID() gave %d instead of 0", v)
+func TestRingLocalNode(t *testing.T) {
+	v := (&ringImpl{localNodeIndex: -1}).LocalNode()
+	if v != nil {
+		t.Fatalf("LocalNode() gave %v instead of nil", v)
 	}
-	v = (&ringImpl{localNodeIndex: 0, nodeIDs: []uint64{123, 456, 789}}).LocalNodeID()
-	if v != 123 {
-		t.Fatalf("LocalNodeID() gave %d instead of 0", v)
+	v = (&ringImpl{localNodeIndex: 0, nodes: []Node{&testNode{id: 123}, &testNode{456}, &testNode{789}}}).LocalNode()
+	if v.NodeID() != 123 {
+		t.Fatalf("LocalNode() gave %v instead of 0", v)
 	}
-	v = (&ringImpl{localNodeIndex: 1, nodeIDs: []uint64{123, 456, 789}}).LocalNodeID()
-	if v != 456 {
-		t.Fatalf("LocalNodeID() gave %d instead of 0", v)
+	v = (&ringImpl{localNodeIndex: 1, nodes: []Node{&testNode{id: 123}, &testNode{id: 456}, &testNode{id: 789}}}).LocalNode()
+	if v.NodeID() != 456 {
+		t.Fatalf("LocalNode() gave %v instead of 0", v)
 	}
 }
 
@@ -62,12 +86,12 @@ func TestRingResponsibleIDs(t *testing.T) {
 	d[0] = []int32{0, 1, 2}
 	d[1] = []int32{3, 4, 5}
 	d[2] = []int32{6, 7, 8}
-	v := (&ringImpl{nodeIDs: []uint64{10, 11, 12, 13, 14, 15, 16, 17, 18}, replicaToPartitionToNodeIndex: d}).ResponsibleIDs(0)
-	if len(v) != 3 || v[0] != 10 || v[1] != 13 || v[2] != 16 {
-		t.Fatalf("ResponsibleIDs(0) gave %v instead of [10 13 16]", v)
+	v := (&ringImpl{nodes: []Node{&testNode{id: 10}, &testNode{id: 11}, &testNode{id: 12}, &testNode{id: 13}, &testNode{id: 14}, &testNode{id: 15}, &testNode{id: 16}, &testNode{id: 17}, &testNode{id: 18}}, replicaToPartitionToNodeIndex: d}).ResponsibleNodes(0)
+	if len(v) != 3 || v[0].NodeID() != 10 || v[1].NodeID() != 13 || v[2].NodeID() != 16 {
+		t.Fatalf("ResponsibleNodes(0) gave %v instead of [10 13 16]", v)
 	}
-	v = (&ringImpl{nodeIDs: []uint64{10, 11, 12, 13, 14, 15, 16, 17, 18}, replicaToPartitionToNodeIndex: d}).ResponsibleIDs(2)
-	if len(v) != 3 || v[0] != 12 || v[1] != 15 || v[2] != 18 {
-		t.Fatalf("ResponsibleIDs(2) gave %v instead of [12 15 18]", v)
+	v = (&ringImpl{nodes: []Node{&testNode{id: 10}, &testNode{id: 11}, &testNode{id: 12}, &testNode{id: 13}, &testNode{id: 14}, &testNode{id: 15}, &testNode{id: 16}, &testNode{id: 17}, &testNode{id: 18}}, replicaToPartitionToNodeIndex: d}).ResponsibleNodes(2)
+	if len(v) != 3 || v[0].NodeID() != 12 || v[1].NodeID() != 15 || v[2].NodeID() != 18 {
+		t.Fatalf("ResponsibleNodes(2) gave %v instead of [12 15 18]", v)
 	}
 }

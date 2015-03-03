@@ -64,10 +64,10 @@ func (b *Builder) Ring(localNodeID uint64) Ring {
 		b.version = time.Now().UnixNano()
 	}
 	localNodeIndex := int32(0)
-	nodeIDs := make([]uint64, len(b.nodes))
-	for i := 0; i < len(nodeIDs); i++ {
-		nodeIDs[i] = b.nodes[i].NodeID()
-		if nodeIDs[i] == localNodeID {
+	nodes := make([]Node, len(b.nodes))
+	copy(nodes, b.nodes)
+	for i, node := range nodes {
+		if node.NodeID() == localNodeID {
 			localNodeIndex = int32(i)
 		}
 	}
@@ -80,7 +80,7 @@ func (b *Builder) Ring(localNodeID uint64) Ring {
 		version:           b.version,
 		localNodeIndex:    localNodeIndex,
 		partitionBitCount: b.partitionBitCount,
-		nodeIDs:           nodeIDs,
+		nodes:             nodes,
 		replicaToPartitionToNodeIndex: replicaToPartitionToNodeIndex,
 	}
 }
