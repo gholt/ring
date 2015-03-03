@@ -82,3 +82,30 @@ func (ring *ringImpl) ResponsibleIDs(partition uint32) []uint64 {
 	}
 	return ids
 }
+
+// Node is a single item assigned to a ring, usually a single device like a
+// disk drive.
+type Node interface {
+	// NodeID uniquely identifies this node; this id is all that is retained
+	// when a Builder returns a Ring representation of the data.
+	NodeID() uint64
+	Active() bool
+	// Capacity indicates the amount of data that should be assigned to a node
+	// relative to other nodes. It can be in any unit of designation as long as
+	// all nodes use the same designation. Most commonly this is the number of
+	// gigabytes the node can store, but could be based on CPU capacity or
+	// another resource if that makes more sense to balance.
+	Capacity() uint32
+	// Tiers indicate the layout of the node with respect to other nodes. For
+	// example, the lowest tier, tier 0, might be the server ip (where each
+	// node represents a drive on that server). The next tier, 1, might then be
+	// the power zone the server is in. The number of tiers is flexible, so
+	// later an additional tier for geographic region could be added.
+	// Here the tier values are represented by ints, presumably as indexes to
+	// the actual values stored elsewhere. This is done for speed during
+	// rebalancing.
+	TierValues() []int
+	// Address gives the location information for the node; probably something
+	// like an ip:port.
+	Address() string
+}

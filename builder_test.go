@@ -15,6 +15,7 @@ type TestNode struct {
 	active     bool
 	capacity   uint32
 	tierValues []int
+	address    string
 }
 
 func (node *TestNode) NodeID() uint64 {
@@ -31,6 +32,10 @@ func (node *TestNode) Capacity() uint32 {
 
 func (node *TestNode) TierValues() []int {
 	return node.tierValues
+}
+
+func (node *TestNode) Address() string {
+	return node.address
 }
 
 func TestNewRingBuilder(t *testing.T) {
