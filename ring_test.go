@@ -47,6 +47,31 @@ func TestRingReplicaCount(t *testing.T) {
 	}
 }
 
+func TestRingNodes(t *testing.T) {
+	v := (&ringImpl{nodes: []Node{&testNode{id: 1}, &testNode{id: 2}}}).Nodes()
+	if len(v) != 2 {
+		t.Fatalf("Nodes() gave %d entries instead of 2", len(v))
+	}
+	if v[0].NodeID() != 1 || v[1].NodeID() != 2 {
+		t.Fatalf("Nodes() gave [%v, %v] instead of [&{1}, &{2}]", v[0], v[1])
+	}
+}
+
+func TestRingNode(t *testing.T) {
+	v := (&ringImpl{nodes: []Node{&testNode{id: 1}, &testNode{id: 2}}}).Node(1)
+	if v.NodeID() != 1 {
+		t.Fatalf("Nodes() gave %v instead of &{1}", v)
+	}
+	v = (&ringImpl{nodes: []Node{&testNode{id: 1}, &testNode{id: 2}}}).Node(2)
+	if v.NodeID() != 2 {
+		t.Fatalf("Nodes() gave %v instead of &{2}", v)
+	}
+	v = (&ringImpl{nodes: []Node{&testNode{id: 1}, &testNode{id: 2}}}).Node(3)
+	if v != nil {
+		t.Fatalf("Nodes() gave %v instead of nil", v)
+	}
+}
+
 func TestRingLocalNode(t *testing.T) {
 	v := (&ringImpl{localNodeIndex: -1}).LocalNode()
 	if v != nil {
