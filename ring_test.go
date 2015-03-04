@@ -3,7 +3,9 @@ package ring
 import "testing"
 
 type testNode struct {
-	id uint64
+	id       uint64
+	capacity uint32
+	inactive bool
 }
 
 func (n *testNode) NodeID() uint64 {
@@ -11,11 +13,11 @@ func (n *testNode) NodeID() uint64 {
 }
 
 func (n *testNode) Active() bool {
-	return true
+	return !n.inactive
 }
 
 func (n *testNode) Capacity() uint32 {
-	return 1
+	return n.capacity
 }
 
 func (n *testNode) TierValues() []int {
@@ -77,7 +79,7 @@ func TestRingLocalNode(t *testing.T) {
 	if v != nil {
 		t.Fatalf("LocalNode() gave %v instead of nil", v)
 	}
-	v = (&ringImpl{localNodeIndex: 0, nodes: []Node{&testNode{id: 123}, &testNode{456}, &testNode{789}}}).LocalNode()
+	v = (&ringImpl{localNodeIndex: 0, nodes: []Node{&testNode{id: 123}, &testNode{id: 456}, &testNode{id: 789}}}).LocalNode()
 	if v.NodeID() != 123 {
 		t.Fatalf("LocalNode() gave %v instead of 0", v)
 	}
@@ -118,5 +120,54 @@ func TestRingResponsibleIDs(t *testing.T) {
 	v = (&ringImpl{nodes: []Node{&testNode{id: 10}, &testNode{id: 11}, &testNode{id: 12}, &testNode{id: 13}, &testNode{id: 14}, &testNode{id: 15}, &testNode{id: 16}, &testNode{id: 17}, &testNode{id: 18}}, replicaToPartitionToNodeIndex: d}).ResponsibleNodes(2)
 	if len(v) != 3 || v[0].NodeID() != 12 || v[1].NodeID() != 15 || v[2].NodeID() != 18 {
 		t.Fatalf("ResponsibleNodes(2) gave %v instead of [12 15 18]", v)
+	}
+}
+
+func TestRingStats(t *testing.T) {
+	s := (&ringImpl{
+		partitionBitCount: 2,
+		nodes: []Node{
+			&testNode{id: 0, capacity: 100},
+			&testNode{id: 1, capacity: 101},
+			&testNode{id: 2, capacity: 102},
+			&testNode{id: 3, capacity: 103},
+			&testNode{id: 4, capacity: 104},
+			&testNode{id: 5, inactive: true},
+		},
+		replicaToPartitionToNodeIndex: [][]int32{
+			[]int32{0, 1, 2, 3},
+			[]int32{4, 0, 1, 2},
+			[]int32{3, 4, 0, 1},
+		},
+	}).Stats()
+	if s.ReplicaCount != 3 {
+		t.Fatalf("RingStats gave ReplicaCount of %d instead of 3", s.ReplicaCount)
+	}
+	if s.NodeCount != 6 {
+		t.Fatalf("RingStats gave NodeCount of %d instead of 6", s.NodeCount)
+	}
+	if s.InactiveNodeCount != 1 {
+		t.Fatalf("RingStats gave InactiveNodeCount of %d instead of 1", s.InactiveNodeCount)
+	}
+	if s.PartitionBitCount != 2 {
+		t.Fatalf("RingStats gave PartitionBitCount of %d instead of 2", s.PartitionBitCount)
+	}
+	if s.PartitionCount != 4 {
+		t.Fatalf("RingStats gave PartitionCount of %d instead of 4", s.PartitionCount)
+	}
+	if s.TotalCapacity != 510 {
+		t.Fatalf("RingStats gave TotalCapacity of %d instead of 510", s.TotalCapacity)
+	}
+	// Node id 4 should be most underweight.
+	d := float64(104.0) / 510.0 * 4 * 3
+	v := float64(100.0) * (d - 2) / d
+	if s.MaxUnderNodePercentage != v {
+		t.Fatalf("RingStats gave MaxUnderNodePercentage of %v instead of %v", s.MaxUnderNodePercentage, v)
+	}
+	// Node id 0 should be most overweight.
+	d = float64(100.0) / 510.0 * 4 * 3
+	v = float64(100.0) * (3 - d) / d
+	if s.MaxOverNodePercentage != v {
+		t.Fatalf("RingStats gave MaxOverNodePercentage of %v instead of %v", s.MaxOverNodePercentage, v)
 	}
 }
