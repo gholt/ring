@@ -36,6 +36,9 @@ type Ring interface {
 	// ResponsibleNodes will return a list of nodes for considered responsible
 	// for the replicas of the partition given.
 	ResponsibleNodes(partition uint32) []Node
+	// Stats gives information about the ring and its health; the MaxUnder and
+	// MaxOver values specifically indicate how balanced the ring is.
+	Stats() *RingStats
 }
 
 type ringImpl struct {
@@ -125,4 +128,66 @@ type Node interface {
 	// Address gives the location information for the node; probably something
 	// like an ip:port.
 	Address() string
+}
+
+type RingStats struct {
+	ReplicaCount      int
+	NodeCount         int
+	InactiveNodeCount int
+	PartitionBitCount uint16
+	PartitionCount    int
+	TotalCapacity     uint64
+	// MaxUnderNodePercentage is the percentage a node is underweight, or has
+	// less data assigned to it than its capacity would indicate it desires.
+	MaxUnderNodePercentage float64
+	MaxUnderNodeIndex      int
+	// MaxOverNodePercentage is the percentage a node is overweight, or has
+	// more data assigned to it than its capacity would indicate it desires.
+	MaxOverNodePercentage float64
+	MaxOverNodeIndex      int
+}
+
+func (ring *ringImpl) Stats() *RingStats {
+	stats := &RingStats{
+		ReplicaCount:      ring.ReplicaCount(),
+		NodeCount:         len(ring.nodes),
+		PartitionBitCount: ring.PartitionBitCount(),
+		PartitionCount:    1 << ring.PartitionBitCount(),
+		MaxUnderNodeIndex: -1,
+		MaxOverNodeIndex:  -1,
+	}
+	nodeIndexToPartitionCount := make([]int, stats.NodeCount)
+	for _, partitionToNodeIndex := range ring.replicaToPartitionToNodeIndex {
+		for _, nodeIndex := range partitionToNodeIndex {
+			nodeIndexToPartitionCount[nodeIndex]++
+		}
+	}
+	for _, node := range ring.nodes {
+		if node.Active() {
+			stats.TotalCapacity += (uint64)(node.Capacity())
+		} else {
+			stats.InactiveNodeCount++
+		}
+	}
+	for nodeIndex, node := range ring.nodes {
+		if !node.Active() {
+			continue
+		}
+		desiredPartitionCount := float64(node.Capacity()) / float64(stats.TotalCapacity) * float64(stats.PartitionCount) * float64(stats.ReplicaCount)
+		actualPartitionCount := float64(nodeIndexToPartitionCount[nodeIndex])
+		if desiredPartitionCount > actualPartitionCount {
+			under := 100.0 * (desiredPartitionCount - actualPartitionCount) / desiredPartitionCount
+			if under > stats.MaxUnderNodePercentage {
+				stats.MaxUnderNodePercentage = under
+				stats.MaxUnderNodeIndex = nodeIndex
+			}
+		} else if desiredPartitionCount < actualPartitionCount {
+			over := 100.0 * (actualPartitionCount - desiredPartitionCount) / desiredPartitionCount
+			if over > stats.MaxOverNodePercentage {
+				stats.MaxOverNodePercentage = over
+				stats.MaxOverNodeIndex = nodeIndex
+			}
+		}
+	}
+	return stats
 }

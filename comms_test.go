@@ -51,6 +51,10 @@ func (r *TestRing) ResponsibleNodes(part uint32) []Node {
 	return []Node{&testNode{id: 1}}
 }
 
+func (r *TestRing) Stats() *RingStats {
+	return nil
+}
+
 type TestMsg struct {
 }
 

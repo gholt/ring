@@ -36,26 +36,34 @@ func (b *Builder) SetPointsAllowed(points int) {
 	b.pointsAllowed = points
 }
 
-func (b *Builder) NodeCount() int {
-	return len(b.nodes)
+func (b *Builder) Add(n Node) {
+	b.nodes = append(b.nodes, n)
 }
 
-func (b *Builder) Node(nodeIndex int) Node {
-	return b.nodes[nodeIndex]
+func (b *Builder) Remove(nodeID uint64) {
+	for i, node := range b.nodes {
+		if node.NodeID() == nodeID {
+			copy(b.nodes[i:], b.nodes[i+1:])
+			b.nodes = b.nodes[:len(b.nodes)-1]
+			break
+		}
+	}
 }
 
-// Add will add the node to the builder's list and return its index in that
-// list.
-func (b *Builder) Add(node Node) int {
-	b.nodes = append(b.nodes, node)
-	return len(b.nodes) - 1
+func (b *Builder) Node(nodeID uint64) Node {
+	for _, node := range b.nodes {
+		if node.NodeID() == nodeID {
+			return node
+		}
+	}
+	return nil
 }
 
 // Ring returns a Ring instance of the data defined by the builder. This will
 // cause any pending rebalancing actions to be performed. The Ring returned
 // will be immutable; to obtain updated ring data, Ring() must be called again.
 // The localNodeID is so the Ring instance can provide local responsibility
-// information; you can give 0 if you don't intended to use those features.
+// information; you can give 0 if you don't intend to use those features.
 func (b *Builder) Ring(localNodeID uint64) Ring {
 	if b.resizeIfNeeded() {
 		b.version = time.Now().UnixNano()
@@ -88,7 +96,7 @@ func (b *Builder) Ring(localNodeID uint64) Ring {
 func (b *Builder) resizeIfNeeded() bool {
 	replicaCount := len(b.replicaToPartitionToNodeIndex)
 	// Calculate the partition count needed.
-	// Each node is examined to see how much under or over weight it would be
+	// Each node is examined to see how much under or overweight it would be
 	// and increasing the partition count until the difference is under the
 	// points allowed.
 	totalCapacity := uint64(0)
@@ -100,25 +108,18 @@ func (b *Builder) resizeIfNeeded() bool {
 	partitionCount := len(b.replicaToPartitionToNodeIndex[0])
 	partitionBitCount := b.partitionBitCount
 	pointsAllowed := float64(b.pointsAllowed) * 0.01
-	done := false
-	for !done {
-		done = true
-		for _, node := range b.nodes {
-			if !node.Active() {
-				continue
-			}
-			desiredPartitionCount := float64(partitionCount) * float64(replicaCount) * (float64(node.Capacity()) / float64(totalCapacity))
-			under := (desiredPartitionCount - float64(int(desiredPartitionCount))) / desiredPartitionCount
-			over := (float64(int(desiredPartitionCount)+1) - desiredPartitionCount) / desiredPartitionCount
-			if under > pointsAllowed || over > pointsAllowed {
-				partitionCount <<= 1
-				partitionBitCount++
-				if partitionCount >= _MAX_PARTITION_COUNT {
-					done = true
-					break
-				} else {
-					done = false
-				}
+	for _, node := range b.nodes {
+		if !node.Active() {
+			continue
+		}
+		desiredPartitionCount := float64(partitionCount) * float64(replicaCount) * (float64(node.Capacity()) / float64(totalCapacity))
+		under := (desiredPartitionCount - float64(int(desiredPartitionCount))) / desiredPartitionCount
+		over := (float64(int(desiredPartitionCount)+1) - desiredPartitionCount) / desiredPartitionCount
+		if under > pointsAllowed || over > pointsAllowed {
+			partitionCount <<= 1
+			partitionBitCount++
+			if partitionCount >= _MAX_PARTITION_COUNT {
+				break
 			}
 		}
 	}
@@ -135,77 +136,8 @@ func (b *Builder) resizeIfNeeded() bool {
 		b.partitionBitCount = partitionBitCount
 		return true
 	}
-	// Shrinking the partitionToNodeIndex slices doesn't happen because it would
-	// normally cause more data movements than it's worth. Perhaps in the
-	// future we can add detection of cases when shrinking makes sense.
+	// TODO: Shrinking the partitionToNodeIndex slices doesn't happen because
+	// it would normally cause more data movements than it's worth. Perhaps in
+	// the future we can add detection of cases when shrinking makes sense.
 	return false
-}
-
-type BuilderStats struct {
-	ReplicaCount      int
-	NodeCount         int
-	InactiveNodeCount int
-	PartitionBitCount uint16
-	PartitionCount    int
-	PointsAllowed     int
-	TotalCapacity     uint64
-	// MaxUnderNodePercentage is the percentage a node is underweight, or has
-	// less data assigned to it than its capacity would indicate it desires.
-	MaxUnderNodePercentage float64
-	MaxUnderNodeIndex      int
-	// MaxOverNodePercentage is the percentage a node is overweight, or has
-	// more data assigned to it than its capacity would indicate it desires.
-	MaxOverNodePercentage float64
-	MaxOverNodeIndex      int
-}
-
-// Stats gives information about the builder and its health; note that this
-// will call the Ring method and so could cause rebalancing. The MaxUnder and
-// MaxOver values specifically indicate how balanced the builder is at this
-// time.
-func (b *Builder) Stats() *BuilderStats {
-	ring := b.Ring(0)
-	stats := &BuilderStats{
-		ReplicaCount:      ring.ReplicaCount(),
-		NodeCount:         b.NodeCount(),
-		PartitionBitCount: ring.PartitionBitCount(),
-		PartitionCount:    1 << ring.PartitionBitCount(),
-		PointsAllowed:     b.PointsAllowed(),
-		MaxUnderNodeIndex: -1,
-		MaxOverNodeIndex:  -1,
-	}
-	nodeIndexToPartitionCount := make([]int, stats.NodeCount)
-	for _, partitionToNodeIndex := range b.replicaToPartitionToNodeIndex {
-		for _, nodeIndex := range partitionToNodeIndex {
-			nodeIndexToPartitionCount[nodeIndex]++
-		}
-	}
-	for _, node := range b.nodes {
-		if node.Active() {
-			stats.TotalCapacity += (uint64)(node.Capacity())
-		} else {
-			stats.InactiveNodeCount++
-		}
-	}
-	for nodeIndex, node := range b.nodes {
-		if !node.Active() {
-			continue
-		}
-		desiredPartitionCount := float64(node.Capacity()) / float64(stats.TotalCapacity) * float64(stats.PartitionCount) * float64(stats.ReplicaCount)
-		actualPartitionCount := float64(nodeIndexToPartitionCount[nodeIndex])
-		if desiredPartitionCount > actualPartitionCount {
-			under := 100.0 * (desiredPartitionCount - actualPartitionCount) / desiredPartitionCount
-			if under > stats.MaxUnderNodePercentage {
-				stats.MaxUnderNodePercentage = under
-				stats.MaxUnderNodeIndex = nodeIndex
-			}
-		} else if desiredPartitionCount < actualPartitionCount {
-			over := 100.0 * (actualPartitionCount - desiredPartitionCount) / desiredPartitionCount
-			if over > stats.MaxOverNodePercentage {
-				stats.MaxOverNodePercentage = over
-				stats.MaxOverNodeIndex = nodeIndex
-			}
-		}
-	}
-	return stats
 }
