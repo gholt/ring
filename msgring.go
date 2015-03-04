@@ -7,9 +7,10 @@ type MsgRing interface {
 	// MaxMsgLength indicates the maximum number of bytes the content of a
 	// message may contain to be handled by this MsgRing.
 	MaxMsgLength() uint64
-	// SetMsgHandler associates a message type with a handler. Message types
-	// just need to be unique uint64 values; usually picking 64 bits of a UUID
-	// is fine.
+    // SetMsgHandler associates a message type with a handler; any incoming
+    // messages with the type will be delivered to the handler. Message types
+    // just need to be unique uint64 values; usually picking 64 bits of a UUID
+    // is fine.
 	SetMsgHandler(msgType uint64, handler MsgUnmarshaller)
 	// MsgToNode attempts to the deliver the message to the indicated node.
 	MsgToNode(nodeID uint64, msg Msg)
