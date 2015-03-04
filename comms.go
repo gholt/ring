@@ -137,7 +137,7 @@ func (m *TCPMsgRing) MaxMsgLenght() uint64 {
 	return math.MaxUint64
 }
 
-func (m *TCPMsgRing) SetMsgHandler(msg_type MsgType, handler MsgUnmarshaller) {
+func (m *TCPMsgRing) SetMsgHandler(msg_type uint64, handler MsgUnmarshaller) {
 	m.msg_handlers[uint64(msg_type)] = handler
 }
 

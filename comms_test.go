@@ -54,8 +54,8 @@ func (r *TestRing) ResponsibleNodes(part uint32) []Node {
 type TestMsg struct {
 }
 
-func (m *TestMsg) MsgType() MsgType {
-	return MsgType(1)
+func (m *TestMsg) MsgType() uint64 {
+	return 1
 }
 
 func (m *TestMsg) MsgLength() uint64 {
@@ -196,7 +196,7 @@ func Test_handle(t *testing.T) {
 	conn.readBuf.WriteString("Testing")
 	r := TestRing{}
 	msgring := NewTCPMsgRing(&r)
-	msgring.SetMsgHandler(MsgType(1), test_stringmarshaller)
+	msgring.SetMsgHandler(1, test_stringmarshaller)
 	err := msgring.handle(conn)
 	if err != nil && err != io.EOF {
 		t.Error(err)

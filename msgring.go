@@ -2,25 +2,18 @@ package ring
 
 import "io"
 
-const (
-	_ MsgType = iota
-	MSG_PULL_REPLICATION
-	MSG_BULK_SET
-	MSG_BULK_SET_ACK
-)
-
 type MsgRing interface {
 	Ring
 	// MaxMsgLength indicates the maximum number of bytes the content of a
 	// message may contain.
 	MaxMsgLength() uint64
-	SetMsgHandler(t MsgType, h MsgUnmarshaller)
+	SetMsgHandler(msgType uint64, handler MsgUnmarshaller)
 	MsgToNode(nodeID uint64, msg Msg)
 	MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg)
 }
 
 type Msg interface {
-	MsgType() MsgType
+	MsgType() uint64
 	MsgLength() uint64
 	// WriteContent will send the contents of the message to the given writer;
 	// note that WriteContent may be called multiple times and may be called
@@ -36,5 +29,3 @@ type Msg interface {
 // have ocurred. If error is nil then actualBytesRead must equal
 // desiredBytesToRead.
 type MsgUnmarshaller func(reader io.Reader, desiredBytesToRead uint64) (actualBytesRead uint64, err error)
-
-type MsgType uint64
