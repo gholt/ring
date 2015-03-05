@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	default_chunksize int           = 1024 * 16       // 16Kb
-	default_timeout   time.Duration = 2 * time.Second // 2 seconds
+	DefaultChunksize int           = 1024 * 16       // 16Kb
+	DefaultTimeout   time.Duration = 2 * time.Second // 2 seconds
 )
 
 // TimeoutReader is a bufio.Reader that reads in chunks of ChunkSize and will
@@ -29,26 +29,40 @@ type TimeoutReader struct {
 
 func NewTimeoutReader(conn net.Conn) *TimeoutReader {
 	return &TimeoutReader{
-		Timeout:   default_timeout,
-		ChunkSize: default_chunksize,
-		reader:    bufio.NewReaderSize(conn, default_chunksize),
+		Timeout:   DefaultTimeout,
+		ChunkSize: DefaultChunksize,
+		reader:    bufio.NewReaderSize(conn, DefaultChunksize),
 		conn:      conn,
 	}
 }
 
 func (r *TimeoutReader) Read(p []byte) (n int, err error) {
-	timeout := time.Now().Add(r.Timeout)
-	r.conn.SetReadDeadline(timeout)
+	deadline := false
+	if r.reader.Buffered() == 0 {
+		// Buffer is empty, so we will read from the network
+		timeout := time.Now().Add(r.Timeout)
+		r.conn.SetReadDeadline(timeout)
+		deadline = true
+	}
 	count, err := r.reader.Read(p)
-	r.conn.SetReadDeadline(time.Time{})
+	if deadline {
+		r.conn.SetReadDeadline(time.Time{})
+	}
 	return count, err
 }
 
 func (r *TimeoutReader) ReadByte() (c byte, err error) {
-	timeout := time.Now().Add(r.Timeout)
-	r.conn.SetReadDeadline(timeout)
+	deadline := false
+	if r.reader.Buffered() == 0 {
+		// Buffer is empty, so we will read from the network
+		timeout := time.Now().Add(r.Timeout)
+		r.conn.SetReadDeadline(timeout)
+		deadline = true
+	}
 	b, err := r.reader.ReadByte()
-	r.conn.SetReadDeadline(time.Time{})
+	if deadline {
+		r.conn.SetReadDeadline(time.Time{})
+	}
 	return b, err
 }
 
@@ -64,26 +78,40 @@ type TimeoutWriter struct {
 
 func NewTimeoutWriter(conn net.Conn) *TimeoutWriter {
 	return &TimeoutWriter{
-		Timeout:   default_timeout,
-		ChunkSize: default_chunksize,
-		writer:    bufio.NewWriterSize(conn, default_chunksize),
+		Timeout:   DefaultTimeout,
+		ChunkSize: DefaultChunksize,
+		writer:    bufio.NewWriterSize(conn, DefaultChunksize),
 		conn:      conn,
 	}
 }
 
 func (w *TimeoutWriter) Write(p []byte) (n int, err error) {
-	timeout := time.Now().Add(w.Timeout)
-	w.conn.SetWriteDeadline(timeout)
+	deadline := false
+	if len(p) > w.writer.Available() {
+		// Write will flush(), so make sure we wrap in a timeout
+		timeout := time.Now().Add(w.Timeout)
+		w.conn.SetWriteDeadline(timeout)
+		deadline = true
+	}
 	count, err := w.writer.Write(p)
-	w.conn.SetWriteDeadline(time.Time{})
+	if deadline {
+		w.conn.SetWriteDeadline(time.Time{})
+	}
 	return count, err
 }
 
 func (w *TimeoutWriter) WriteByte(c byte) error {
-	timeout := time.Now().Add(w.Timeout)
-	w.conn.SetReadDeadline(timeout)
+	deadline := false
+	if w.writer.Available() <= 0 {
+		// Write will flush(), so make sure we wrap in a timeout
+		timeout := time.Now().Add(w.Timeout)
+		w.conn.SetReadDeadline(timeout)
+		deadline = true
+	}
 	err := w.writer.WriteByte(c)
-	w.conn.SetWriteDeadline(time.Time{})
+	if deadline {
+		w.conn.SetWriteDeadline(time.Time{})
+	}
 	return err
 }
 
@@ -110,16 +138,16 @@ func NewRingConn(conn net.Conn) *RingConn {
 }
 
 type TCPMsgRing struct {
-	Ring         Ring
-	msg_handlers map[uint64]MsgUnmarshaller
-	conns        map[string]*RingConn
+	Ring        Ring
+	msgHandlers map[uint64]MsgUnmarshaller
+	conns       map[string]*RingConn
 }
 
 func NewTCPMsgRing(r Ring) *TCPMsgRing {
 	return &TCPMsgRing{
-		Ring:         r,
-		msg_handlers: make(map[uint64]MsgUnmarshaller),
-		conns:        make(map[string]*RingConn),
+		Ring:        r,
+		msgHandlers: make(map[uint64]MsgUnmarshaller),
+		conns:       make(map[string]*RingConn),
 	}
 }
 
@@ -137,8 +165,8 @@ func (m *TCPMsgRing) MaxMsgLenght() uint64 {
 	return math.MaxUint64
 }
 
-func (m *TCPMsgRing) SetMsgHandler(msg_type uint64, handler MsgUnmarshaller) {
-	m.msg_handlers[uint64(msg_type)] = handler
+func (m *TCPMsgRing) SetMsgHandler(msgType uint64, handler MsgUnmarshaller) {
+	m.msgHandlers[uint64(msgType)] = handler
 }
 
 func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) {
@@ -154,7 +182,7 @@ func (m *TCPMsgRing) msgToNode(nodeID uint64, msg Msg) {
 	if !ok {
 		// We need to open a connection
 		// TODO: Handle connection timeouts
-		tcpconn, err := net.DialTimeout("tcp", address, default_timeout)
+		tcpconn, err := net.DialTimeout("tcp", address, DefaultTimeout)
 		if err != nil {
 			log.Println("ERR: Trying to connect to", address, err)
 			return
@@ -165,9 +193,15 @@ func (m *TCPMsgRing) msgToNode(nodeID uint64, msg Msg) {
 	conn.Lock() // Make sure we only have one writer at a time
 	// TODO: Handle write timeouts
 	// write the msg type
-	binary.Write(conn.Writer, binary.LittleEndian, msg.MsgType())
+	msgType := msg.MsgType()
+	for i := uint(0); i <= 56; i += 8 {
+		_ = conn.Writer.WriteByte(byte(msgType >> i))
+	}
 	// Write the msg size
-	binary.Write(conn.Writer, binary.LittleEndian, msg.MsgLength())
+	msgLength := msg.MsgLength()
+	for i := uint(0); i <= 56; i += 8 {
+		_ = conn.Writer.WriteByte(byte(msgLength >> i))
+	}
 	// Write the msg
 	length, err := msg.WriteContent(conn.Writer)
 	// Make sure we flush the data
@@ -203,18 +237,18 @@ func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg
 func (m *TCPMsgRing) handle(conn net.Conn) error {
 	reader := NewTimeoutReader(conn)
 	var length uint64
+	var msgType uint64
 	for {
 		// for v.00002 we will store this in the fist 8 bytes
-		var msg_type uint64
-		err := binary.Read(reader, binary.LittleEndian, &msg_type)
+		err := binary.Read(reader, binary.LittleEndian, &msgType)
 		if err != nil {
 			log.Println("Closing connection")
 			conn.Close()
 			return err
 		}
-		handle, ok := m.msg_handlers[msg_type]
+		handle, ok := m.msgHandlers[msgType]
 		if !ok {
-			log.Println("ERR: Unknown message type", msg_type)
+			log.Println("ERR: Unknown message type", msgType)
 			// TODO: Handle errors better
 			log.Println("Closing connection")
 			conn.Close()
@@ -249,11 +283,11 @@ func (m *TCPMsgRing) handle(conn net.Conn) error {
 }
 
 func (m *TCPMsgRing) Listen(addr string) error {
-	tcp_addr, err := net.ResolveTCPAddr("tcp", addr)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
 		return err
 	}
-	server, err := net.ListenTCP("tcp", tcp_addr)
+	server, err := net.ListenTCP("tcp", tcpAddr)
 	if err != nil {
 		return err
 	}

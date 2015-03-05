@@ -11,6 +11,9 @@ import (
 )
 
 // Mock up a bunch of stuff
+var testMsg []byte = []byte("Testing")
+var testStr string = "Testing"
+
 type TestRing struct {
 }
 
@@ -67,7 +70,7 @@ func (m *TestMsg) MsgLength() uint64 {
 }
 
 func (m *TestMsg) WriteContent(writer io.Writer) (uint64, error) {
-	count, err := writer.Write([]byte("Testing"))
+	count, err := writer.Write(testMsg)
 	return uint64(count), err
 }
 
@@ -125,7 +128,7 @@ func Test_NewTCPMsgRing(t *testing.T) {
 func test_stringmarshaller(reader io.Reader, size uint64) (uint64, error) {
 	buf := make([]byte, size)
 	c, err := reader.Read(buf)
-	if string(buf) != "Testing" {
+	if !bytes.Equal(buf, testMsg) {
 		err = errors.New("Unmarshaller didn't read the correct value")
 	}
 	return uint64(c), err
@@ -197,7 +200,7 @@ func Test_handle(t *testing.T) {
 	conn := new(testConn)
 	binary.Write(&conn.readBuf, binary.LittleEndian, uint64(1))
 	binary.Write(&conn.readBuf, binary.LittleEndian, uint64(7))
-	conn.readBuf.WriteString("Testing")
+	conn.readBuf.WriteString(testStr)
 	r := TestRing{}
 	msgring := NewTCPMsgRing(&r)
 	msgring.SetMsgHandler(1, test_stringmarshaller)
@@ -227,7 +230,7 @@ func Test_MsgToNode(t *testing.T) {
 	}
 	msgcontent := make([]byte, 7)
 	conn.writeBuf.Read(msgcontent)
-	if !bytes.Equal(msgcontent, []byte("Testing")) {
+	if !bytes.Equal(msgcontent, testMsg) {
 		t.Error("Incorrect message contents")
 	}
 }
@@ -254,7 +257,7 @@ func Test_MsgToNodeChan(t *testing.T) {
 	}
 	msgcontent := make([]byte, 7)
 	conn.writeBuf.Read(msgcontent)
-	if !bytes.Equal(msgcontent, []byte("Testing")) {
+	if !bytes.Equal(msgcontent, testMsg) {
 		t.Error("Incorrect message contents")
 	}
 }
@@ -281,7 +284,7 @@ func Test_MsgToOtherReplicas(t *testing.T) {
 		}
 		msgcontent := make([]byte, 7)
 		conn.writeBuf.Read(msgcontent)
-		if !bytes.Equal(msgcontent, []byte("Testing")) {
+		if !bytes.Equal(msgcontent, testMsg) {
 			t.Error("Incorrect message contents")
 		}
 	}
