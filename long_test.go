@@ -8,7 +8,13 @@ import (
 	"time"
 )
 
-const RUN_LONG = false
+var RUN_LONG bool = false
+
+func init() {
+	if os.Getenv("github_com_gholt_ring_long_test") == "true" {
+		RUN_LONG = true
+	}
+}
 
 func TestNewRingBuilder(t *testing.T) {
 	if !RUN_LONG {
