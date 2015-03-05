@@ -161,7 +161,7 @@ func (m *TCPMsgRing) GetNodesForPart(ringVersion int64, partition uint32) []uint
 	return []uint64{uint64(1), uint64(2)}
 }
 
-func (m *TCPMsgRing) MaxMsgLenght() uint64 {
+func (m *TCPMsgRing) MaxMsgLength() uint64 {
 	return math.MaxUint64
 }
 
