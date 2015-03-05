@@ -3,29 +3,31 @@ package ring
 import "testing"
 
 type testNode struct {
-	id       uint64
-	capacity uint32
-	inactive bool
+	id         uint64
+	inactive   bool
+	capacity   uint32
+	tierValues []int
+	address    string
 }
 
-func (n *testNode) NodeID() uint64 {
-	return n.id
+func (node *testNode) NodeID() uint64 {
+	return node.id
 }
 
-func (n *testNode) Active() bool {
-	return !n.inactive
+func (node *testNode) Active() bool {
+	return !node.inactive
 }
 
-func (n *testNode) Capacity() uint32 {
-	return n.capacity
+func (node *testNode) Capacity() uint32 {
+	return node.capacity
 }
 
-func (n *testNode) TierValues() []int {
-	return nil
+func (node *testNode) TierValues() []int {
+	return node.tierValues
 }
 
-func (n *testNode) Address() string {
-	return ""
+func (node *testNode) Address() string {
+	return node.address
 }
 
 func TestRingVersion(t *testing.T) {

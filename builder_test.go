@@ -10,34 +10,6 @@ import (
 
 const RUN_LONG = false
 
-type TestNode struct {
-	nodeID     uint64
-	active     bool
-	capacity   uint32
-	tierValues []int
-	address    string
-}
-
-func (node *TestNode) NodeID() uint64 {
-	return node.nodeID
-}
-
-func (node *TestNode) Active() bool {
-	return node.active
-}
-
-func (node *TestNode) Capacity() uint32 {
-	return node.capacity
-}
-
-func (node *TestNode) TierValues() []int {
-	return node.tierValues
-}
-
-func (node *TestNode) Address() string {
-	return node.address
-}
-
 func TestNewRingBuilder(t *testing.T) {
 	if !RUN_LONG {
 		return
@@ -68,7 +40,7 @@ func helperTestNewRingBuilder(t *testing.T, zones int) {
 		for server := 0; server < 50; server++ {
 			for device := 0; device < 2; device++ {
 				nodeID++
-				builder.Add(&TestNode{nodeID: nodeID, active: true, capacity: capacity, tierValues: []int{server, zone}})
+				builder.Add(&testNode{id: nodeID, capacity: capacity, tierValues: []int{server, zone}})
 				//capacity++
 				//if capacity > 100 {
 				//	capacity = 1
@@ -79,11 +51,11 @@ func helperTestNewRingBuilder(t *testing.T, zones int) {
 	start := time.Now()
 	stats := builder.Ring(0).Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
-	builder.Node(25).(*TestNode).active = false
+	builder.Node(25).(*testNode).inactive = true
 	start = time.Now()
 	stats = builder.Ring(0).Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
-	builder.Node(20).(*TestNode).capacity = 75
+	builder.Node(20).(*testNode).capacity = 75
 	start = time.Now()
 	stats = builder.Ring(0).Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
