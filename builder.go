@@ -94,7 +94,7 @@ func (b *Builder) Ring(localNodeID uint64) Ring {
 	if b.resizeIfNeeded() {
 		b.version = time.Now().UnixNano()
 	}
-	if newRebalanceContext(b).rebalance() {
+	if newRebalancer(b).rebalance() {
 		b.version = time.Now().UnixNano()
 	}
 	localNodeIndex := int32(-1)

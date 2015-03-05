@@ -5,9 +5,8 @@ import (
 	"sort"
 )
 
-type rebalanceContext struct {
+type rebalancer struct {
 	builder                  *Builder
-	first                    bool
 	nodeIndexToDesire        []int32
 	nodeIndexesByDesire      []int32
 	nodeIndexToUsed          []bool
@@ -16,15 +15,15 @@ type rebalanceContext struct {
 	tierToNodeIndexToTierSep [][]*tierSeparation
 }
 
-func newRebalanceContext(builder *Builder) *rebalanceContext {
-	context := &rebalanceContext{builder: builder}
+func newRebalancer(builder *Builder) *rebalancer {
+	context := &rebalancer{builder: builder}
 	context.initTierCount()
 	context.initNodeDesires()
 	context.initTierInfo()
 	return context
 }
 
-func (context *rebalanceContext) initTierCount() {
+func (context *rebalancer) initTierCount() {
 	context.tierCount = 0
 	for _, node := range context.builder.nodes {
 		if !node.Active() {
@@ -37,7 +36,7 @@ func (context *rebalanceContext) initTierCount() {
 	}
 }
 
-func (context *rebalanceContext) initNodeDesires() {
+func (context *rebalancer) initNodeDesires() {
 	totalCapacity := uint64(0)
 	for _, node := range context.builder.nodes {
 		if node.Active() {
@@ -45,12 +44,10 @@ func (context *rebalanceContext) initNodeDesires() {
 		}
 	}
 	nodeIndexToPartitionCount := make([]int32, len(context.builder.nodes))
-	context.first = true
 	for _, partitionToNodeIndex := range context.builder.replicaToPartitionToNodeIndex {
 		for _, nodeIndex := range partitionToNodeIndex {
 			if nodeIndex >= 0 {
 				nodeIndexToPartitionCount[nodeIndex]++
-				context.first = false
 			}
 		}
 	}
@@ -76,7 +73,7 @@ func (context *rebalanceContext) initNodeDesires() {
 	context.nodeIndexToUsed = make([]bool, len(context.builder.nodes))
 }
 
-func (context *rebalanceContext) initTierInfo() {
+func (context *rebalancer) initTierInfo() {
 	context.tierToNodeIndexToTierSep = make([][]*tierSeparation, context.tierCount)
 	context.tierToTierSeps = make([][]*tierSeparation, context.tierCount)
 	for tier := 0; tier < context.tierCount; tier++ {
@@ -129,70 +126,7 @@ func (context *rebalanceContext) initTierInfo() {
 	}
 }
 
-func (context *rebalanceContext) rebalance() bool {
-	if context.first {
-		context.firstRebalance()
-		return true
-	}
-	return context.subsequentRebalance()
-}
-
-// firstRebalance is much simpler than what we have to do to rebalance existing
-// assignments. Here, we just assign each partition in order, giving each
-// replica of that partition to the next most-desired node, keeping in mind
-// tier separation preferences.
-func (context *rebalanceContext) firstRebalance() {
-	replicaToPartitionToNodeIndex := context.builder.replicaToPartitionToNodeIndex
-	maxReplica := len(replicaToPartitionToNodeIndex) - 1
-	maxPartition := len(replicaToPartitionToNodeIndex[0]) - 1
-	maxTier := context.tierCount - 1
-	nodeIndexToUsed := context.nodeIndexToUsed
-	tierToNodeIndexToTierSep := context.tierToNodeIndexToTierSep
-
-	usedNodeIndexes := make([]int32, maxReplica+1)
-	tierToUsedTierSeps := make([][]*tierSeparation, maxTier+1)
-	for tier := maxTier; tier >= 0; tier-- {
-		tierToUsedTierSeps[tier] = make([]*tierSeparation, maxReplica+1)
-	}
-	for partition := maxPartition; partition >= 0; partition-- {
-		// Clear the previous partition's used flags.
-		for replica := maxReplica; replica >= 0; replica-- {
-			if usedNodeIndexes[replica] != -1 {
-				nodeIndexToUsed[usedNodeIndexes[replica]] = false
-				usedNodeIndexes[replica] = -1
-			}
-		}
-		for tier := maxTier; tier >= 0; tier-- {
-			for replica := maxReplica; replica >= 0; replica-- {
-				if tierToUsedTierSeps[tier][replica] != nil {
-					tierToUsedTierSeps[tier][replica].used = false
-				}
-				tierToUsedTierSeps[tier][replica] = nil
-			}
-		}
-		// Now assign this partition's replicas.
-		for replica := maxReplica; replica >= 0; replica-- {
-			nodeIndex := context.bestNodeIndex()
-			if nodeIndex < 0 {
-				nodeIndex = context.nodeIndexesByDesire[0]
-			}
-			replicaToPartitionToNodeIndex[replica][partition] = nodeIndex
-			context.changeDesire(nodeIndex, false)
-			nodeIndexToUsed[nodeIndex] = true
-			usedNodeIndexes[replica] = nodeIndex
-			for tier := maxTier; tier >= 0; tier-- {
-				tierSep := tierToNodeIndexToTierSep[tier][nodeIndex]
-				tierSep.used = true
-				tierToUsedTierSeps[tier][replica] = tierSep
-			}
-		}
-	}
-}
-
-// subsequentRebalance is much more complicated than firstRebalance. It makes
-// multiple passes based on different scenarios (deactivated nodes, redundant
-// assignments, changing node weights) and reassigns replicas as it can.
-func (context *rebalanceContext) subsequentRebalance() bool {
+func (context *rebalancer) rebalance() bool {
 	altered := false
 	replicaToPartitionToNodeIndex := context.builder.replicaToPartitionToNodeIndex
 	maxReplica := len(replicaToPartitionToNodeIndex) - 1
@@ -449,7 +383,7 @@ OverweightLoop:
 	return altered
 }
 
-func (context *rebalanceContext) bestNodeIndex() int32 {
+func (context *rebalancer) bestNodeIndex() int32 {
 	bestNodeIndex := int32(-1)
 	bestDesire := int32(math.MinInt32)
 	nodeIndexToDesire := context.nodeIndexToDesire
@@ -486,7 +420,7 @@ func (context *rebalanceContext) bestNodeIndex() int32 {
 	return -1
 }
 
-func (context *rebalanceContext) changeDesire(nodeIndex int32, increment bool) {
+func (context *rebalancer) changeDesire(nodeIndex int32, increment bool) {
 	nodeIndexToDesire := context.nodeIndexToDesire
 	nodeIndexesByDesire := context.nodeIndexesByDesire
 	prev := 0
