@@ -238,6 +238,9 @@ func (context *rebalanceContext) subsequentRebalance() bool {
 	markUsed := func(partition int) {
 		for replica := maxReplica; replica >= 0; replica-- {
 			nodeIndex := replicaToPartitionToNodeIndex[replica][partition]
+			if nodeIndex < 0 {
+				continue
+			}
 			usedNodeIndexes[replica] = nodeIndex
 			nodeIndexToUsed[nodeIndex] = true
 			for tier := maxTier; tier >= 0; tier-- {
@@ -245,6 +248,27 @@ func (context *rebalanceContext) subsequentRebalance() bool {
 				tierSep.used = true
 				tierToUsedTierSeps[tier][replica] = tierSep
 			}
+		}
+	}
+
+	// Assign any partitions assigned as -1 (can happen with a node removed
+	// with the Remove() method).
+	for replica := maxReplica; replica >= 0; replica-- {
+		partitionToNodeIndex := replicaToPartitionToNodeIndex[replica]
+		for partition := maxPartition; partition >= 0; partition-- {
+			if partitionToNodeIndex[partition] >= 0 {
+				continue
+			}
+			clearUsed()
+			markUsed(partition)
+			nodeIndex := context.bestNodeIndex()
+			if nodeIndex < 0 {
+				nodeIndex = context.nodeIndexesByDesire[0]
+			}
+			partitionToNodeIndex[partition] = nodeIndex
+			context.changeDesire(nodeIndex, false)
+			partitionToMovementsLeft[partition]--
+			altered = true
 		}
 	}
 

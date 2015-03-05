@@ -106,8 +106,8 @@ func (ring *ringImpl) ResponsibleNodes(partition uint32) []Node {
 // Node is a single item assigned to a ring, usually a single device like a
 // disk drive.
 type Node interface {
-	// NodeID uniquely identifies this node; this id is all that is retained
-	// when a Builder returns a Ring representation of the data.
+	// NodeID uniquely identifies this node; it must be non-zero as zero is
+	// used to indicate "no node".
 	NodeID() uint64
 	Active() bool
 	// Capacity indicates the amount of data that should be assigned to a node

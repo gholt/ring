@@ -2,25 +2,27 @@ package ring
 
 import "time"
 
-// 1 << 23 is 8388608 which, with 3 replicas, would use about 100M of memory
-const _MAX_PARTITION_COUNT = 1 << 23
-
 type Builder struct {
 	version                       int64
 	nodes                         []Node
 	partitionBitCount             uint16
 	replicaToPartitionToNodeIndex [][]int32
 	pointsAllowed                 int
+	maxPartitionBitCount          uint16
 }
 
 func NewBuilder(replicaCount int) *Builder {
 	b := &Builder{
-		nodes: make([]Node, 0),
+		nodes:                         make([]Node, 0),
+		partitionBitCount:             1,
 		replicaToPartitionToNodeIndex: make([][]int32, replicaCount),
 		pointsAllowed:                 1,
+		// 1 << 23 is 8388608 which, with 3 replicas, would use about 100M of
+		// memory.
+		maxPartitionBitCount: 23,
 	}
 	for replica := 0; replica < replicaCount; replica++ {
-		b.replicaToPartitionToNodeIndex[replica] = []int32{-1}
+		b.replicaToPartitionToNodeIndex[replica] = []int32{-1, -1}
 	}
 	return b
 }
@@ -36,15 +38,39 @@ func (b *Builder) SetPointsAllowed(points int) {
 	b.pointsAllowed = points
 }
 
+func (b *Builder) MaxPartitionBitCount() uint16 {
+	return b.maxPartitionBitCount
+}
+
+func (b *Builder) SetMaxPartitionBitCount(count uint16) {
+	b.maxPartitionBitCount = count
+}
+
 func (b *Builder) Add(n Node) {
 	b.nodes = append(b.nodes, n)
 }
 
+// Remove will remove the node from the list of nodes for this builder/ring.
+// Note that this can be relatively expensive as all nodes that had been added
+// after the removed node had been originally added will have their internal
+// indexes shifted down one and all the replica-to-partition-to-node indexing
+// will have to be updated, as well as clearing any assignments that were to
+// the removed node. Normally it is better to just leave a "dead" node in place
+// and simply set it as not Active().
 func (b *Builder) Remove(nodeID uint64) {
 	for i, node := range b.nodes {
 		if node.NodeID() == nodeID {
 			copy(b.nodes[i:], b.nodes[i+1:])
 			b.nodes = b.nodes[:len(b.nodes)-1]
+			for _, partitionToNodeIndex := range b.replicaToPartitionToNodeIndex {
+				for j := len(partitionToNodeIndex) - 1; j >= 0; j-- {
+					if partitionToNodeIndex[j] == int32(i) {
+						partitionToNodeIndex[j] = -1
+					} else if partitionToNodeIndex[j] > int32(i) {
+						partitionToNodeIndex[j]--
+					}
+				}
+			}
 			break
 		}
 	}
@@ -71,7 +97,7 @@ func (b *Builder) Ring(localNodeID uint64) Ring {
 	if newRebalanceContext(b).rebalance() {
 		b.version = time.Now().UnixNano()
 	}
-	localNodeIndex := int32(0)
+	localNodeIndex := int32(-1)
 	nodes := make([]Node, len(b.nodes))
 	copy(nodes, b.nodes)
 	for i, node := range nodes {
@@ -94,6 +120,9 @@ func (b *Builder) Ring(localNodeID uint64) Ring {
 }
 
 func (b *Builder) resizeIfNeeded() bool {
+	if b.partitionBitCount >= b.maxPartitionBitCount {
+		return false
+	}
 	replicaCount := len(b.replicaToPartitionToNodeIndex)
 	// Calculate the partition count needed.
 	// Each node is examined to see how much under or overweight it would be
@@ -114,11 +143,14 @@ func (b *Builder) resizeIfNeeded() bool {
 		}
 		desiredPartitionCount := float64(partitionCount) * float64(replicaCount) * (float64(node.Capacity()) / float64(totalCapacity))
 		under := (desiredPartitionCount - float64(int(desiredPartitionCount))) / desiredPartitionCount
-		over := (float64(int(desiredPartitionCount)+1) - desiredPartitionCount) / desiredPartitionCount
+		over := float64(0)
+		if desiredPartitionCount > float64(int(desiredPartitionCount)) {
+			over = (float64(int(desiredPartitionCount)+1) - desiredPartitionCount) / desiredPartitionCount
+		}
 		if under > pointsAllowed || over > pointsAllowed {
 			partitionCount <<= 1
 			partitionBitCount++
-			if partitionCount >= _MAX_PARTITION_COUNT {
+			if partitionBitCount == b.maxPartitionBitCount {
 				break
 			}
 		}
