@@ -4,14 +4,14 @@ var PRETEND_BUILDER *Builder
 
 type pretendNode struct {
 	id         uint64
-	active   bool
+	active     bool
 	capacity   uint32
 	tierValues []int
 	address    string
 }
 
 func newPretendNode(id uint64, address string) *pretendNode {
-    return &pretendNode{id:id, active:true,capacity:1,address:address}
+	return &pretendNode{id: id, active: true, capacity: 1, address: address}
 }
 
 func (node *pretendNode) NodeID() uint64 {
@@ -35,10 +35,10 @@ func (node *pretendNode) Address() string {
 }
 
 func init() {
-    PRETEND_BUILDER = NewBuilder(3)
-    PRETEND_BUILDER.Add(newPretendNode(1, "1.2.3.4:21212"))
-    PRETEND_BUILDER.Add(newPretendNode(2, "5.6.7.8:21212"))
-    PRETEND_BUILDER.Add(newPretendNode(3, "9.10.11.12:21211"))
-    // Example to get a ring with the local node bound to the first node:
-    // ring := PRETEND_BUILDER.Ring(1)
+	PRETEND_BUILDER = NewBuilder(3)
+	PRETEND_BUILDER.Add(newPretendNode(1, "1.2.3.4:21212"))
+	PRETEND_BUILDER.Add(newPretendNode(2, "5.6.7.8:21212"))
+	PRETEND_BUILDER.Add(newPretendNode(3, "9.10.11.12:21211"))
+	// Example to get a ring with the local node bound to the first node:
+	// ring := PRETEND_BUILDER.Ring(1)
 }
