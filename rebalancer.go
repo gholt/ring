@@ -36,6 +36,7 @@ func newRebalancer(builder *Builder) *rebalancer {
 	context.initMaxTier()
 	context.initNodeDesires()
 	context.initTierInfo()
+	context.initMovementsLeft()
 	context.usedNodeIndexes = make([]int32, context.maxReplica+1)
 	context.tierToUsedTierSeps = make([][]*tierSeparation, context.maxTier+1)
 	for tier := context.maxTier; tier >= 0; tier-- {
@@ -90,8 +91,9 @@ func (context *rebalancer) initNodeDesires() {
 		nodeIndexToDesire: context.nodeIndexToDesire,
 	})
 	context.nodeIndexToUsed = make([]bool, len(context.builder.nodes))
-	// Track how many times we can move replicas for a given partition; we want
-	// to leave the majority of a partition's replicas in place, if possible.
+}
+
+func (context *rebalancer) initMovementsLeft() {
 	movementsPerPartition := byte(context.maxReplica / 2)
 	if movementsPerPartition < 1 {
 		movementsPerPartition = 1
@@ -99,8 +101,12 @@ func (context *rebalancer) initNodeDesires() {
 	context.partitionToMovementsLeft = make([]byte, context.maxPartition+1)
 	for partition := context.maxPartition; partition >= 0; partition-- {
 		context.partitionToMovementsLeft[partition] = movementsPerPartition
+		for replica := context.maxReplica; replica >= 0; replica-- {
+			if context.builder.replicaToPartitionToLastMove[replica][partition] < context.builder.moveWait {
+				context.partitionToMovementsLeft[partition]--
+			}
+		}
 	}
-
 }
 
 func (context *rebalancer) initTierInfo() {
@@ -336,6 +342,7 @@ func (context *rebalancer) assignUnassigned() {
 			partitionToNodeIndex[partition] = nodeIndex
 			context.changeDesire(nodeIndex, false)
 			context.partitionToMovementsLeft[partition]--
+			context.builder.replicaToPartitionToLastMove[replica][partition] = 0
 			context.altered = true
 		}
 	}
@@ -363,6 +370,7 @@ func (context *rebalancer) reassignDeactivated() {
 				partitionToNodeIndex[partition] = nodeIndex
 				context.changeDesire(nodeIndex, false)
 				context.partitionToMovementsLeft[partition]--
+				context.builder.replicaToPartitionToLastMove[replica][partition] = 0
 				context.altered = true
 			}
 		}
@@ -383,6 +391,9 @@ DupLoopPartition:
 		}
 	DupLoopReplica:
 		for replica := context.maxReplica; replica > 0; replica-- {
+			if context.builder.replicaToPartitionToLastMove[replica][partition] < context.builder.moveWait {
+				continue
+			}
 			for replicaB := replica - 1; replicaB >= 0; replicaB-- {
 				if context.builder.replicaToPartitionToNodeIndex[replica][partition] == context.builder.replicaToPartitionToNodeIndex[replicaB][partition] {
 					context.clearUsed()
@@ -401,6 +412,7 @@ DupLoopPartition:
 					context.builder.replicaToPartitionToNodeIndex[replica][partition] = nodeIndex
 					context.changeDesire(nodeIndex, false)
 					context.partitionToMovementsLeft[partition]--
+					context.builder.replicaToPartitionToLastMove[replica][partition] = 0
 					context.altered = true
 					if context.partitionToMovementsLeft[partition] < 1 {
 						continue DupLoopPartition
@@ -420,6 +432,9 @@ func (context *rebalancer) reassignedSameTierDups() {
 			}
 		DupTierLoopReplica:
 			for replica := context.maxReplica; replica > 0; replica-- {
+				if context.builder.replicaToPartitionToLastMove[replica][partition] < context.builder.moveWait {
+					continue
+				}
 				for replicaB := replica - 1; replicaB >= 0; replicaB-- {
 					if context.tierToNodeIndexToTierSep[tier][context.builder.replicaToPartitionToNodeIndex[replica][partition]] == context.tierToNodeIndexToTierSep[tier][context.builder.replicaToPartitionToNodeIndex[replicaB][partition]] {
 						context.clearUsed()
@@ -439,6 +454,7 @@ func (context *rebalancer) reassignedSameTierDups() {
 						context.builder.replicaToPartitionToNodeIndex[replica][partition] = nodeIndex
 						context.changeDesire(nodeIndex, false)
 						context.partitionToMovementsLeft[partition]--
+						context.builder.replicaToPartitionToLastMove[replica][partition] = 0
 						context.altered = true
 						if context.partitionToMovementsLeft[partition] < 1 {
 							continue DupTierLoopPartition
@@ -472,7 +488,7 @@ OverweightLoop:
 		for replica := context.maxReplica; replica >= 0; replica-- {
 			partitionToNodeIndex := context.builder.replicaToPartitionToNodeIndex[replica]
 			for partition := context.maxPartition; partition >= 0; partition-- {
-				if context.partitionToMovementsLeft[partition] < 1 || partitionToNodeIndex[partition] != overweightNodeIndex {
+				if partitionToNodeIndex[partition] != overweightNodeIndex || context.partitionToMovementsLeft[partition] < 1 || context.builder.replicaToPartitionToLastMove[replica][partition] < context.builder.moveWait {
 					continue
 				}
 				context.clearUsed()
@@ -485,6 +501,7 @@ OverweightLoop:
 				partitionToNodeIndex[partition] = nodeIndex
 				context.changeDesire(nodeIndex, false)
 				context.partitionToMovementsLeft[partition]--
+				context.builder.replicaToPartitionToLastMove[replica][partition] = 0
 				context.altered = true
 				if context.nodeIndexToDesire[overweightNodeIndex] >= 0 {
 					visited[overweightNodeIndex] = true
@@ -497,7 +514,7 @@ OverweightLoop:
 		for replica := context.maxReplica; replica >= 0; replica-- {
 			partitionToNodeIndex := context.builder.replicaToPartitionToNodeIndex[replica]
 			for partition := context.maxPartition; partition >= 0; partition-- {
-				if context.partitionToMovementsLeft[partition] < 1 || partitionToNodeIndex[partition] != overweightNodeIndex {
+				if partitionToNodeIndex[partition] != overweightNodeIndex || context.partitionToMovementsLeft[partition] < 1 || context.builder.replicaToPartitionToLastMove[replica][partition] < context.builder.moveWait {
 					continue
 				}
 				context.clearUsed()
@@ -510,6 +527,7 @@ OverweightLoop:
 				partitionToNodeIndex[partition] = nodeIndex
 				context.changeDesire(nodeIndex, false)
 				context.partitionToMovementsLeft[partition]--
+				context.builder.replicaToPartitionToLastMove[replica][partition] = 0
 				context.altered = true
 				if context.nodeIndexToDesire[overweightNodeIndex] >= 0 {
 					visited[overweightNodeIndex] = true

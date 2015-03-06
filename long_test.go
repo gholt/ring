@@ -2,6 +2,7 @@ package ring
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"runtime/pprof"
 	"testing"
@@ -55,14 +56,17 @@ func helperTestNewRingBuilder(t *testing.T, zones int) {
 		}
 	}
 	start := time.Now()
+	builder.PretendMoveElapsed(math.MaxUint16)
 	stats := builder.Ring(0).Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 	builder.Node(25).(*testNode).inactive = true
 	start = time.Now()
+	builder.PretendMoveElapsed(math.MaxUint16)
 	stats = builder.Ring(0).Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 	builder.Node(20).(*testNode).capacity = 75
 	start = time.Now()
+	builder.PretendMoveElapsed(math.MaxUint16)
 	stats = builder.Ring(0).Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 }

@@ -1,14 +1,19 @@
 package ring
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 type Builder struct {
 	version                       int64
 	nodes                         []Node
 	partitionBitCount             uint16
 	replicaToPartitionToNodeIndex [][]int32
+	replicaToPartitionToLastMove  [][]uint16
 	pointsAllowed                 int
 	maxPartitionBitCount          uint16
+	moveWait                      uint16
 }
 
 func NewBuilder(replicaCount int) *Builder {
@@ -16,13 +21,16 @@ func NewBuilder(replicaCount int) *Builder {
 		nodes:                         make([]Node, 0),
 		partitionBitCount:             1,
 		replicaToPartitionToNodeIndex: make([][]int32, replicaCount),
+		replicaToPartitionToLastMove:  make([][]uint16, replicaCount),
 		pointsAllowed:                 1,
 		// 1 << 23 is 8388608 which, with 3 replicas, would use about 100M of
 		// memory.
 		maxPartitionBitCount: 23,
+		moveWait:             60, // 1 hour default
 	}
 	for replica := 0; replica < replicaCount; replica++ {
 		b.replicaToPartitionToNodeIndex[replica] = []int32{-1, -1}
+		b.replicaToPartitionToLastMove[replica] = []uint16{math.MaxUint16, math.MaxUint16}
 	}
 	return b
 }
@@ -44,6 +52,28 @@ func (b *Builder) MaxPartitionBitCount() uint16 {
 
 func (b *Builder) SetMaxPartitionBitCount(count uint16) {
 	b.maxPartitionBitCount = count
+}
+
+// MoveWait is the number of minutes that should elapse before reassigning a
+// replica of a partition again.
+func (b *Builder) MoveWait() uint16 {
+	return b.moveWait
+}
+
+func (b *Builder) SetMoveWait(minutes uint16) {
+	b.moveWait = minutes
+}
+
+func (b *Builder) PretendMoveElapsed(minutes uint16) {
+	for _, partitionToLastMove := range b.replicaToPartitionToLastMove {
+		for partition := len(partitionToLastMove) - 1; partition >= 0; partition-- {
+			if math.MaxUint16-partitionToLastMove[partition] > minutes {
+				partitionToLastMove[partition] = math.MaxUint16
+			} else {
+				partitionToLastMove[partition] += minutes
+			}
+		}
+	}
 }
 
 func (b *Builder) Add(n Node) {
@@ -91,11 +121,22 @@ func (b *Builder) Node(nodeID uint64) Node {
 // The localNodeID is so the Ring instance can provide local responsibility
 // information; you can give 0 if you don't intend to use those features.
 func (b *Builder) Ring(localNodeID uint64) Ring {
+	originalVersion := b.version
 	if b.resizeIfNeeded() {
 		b.version = time.Now().UnixNano()
 	}
 	if newRebalancer(b).rebalance() {
 		b.version = time.Now().UnixNano()
+	}
+	if b.version != originalVersion {
+		d := (b.version - originalVersion) / 6000000000 // minutes
+		if d > 0 {
+			d16 := uint16(0)
+			if d < math.MaxUint16 {
+				d16 = uint16(d)
+			}
+			b.PretendMoveElapsed(d16)
+		}
 	}
 	localNodeIndex := int32(-1)
 	nodes := make([]Node, len(b.nodes))
@@ -160,10 +201,13 @@ func (b *Builder) resizeIfNeeded() bool {
 		shift := partitionBitCount - b.partitionBitCount
 		for replica := 0; replica < replicaCount; replica++ {
 			partitionToNodeIndex := make([]int32, partitionCount)
+			partitionToLastMove := make([]uint16, partitionCount)
 			for partition := 0; partition < partitionCount; partition++ {
 				partitionToNodeIndex[partition] = b.replicaToPartitionToNodeIndex[replica][partition>>shift]
+				partitionToLastMove[partition] = b.replicaToPartitionToLastMove[replica][partition>>shift]
 			}
 			b.replicaToPartitionToNodeIndex[replica] = partitionToNodeIndex
+			b.replicaToPartitionToLastMove[replica] = partitionToLastMove
 		}
 		b.partitionBitCount = partitionBitCount
 		return true
