@@ -11,52 +11,16 @@ import (
 )
 
 // Mock up a bunch of stuff
+
+func newCommsTestRing() *Ring {
+	b := NewBuilder(3)
+	b.Add(&Node{ID: 1, Address: "127.0.0.1:9999"})
+	b.Add(&Node{ID: 2, Address: "127.0.0.1:9999"})
+	return b.Ring(1)
+}
+
 var testMsg []byte = []byte("Testing")
 var testStr string = "Testing"
-
-type TestRing struct {
-}
-
-func (r *TestRing) Version() int64 {
-	return int64(1)
-}
-
-func (r *TestRing) PartitionBitCount() uint16 {
-	return uint16(0)
-}
-
-func (r *TestRing) ReplicaCount() int {
-	return 0
-}
-
-func (r *TestRing) Nodes() []Node {
-	return []Node{&testNode{id: 1}}
-}
-
-func (r *TestRing) Node(id uint64) Node {
-	for _, node := range r.Nodes() {
-		if node.NodeID() == id {
-			return node
-		}
-	}
-	return nil
-}
-
-func (r *TestRing) LocalNode() Node {
-	return &testNode{id: 1}
-}
-
-func (r *TestRing) Responsible(part uint32) bool {
-	return true
-}
-
-func (r *TestRing) ResponsibleNodes(part uint32) []Node {
-	return []Node{&testNode{id: 1}}
-}
-
-func (r *TestRing) Stats() *RingStats {
-	return nil
-}
 
 type TestMsg struct {
 }
@@ -118,9 +82,9 @@ func (c *testConn) Close() error {
 /***** Actual tests start here *****/
 
 func Test_NewTCPMsgRing(t *testing.T) {
-	r := TestRing{}
-	msgring := NewTCPMsgRing(&r)
-	if msgring.Ring.LocalNode().NodeID() != 1 {
+	r := newCommsTestRing()
+	msgring := NewTCPMsgRing(r)
+	if msgring.Ring().LocalNode().ID != 1 {
 		t.Error("Error initializing TCPMsgRing")
 	}
 }
@@ -201,8 +165,8 @@ func Test_handle(t *testing.T) {
 	binary.Write(&conn.readBuf, binary.LittleEndian, uint64(1))
 	binary.Write(&conn.readBuf, binary.LittleEndian, uint64(7))
 	conn.readBuf.WriteString(testStr)
-	r := TestRing{}
-	msgring := NewTCPMsgRing(&r)
+	r := newCommsTestRing()
+	msgring := NewTCPMsgRing(r)
 	msgring.SetMsgHandler(1, test_stringmarshaller)
 	err := msgring.handle(conn)
 	if err != nil && err != io.EOF {
@@ -212,9 +176,9 @@ func Test_handle(t *testing.T) {
 
 func Test_MsgToNode(t *testing.T) {
 	conn := new(testConn)
-	r := TestRing{}
-	msgring := NewTCPMsgRing(&r)
-	addr := msgring.GetAddressForNode(uint64(1))
+	r := newCommsTestRing()
+	msgring := NewTCPMsgRing(r)
+	addr := msgring.ring.Node(uint64(1)).Address
 	msgring.conns[addr] = NewRingConn(conn)
 	msg := TestMsg{}
 	msgring.MsgToNode(uint64(1), &msg)
@@ -237,9 +201,9 @@ func Test_MsgToNode(t *testing.T) {
 
 func Test_MsgToNodeChan(t *testing.T) {
 	conn := new(testConn)
-	r := TestRing{}
-	msgring := NewTCPMsgRing(&r)
-	addr := msgring.GetAddressForNode(uint64(1))
+	r := newCommsTestRing()
+	msgring := NewTCPMsgRing(r)
+	addr := msgring.ring.Node(uint64(1)).Address
 	msgring.conns[addr] = NewRingConn(conn)
 	msg := TestMsg{}
 	retch := make(chan struct{})
@@ -264,9 +228,9 @@ func Test_MsgToNodeChan(t *testing.T) {
 
 func Test_MsgToOtherReplicas(t *testing.T) {
 	conn := new(testConn)
-	r := TestRing{}
-	msgring := NewTCPMsgRing(&r)
-	addr := msgring.GetAddressForNode(uint64(1))
+	r := newCommsTestRing()
+	msgring := NewTCPMsgRing(r)
+	addr := msgring.ring.Node(uint64(1)).Address
 	msgring.conns[addr] = NewRingConn(conn)
 	msg := TestMsg{}
 	msgring.MsgToOtherReplicas(int64(1), uint32(1), &msg)

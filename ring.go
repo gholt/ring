@@ -7,83 +7,66 @@
 // communication between nodes in the ring.
 package ring
 
-type Ring interface {
-	// Version can indicate changes in ring data; for example, if a server is
-	// currently working with one version of ring data and receives requests
-	// that are based on a lesser version of ring data, it can ignore those
-	// requests or send an "obsoleted" response or something along those lines.
-	// Similarly, if the server receives requests for a greater version of ring
-	// data, it can ignore those requests or try to obtain a newer ring
-	// version.
-	Version() int64
-	// PartitionBitCount is the number of bits that can be used to determine a
-	// partition number for the current data in the ring. For example, to
-	// convert a uint64 hash value into a partition number you could use
-	// hashValue >> (64 - ring.PartitionBitCount()).
-	PartitionBitCount() uint16
-	ReplicaCount() int
-	// Nodes returns a list of nodes referenced by the ring.
-	Nodes() []Node
-	Node(id uint64) Node
-	// LocalNode contains the information for the local node; determining which
-	// ring partitions/replicas the local node is responsible for as well as
-	// being used to direct message delivery. If this instance of the ring has
-	// no local node information, nil will be returned.
-	LocalNode() Node
-	// Responsible will return true if the local node is considered responsible
-	// for a replica of the partition given.
-	Responsible(partition uint32) bool
-	// ResponsibleNodes will return a list of nodes for considered responsible
-	// for the replicas of the partition given.
-	ResponsibleNodes(partition uint32) []Node
-	// Stats gives information about the ring and its health; the MaxUnder and
-	// MaxOver values specifically indicate how balanced the ring is.
-	Stats() *RingStats
-}
-
-type ringImpl struct {
+type Ring struct {
 	version                       int64
 	localNodeIndex                int32
 	partitionBitCount             uint16
-	nodes                         []Node
+	nodes                         []*Node
 	replicaToPartitionToNodeIndex [][]int32
 }
 
-func (ring *ringImpl) Version() int64 {
+// Version can indicate changes in ring data; for example, if a server is
+// currently working with one version of ring data and receives requests that
+// are based on a lesser version of ring data, it can ignore those requests or
+// send an "obsoleted" response or something along those lines. Similarly, if
+// the server receives requests for a greater version of ring data, it can
+// ignore those requests or try to obtain a newer ring version.
+func (ring *Ring) Version() int64 {
 	return ring.version
 }
 
-func (ring *ringImpl) PartitionBitCount() uint16 {
+// PartitionBitCount is the number of bits that can be used to determine a
+// partition number for the current data in the ring. For example, to convert a
+// uint64 hash value into a partition number you could use hashValue >> (64 -
+// ring.PartitionBitCount()).
+func (ring *Ring) PartitionBitCount() uint16 {
 	return ring.partitionBitCount
 }
 
-func (ring *ringImpl) ReplicaCount() int {
+func (ring *Ring) ReplicaCount() int {
 	return len(ring.replicaToPartitionToNodeIndex)
 }
 
-func (ring *ringImpl) Nodes() []Node {
-	nodes := make([]Node, len(ring.nodes))
+// Nodes returns a list of nodes referenced by the ring.
+func (ring *Ring) Nodes() []*Node {
+	nodes := make([]*Node, len(ring.nodes))
 	copy(nodes, ring.nodes)
 	return nodes
 }
 
-func (ring *ringImpl) Node(id uint64) Node {
+func (ring *Ring) Node(id uint64) *Node {
 	for _, node := range ring.nodes {
-		if node.NodeID() == id {
+		if node.ID == id {
 			return node
 		}
 	}
 	return nil
 }
 
-func (ring *ringImpl) LocalNode() Node {
+// LocalNode contains the information for the local node; determining which
+// ring partitions/replicas the local node is responsible for as well as being
+// used to direct message delivery. If this instance of the ring has no local
+// node information, nil will be returned.
+func (ring *Ring) LocalNode() *Node {
 	if ring.localNodeIndex == -1 {
 		return nil
 	}
 	return ring.nodes[ring.localNodeIndex]
 }
 
-func (ring *ringImpl) Responsible(partition uint32) bool {
+// Responsible will return true if the local node is considered responsible for
+// a replica of the partition given.
+func (ring *Ring) Responsible(partition uint32) bool {
 	if ring.localNodeIndex == -1 {
 		return false
 	}
@@ -95,8 +78,10 @@ func (ring *ringImpl) Responsible(partition uint32) bool {
 	return false
 }
 
-func (ring *ringImpl) ResponsibleNodes(partition uint32) []Node {
-	nodes := make([]Node, ring.ReplicaCount())
+// ResponsibleNodes will return a list of nodes for considered responsible for
+// the replicas of the partition given.
+func (ring *Ring) ResponsibleNodes(partition uint32) []*Node {
+	nodes := make([]*Node, ring.ReplicaCount())
 	for replica, partitionToNodeIndex := range ring.replicaToPartitionToNodeIndex {
 		nodes[replica] = ring.nodes[partitionToNodeIndex[partition]]
 	}
@@ -105,17 +90,17 @@ func (ring *ringImpl) ResponsibleNodes(partition uint32) []Node {
 
 // Node is a single item assigned to a ring, usually a single device like a
 // disk drive.
-type Node interface {
+type Node struct {
 	// NodeID uniquely identifies this node; it must be non-zero as zero is
 	// used to indicate "no node".
-	NodeID() uint64
-	Active() bool
+	ID       uint64
+	Inactive bool
 	// Capacity indicates the amount of data that should be assigned to a node
 	// relative to other nodes. It can be in any unit of designation as long as
 	// all nodes use the same designation. Most commonly this is the number of
 	// gigabytes the node can store, but could be based on CPU capacity or
 	// another resource if that makes more sense to balance.
-	Capacity() uint32
+	Capacity uint32
 	// Tiers indicate the layout of the node with respect to other nodes. For
 	// example, the lowest tier, tier 0, might be the server ip (where each
 	// node represents a drive on that server). The next tier, 1, might then be
@@ -124,10 +109,13 @@ type Node interface {
 	// Here the tier values are represented by ints, presumably as indexes to
 	// the actual values stored elsewhere. This is done for speed during
 	// rebalancing.
-	TierValues() []int
+	TierValues []int
 	// Address gives the location information for the node; probably something
 	// like an ip:port.
-	Address() string
+	Address string
+	// Meta is additional information for the node; not defined or used by the
+	// builder or ring directly.
+	Meta string
 }
 
 type RingStats struct {
@@ -147,7 +135,9 @@ type RingStats struct {
 	MaxOverNodeIndex      int
 }
 
-func (ring *ringImpl) Stats() *RingStats {
+// Stats gives information about the ring and its health; the MaxUnder and
+// MaxOver values specifically indicate how balanced the ring is.
+func (ring *Ring) Stats() *RingStats {
 	stats := &RingStats{
 		ReplicaCount:      ring.ReplicaCount(),
 		NodeCount:         len(ring.nodes),
@@ -163,17 +153,17 @@ func (ring *ringImpl) Stats() *RingStats {
 		}
 	}
 	for _, node := range ring.nodes {
-		if node.Active() {
-			stats.TotalCapacity += (uint64)(node.Capacity())
-		} else {
+		if node.Inactive {
 			stats.InactiveNodeCount++
+		} else {
+			stats.TotalCapacity += (uint64)(node.Capacity)
 		}
 	}
 	for nodeIndex, node := range ring.nodes {
-		if !node.Active() {
+		if node.Inactive {
 			continue
 		}
-		desiredPartitionCount := float64(node.Capacity()) / float64(stats.TotalCapacity) * float64(stats.PartitionCount) * float64(stats.ReplicaCount)
+		desiredPartitionCount := float64(node.Capacity) / float64(stats.TotalCapacity) * float64(stats.PartitionCount) * float64(stats.ReplicaCount)
 		actualPartitionCount := float64(nodeIndexToPartitionCount[nodeIndex])
 		if desiredPartitionCount > actualPartitionCount {
 			under := 100.0 * (desiredPartitionCount - actualPartitionCount) / desiredPartitionCount

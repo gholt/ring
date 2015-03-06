@@ -13,9 +13,9 @@ func Benchmark_Time(b *testing.B) {
 
 func Benchmark_MsgToNode(b *testing.B) {
 	conn := new(testConn)
-	r := TestRing{}
-	msgring := NewTCPMsgRing(&r)
-	addr := msgring.GetAddressForNode(uint64(1))
+	r := newCommsTestRing()
+	msgring := NewTCPMsgRing(r)
+	addr := msgring.ring.Node(uint64(1)).Address
 	msgring.conns[addr] = NewRingConn(conn)
 	msg := TestMsg{}
 	msgId := uint64(1)

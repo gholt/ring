@@ -48,10 +48,10 @@ func newRebalancer(builder *Builder) *rebalancer {
 func (context *rebalancer) initMaxTier() {
 	context.maxTier = -1
 	for _, node := range context.builder.nodes {
-		if !node.Active() {
+		if node.Inactive {
 			continue
 		}
-		nodeMaxTier := len(node.TierValues()) - 1
+		nodeMaxTier := len(node.TierValues) - 1
 		if nodeMaxTier > context.maxTier {
 			context.maxTier = nodeMaxTier
 		}
@@ -61,8 +61,8 @@ func (context *rebalancer) initMaxTier() {
 func (context *rebalancer) initNodeDesires() {
 	totalCapacity := float64(0)
 	for _, node := range context.builder.nodes {
-		if node.Active() {
-			totalCapacity += (float64)(node.Capacity())
+		if !node.Inactive {
+			totalCapacity += (float64)(node.Capacity)
 		}
 	}
 	nodeIndexToPartitionCount := make([]int32, len(context.builder.nodes))
@@ -76,10 +76,10 @@ func (context *rebalancer) initNodeDesires() {
 	context.nodeIndexToDesire = make([]int32, len(context.builder.nodes))
 	allPartitionsCount := float64(len(context.builder.replicaToPartitionToNodeIndex) * len(context.builder.replicaToPartitionToNodeIndex[0]))
 	for nodeIndex, node := range context.builder.nodes {
-		if node.Active() {
-			context.nodeIndexToDesire[nodeIndex] = int32(float64(node.Capacity())/totalCapacity*allPartitionsCount+0.5) - nodeIndexToPartitionCount[nodeIndex]
-		} else {
+		if node.Inactive {
 			context.nodeIndexToDesire[nodeIndex] = math.MinInt32
+		} else {
+			context.nodeIndexToDesire[nodeIndex] = int32(float64(node.Capacity)/totalCapacity*allPartitionsCount+0.5) - nodeIndexToPartitionCount[nodeIndex]
 		}
 	}
 	context.nodeIndexesByDesire = make([]int32, len(context.builder.nodes))
@@ -117,7 +117,7 @@ func (context *rebalancer) initTierInfo() {
 		context.tierToTierSeps[tier] = make([]*tierSeparation, 0)
 	}
 	for nodeIndex, node := range context.builder.nodes {
-		nodeTierValues := node.TierValues()
+		nodeTierValues := node.TierValues
 		for tier := 0; tier <= context.maxTier; tier++ {
 			var tierSep *tierSeparation
 			for _, candidateTierSep := range context.tierToTierSeps[tier] {
@@ -348,11 +348,11 @@ func (context *rebalancer) assignUnassigned() {
 	}
 }
 
-// We'll reassign any partition replicas assigned to nodes not marked active
+// We'll reassign any partition replicas assigned to nodes marked inactive
 // (deleted or failed nodes).
 func (context *rebalancer) reassignDeactivated() {
 	for deletedNodeIndex, deletedNode := range context.builder.nodes {
-		if deletedNode.Active() {
+		if !deletedNode.Inactive {
 			continue
 		}
 		for replica := context.maxReplica; replica >= 0; replica-- {
@@ -481,7 +481,7 @@ OverweightLoop:
 		if context.nodeIndexToDesire[overweightNodeIndex] >= 0 {
 			break
 		}
-		if visited[overweightNodeIndex] || !context.builder.nodes[overweightNodeIndex].Active() {
+		if visited[overweightNodeIndex] || context.builder.nodes[overweightNodeIndex].Inactive {
 			continue
 		}
 		// First pass to reassign to only underweight nodes.

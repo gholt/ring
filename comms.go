@@ -138,22 +138,21 @@ func NewRingConn(conn net.Conn) *RingConn {
 }
 
 type TCPMsgRing struct {
-	Ring        Ring
+	ring        *Ring
 	msgHandlers map[uint64]MsgUnmarshaller
 	conns       map[string]*RingConn
 }
 
-func NewTCPMsgRing(r Ring) *TCPMsgRing {
+func NewTCPMsgRing(r *Ring) *TCPMsgRing {
 	return &TCPMsgRing{
-		Ring:        r,
+		ring:        r,
 		msgHandlers: make(map[uint64]MsgUnmarshaller),
 		conns:       make(map[string]*RingConn),
 	}
 }
 
-func (m *TCPMsgRing) GetAddressForNode(nodeID uint64) string {
-	// Just a dummy function for now
-	return "127.0.0.1:9999"
+func (m *TCPMsgRing) Ring() *Ring {
+	return m.ring
 }
 
 func (m *TCPMsgRing) GetNodesForPart(ringVersion int64, partition uint32) []uint64 {
@@ -176,19 +175,23 @@ func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) {
 
 func (m *TCPMsgRing) msgToNode(nodeID uint64, msg Msg) {
 	// TODO: Add retry functionality
-	address := m.GetAddressForNode(nodeID)
+	n := m.ring.Node(nodeID)
+	if n == nil {
+		msg.Done()
+		return
+	}
 	// See if we have a connection already
-	conn, ok := m.conns[address]
+	conn, ok := m.conns[n.Address]
 	if !ok {
 		// We need to open a connection
 		// TODO: Handle connection timeouts
-		tcpconn, err := net.DialTimeout("tcp", address, DefaultTimeout)
+		tcpconn, err := net.DialTimeout("tcp", n.Address, DefaultTimeout)
 		if err != nil {
-			log.Println("ERR: Trying to connect to", address, err)
+			log.Println("ERR: Trying to connect to", n.Address, err)
 			return
 		}
 		conn := NewRingConn(tcpconn)
-		m.conns[address] = conn
+		m.conns[n.Address] = conn
 	}
 	conn.Lock() // Make sure we only have one writer at a time
 	// TODO: Handle write timeouts

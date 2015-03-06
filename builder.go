@@ -7,7 +7,7 @@ import (
 
 type Builder struct {
 	version                       int64
-	nodes                         []Node
+	nodes                         []*Node
 	partitionBitCount             uint16
 	replicaToPartitionToNodeIndex [][]int32
 	replicaToPartitionToLastMove  [][]uint16
@@ -18,7 +18,7 @@ type Builder struct {
 
 func NewBuilder(replicaCount int) *Builder {
 	b := &Builder{
-		nodes:                         make([]Node, 0),
+		nodes:                         make([]*Node, 0),
 		partitionBitCount:             1,
 		replicaToPartitionToNodeIndex: make([][]int32, replicaCount),
 		replicaToPartitionToLastMove:  make([][]uint16, replicaCount),
@@ -76,7 +76,7 @@ func (b *Builder) PretendMoveElapsed(minutes uint16) {
 	}
 }
 
-func (b *Builder) Add(n Node) {
+func (b *Builder) Add(n *Node) {
 	b.nodes = append(b.nodes, n)
 }
 
@@ -86,10 +86,10 @@ func (b *Builder) Add(n Node) {
 // indexes shifted down one and all the replica-to-partition-to-node indexing
 // will have to be updated, as well as clearing any assignments that were to
 // the removed node. Normally it is better to just leave a "dead" node in place
-// and simply set it as not Active().
+// and simply set it as inactive.
 func (b *Builder) Remove(nodeID uint64) {
 	for i, node := range b.nodes {
-		if node.NodeID() == nodeID {
+		if node.ID == nodeID {
 			copy(b.nodes[i:], b.nodes[i+1:])
 			b.nodes = b.nodes[:len(b.nodes)-1]
 			for _, partitionToNodeIndex := range b.replicaToPartitionToNodeIndex {
@@ -106,9 +106,9 @@ func (b *Builder) Remove(nodeID uint64) {
 	}
 }
 
-func (b *Builder) Node(nodeID uint64) Node {
+func (b *Builder) Node(nodeID uint64) *Node {
 	for _, node := range b.nodes {
-		if node.NodeID() == nodeID {
+		if node.ID == nodeID {
 			return node
 		}
 	}
@@ -120,7 +120,7 @@ func (b *Builder) Node(nodeID uint64) Node {
 // will be immutable; to obtain updated ring data, Ring() must be called again.
 // The localNodeID is so the Ring instance can provide local responsibility
 // information; you can give 0 if you don't intend to use those features.
-func (b *Builder) Ring(localNodeID uint64) Ring {
+func (b *Builder) Ring(localNodeID uint64) *Ring {
 	originalVersion := b.version
 	if b.resizeIfNeeded() {
 		b.version = time.Now().UnixNano()
@@ -139,10 +139,10 @@ func (b *Builder) Ring(localNodeID uint64) Ring {
 		}
 	}
 	localNodeIndex := int32(-1)
-	nodes := make([]Node, len(b.nodes))
+	nodes := make([]*Node, len(b.nodes))
 	copy(nodes, b.nodes)
 	for i, node := range nodes {
-		if node.NodeID() == localNodeID {
+		if node.ID == localNodeID {
 			localNodeIndex = int32(i)
 		}
 	}
@@ -151,7 +151,7 @@ func (b *Builder) Ring(localNodeID uint64) Ring {
 		replicaToPartitionToNodeIndex[i] = make([]int32, len(b.replicaToPartitionToNodeIndex[i]))
 		copy(replicaToPartitionToNodeIndex[i], b.replicaToPartitionToNodeIndex[i])
 	}
-	return &ringImpl{
+	return &Ring{
 		version:           b.version,
 		localNodeIndex:    localNodeIndex,
 		partitionBitCount: b.partitionBitCount,
@@ -171,18 +171,18 @@ func (b *Builder) resizeIfNeeded() bool {
 	// points allowed.
 	totalCapacity := uint64(0)
 	for _, node := range b.nodes {
-		if node.Active() {
-			totalCapacity += (uint64)(node.Capacity())
+		if !node.Inactive {
+			totalCapacity += (uint64)(node.Capacity)
 		}
 	}
 	partitionCount := len(b.replicaToPartitionToNodeIndex[0])
 	partitionBitCount := b.partitionBitCount
 	pointsAllowed := float64(b.pointsAllowed) * 0.01
 	for _, node := range b.nodes {
-		if !node.Active() {
+		if node.Inactive {
 			continue
 		}
-		desiredPartitionCount := float64(partitionCount) * float64(replicaCount) * (float64(node.Capacity()) / float64(totalCapacity))
+		desiredPartitionCount := float64(partitionCount) * float64(replicaCount) * (float64(node.Capacity) / float64(totalCapacity))
 		under := (desiredPartitionCount - float64(int(desiredPartitionCount))) / desiredPartitionCount
 		over := float64(0)
 		if desiredPartitionCount > float64(int(desiredPartitionCount)) {
