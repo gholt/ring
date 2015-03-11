@@ -1,6 +1,7 @@
 package ring
 
 import (
+	"compress/gzip"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -39,8 +40,13 @@ func NewBuilder(replicaCount int) *Builder {
 }
 
 func LoadBuilder(r io.Reader) (*Builder, error) {
+	gr, err := gzip.NewReader(r)
+	if err != nil {
+		return nil, err
+	}
+	defer gr.Close() // does not close the underlying reader
 	header := make([]byte, 16)
-	_, err := io.ReadFull(r, header)
+	_, err = io.ReadFull(gr, header)
 	if err != nil {
 		return nil, err
 	}
@@ -48,108 +54,108 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 		return nil, fmt.Errorf("unknown header %s", string(header))
 	}
 	b := &Builder{}
-	err = binary.Read(r, binary.BigEndian, &b.version)
+	err = binary.Read(gr, binary.BigEndian, &b.version)
 	if err != nil {
 		return nil, err
 	}
 	var vint32 int32
-	err = binary.Read(r, binary.BigEndian, &vint32)
+	err = binary.Read(gr, binary.BigEndian, &vint32)
 	if err != nil {
 		return nil, err
 	}
 	b.nodes = make([]*Node, vint32)
 	for i := int32(0); i < vint32; i++ {
 		b.nodes[i] = &Node{}
-		err = binary.Read(r, binary.BigEndian, &b.nodes[i].ID)
+		err = binary.Read(gr, binary.BigEndian, &b.nodes[i].ID)
 		if err != nil {
 			return nil, err
 		}
 		tf := byte(0)
-		err = binary.Read(r, binary.BigEndian, &tf)
+		err = binary.Read(gr, binary.BigEndian, &tf)
 		if err != nil {
 			return nil, err
 		}
 		if tf == 1 {
 			b.nodes[i].Inactive = true
 		}
-		err = binary.Read(r, binary.BigEndian, &b.nodes[i].Capacity)
+		err = binary.Read(gr, binary.BigEndian, &b.nodes[i].Capacity)
 		if err != nil {
 			return nil, err
 		}
 		var vvint32 int32
-		err = binary.Read(r, binary.BigEndian, &vvint32)
+		err = binary.Read(gr, binary.BigEndian, &vvint32)
 		if err != nil {
 			return nil, err
 		}
 		b.nodes[i].TierValues = make([]int32, vvint32)
 		for j := int32(0); j < vvint32; j++ {
-			err = binary.Read(r, binary.BigEndian, &b.nodes[i].TierValues[j])
+			err = binary.Read(gr, binary.BigEndian, &b.nodes[i].TierValues[j])
 			if err != nil {
 				return nil, err
 			}
 		}
-		err = binary.Read(r, binary.BigEndian, &vvint32)
+		err = binary.Read(gr, binary.BigEndian, &vvint32)
 		if err != nil {
 			return nil, err
 		}
 		byts := make([]byte, vvint32)
-		_, err = io.ReadFull(r, byts)
+		_, err = io.ReadFull(gr, byts)
 		if err != nil {
 			return nil, err
 		}
 		b.nodes[i].Address = string(byts)
-		err = binary.Read(r, binary.BigEndian, &vvint32)
+		err = binary.Read(gr, binary.BigEndian, &vvint32)
 		if err != nil {
 			return nil, err
 		}
 		byts = make([]byte, vvint32)
-		_, err = io.ReadFull(r, byts)
+		_, err = io.ReadFull(gr, byts)
 		if err != nil {
 			return nil, err
 		}
 		b.nodes[i].Meta = string(byts)
 	}
-	err = binary.Read(r, binary.BigEndian, &b.partitionBitCount)
+	err = binary.Read(gr, binary.BigEndian, &b.partitionBitCount)
 	if err != nil {
 		return nil, err
 	}
-	err = binary.Read(r, binary.BigEndian, &vint32)
+	err = binary.Read(gr, binary.BigEndian, &vint32)
 	if err != nil {
 		return nil, err
 	}
 	b.replicaToPartitionToNodeIndex = make([][]int32, vint32)
 	for i := int32(0); i < vint32; i++ {
 		var vvint32 int32
-		err = binary.Read(r, binary.BigEndian, &vvint32)
+		err = binary.Read(gr, binary.BigEndian, &vvint32)
 		if err != nil {
 			return nil, err
 		}
 		b.replicaToPartitionToNodeIndex[i] = make([]int32, vvint32)
-		err = binary.Read(r, binary.BigEndian, b.replicaToPartitionToNodeIndex[i])
+		err = binary.Read(gr, binary.BigEndian, b.replicaToPartitionToNodeIndex[i])
 	}
-	err = binary.Read(r, binary.BigEndian, &vint32)
+	err = binary.Read(gr, binary.BigEndian, &vint32)
 	if err != nil {
 		return nil, err
 	}
 	b.replicaToPartitionToLastMove = make([][]uint16, vint32)
 	for i := int32(0); i < vint32; i++ {
 		var vvint32 int32
-		err = binary.Read(r, binary.BigEndian, &vvint32)
+		err = binary.Read(gr, binary.BigEndian, &vvint32)
 		if err != nil {
 			return nil, err
 		}
 		b.replicaToPartitionToLastMove[i] = make([]uint16, vvint32)
-		err = binary.Read(r, binary.BigEndian, b.replicaToPartitionToLastMove[i])
+		err = binary.Read(gr, binary.BigEndian, b.replicaToPartitionToLastMove[i])
 	}
-	err = binary.Read(r, binary.BigEndian, &b.pointsAllowed)
+	err = binary.Read(gr, binary.BigEndian, &b.pointsAllowed)
 	if err != nil {
 		return nil, err
 	}
-	err = binary.Read(r, binary.BigEndian, &b.maxPartitionBitCount)
+	err = binary.Read(gr, binary.BigEndian, &b.maxPartitionBitCount)
 	if err != nil {
 		return nil, err
 	}
-	err = binary.Read(r, binary.BigEndian, &b.moveWait)
+	err = binary.Read(gr, binary.BigEndian, &b.moveWait)
 	if err != nil {
 		return nil, err
 	}
@@ -157,20 +163,22 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 }
 
 func (b *Builder) Persist(w io.Writer) error {
-	_, err := w.Write([]byte("RINGBUILDERv0001"))
+	gw := gzip.NewWriter(w)
+	defer gw.Close() // does not close the underlying writer
+	_, err := gw.Write([]byte("RINGBUILDERv0001"))
 	if err != nil {
 		return err
 	}
-	err = binary.Write(w, binary.BigEndian, b.version)
+	err = binary.Write(gw, binary.BigEndian, b.version)
 	if err != nil {
 		return err
 	}
-	err = binary.Write(w, binary.BigEndian, int32(len(b.nodes)))
+	err = binary.Write(gw, binary.BigEndian, int32(len(b.nodes)))
 	if err != nil {
 		return err
 	}
 	for _, node := range b.nodes {
-		err = binary.Write(w, binary.BigEndian, node.ID)
+		err = binary.Write(gw, binary.BigEndian, node.ID)
 		if err != nil {
 			return err
 		}
@@ -178,84 +186,84 @@ func (b *Builder) Persist(w io.Writer) error {
 		if node.Inactive {
 			tf = 1
 		}
-		err = binary.Write(w, binary.BigEndian, tf)
+		err = binary.Write(gw, binary.BigEndian, tf)
 		if err != nil {
 			return err
 		}
-		err = binary.Write(w, binary.BigEndian, node.Capacity)
+		err = binary.Write(gw, binary.BigEndian, node.Capacity)
 		if err != nil {
 			return err
 		}
-		err = binary.Write(w, binary.BigEndian, int32(len(node.TierValues)))
+		err = binary.Write(gw, binary.BigEndian, int32(len(node.TierValues)))
 		if err != nil {
 			return err
 		}
-		for v := range node.TierValues {
-			err = binary.Write(w, binary.BigEndian, v)
+		for _, v := range node.TierValues {
+			err = binary.Write(gw, binary.BigEndian, v)
 			if err != nil {
 				return err
 			}
 		}
 		b := []byte(node.Address)
-		err = binary.Write(w, binary.BigEndian, int32(len(b)))
+		err = binary.Write(gw, binary.BigEndian, int32(len(b)))
 		if err != nil {
 			return err
 		}
-		_, err = w.Write(b)
+		_, err = gw.Write(b)
 		if err != nil {
 			return err
 		}
 		b = []byte(node.Meta)
-		err = binary.Write(w, binary.BigEndian, int32(len(b)))
+		err = binary.Write(gw, binary.BigEndian, int32(len(b)))
 		if err != nil {
 			return err
 		}
-		_, err = w.Write(b)
+		_, err = gw.Write(b)
 		if err != nil {
 			return err
 		}
 	}
-	err = binary.Write(w, binary.BigEndian, b.partitionBitCount)
+	err = binary.Write(gw, binary.BigEndian, b.partitionBitCount)
 	if err != nil {
 		return err
 	}
-	err = binary.Write(w, binary.BigEndian, int32(len(b.replicaToPartitionToNodeIndex)))
+	err = binary.Write(gw, binary.BigEndian, int32(len(b.replicaToPartitionToNodeIndex)))
 	if err != nil {
 		return err
 	}
 	for _, partitionToNodeIndex := range b.replicaToPartitionToNodeIndex {
-		err = binary.Write(w, binary.BigEndian, int32(len(partitionToNodeIndex)))
+		err = binary.Write(gw, binary.BigEndian, int32(len(partitionToNodeIndex)))
 		if err != nil {
 			return err
 		}
-		err = binary.Write(w, binary.BigEndian, partitionToNodeIndex)
+		err = binary.Write(gw, binary.BigEndian, partitionToNodeIndex)
 		if err != nil {
 			return err
 		}
 	}
-	err = binary.Write(w, binary.BigEndian, int32(len(b.replicaToPartitionToLastMove)))
+	err = binary.Write(gw, binary.BigEndian, int32(len(b.replicaToPartitionToLastMove)))
 	if err != nil {
 		return err
 	}
 	for _, partitionToLastMove := range b.replicaToPartitionToLastMove {
-		err = binary.Write(w, binary.BigEndian, int32(len(partitionToLastMove)))
+		err = binary.Write(gw, binary.BigEndian, int32(len(partitionToLastMove)))
 		if err != nil {
 			return err
 		}
-		err = binary.Write(w, binary.BigEndian, partitionToLastMove)
+		err = binary.Write(gw, binary.BigEndian, partitionToLastMove)
 		if err != nil {
 			return err
 		}
 	}
-	err = binary.Write(w, binary.BigEndian, b.pointsAllowed)
+	err = binary.Write(gw, binary.BigEndian, b.pointsAllowed)
 	if err != nil {
 		return err
 	}
-	err = binary.Write(w, binary.BigEndian, b.maxPartitionBitCount)
+	err = binary.Write(gw, binary.BigEndian, b.maxPartitionBitCount)
 	if err != nil {
 		return err
 	}
-	err = binary.Write(w, binary.BigEndian, b.moveWait)
+	err = binary.Write(gw, binary.BigEndian, b.moveWait)
 	if err != nil {
 		return err
 	}
