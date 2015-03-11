@@ -1,22 +1,25 @@
 package ring
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 func TestNewBuilder(t *testing.T) {
 	b := NewBuilder(3)
 	b.Add(&Node{ID: 1})
-	i := b.PointsAllowed()
-	if i != 1 {
-		t.Fatalf("NewBuilder's PointsAllowed was %d not 1", i)
+	pa := b.PointsAllowed()
+	if pa != 1 {
+		t.Fatalf("NewBuilder's PointsAllowed was %d not 1", pa)
 	}
 	b.SetPointsAllowed(10)
-	i = b.PointsAllowed()
-	if i != 10 {
-		t.Fatalf("NewBuilder's PointsAllowed was %d not 10", i)
+	pa = b.PointsAllowed()
+	if pa != 10 {
+		t.Fatalf("NewBuilder's PointsAllowed was %d not 10", pa)
 	}
-	i = b.Ring(0).ReplicaCount()
-	if i != 3 {
-		t.Fatalf("NewBuilder's ReplicaCount was %d not 3", i)
+	rc := b.Ring(0).ReplicaCount()
+	if rc != 3 {
+		t.Fatalf("NewBuilder's ReplicaCount was %d not 3", rc)
 	}
 	u16 := b.Ring(0).PartitionBitCount()
 	if u16 != 1 {
@@ -25,6 +28,88 @@ func TestNewBuilder(t *testing.T) {
 	n := b.Ring(0).Nodes()
 	if len(n) != 1 {
 		t.Fatalf("NewBuilder's Nodes count was %d not 1", len(n))
+	}
+}
+
+func TestBuilderPersistence(t *testing.T) {
+	b := NewBuilder(3)
+	b.Add(&Node{ID: 1, Capacity: 1})
+	b.Add(&Node{ID: 2, Capacity: 1})
+	b.Ring(0)
+	buf := bytes.NewBuffer(make([]byte, 0, 65536))
+	err := b.Persist(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2, err := LoadBuilder(bytes.NewBuffer(buf.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b2.version != b.version {
+		t.Fatalf("%v != %v", b2.version, b.version)
+	}
+	if len(b2.nodes) != len(b.nodes) {
+		t.Fatalf("%v != %v", len(b2.nodes), len(b.nodes))
+	}
+	for i := 0; i < len(b2.nodes); i++ {
+		if b2.nodes[i].ID != b.nodes[i].ID {
+			t.Fatalf("%v != %v", b2.nodes[i].ID, b.nodes[i].ID)
+		}
+		if b2.nodes[i].Capacity != b.nodes[i].Capacity {
+			t.Fatalf("%v != %v", b2.nodes[i].Capacity, b.nodes[i].Capacity)
+		}
+		if len(b2.nodes[i].TierValues) != len(b.nodes[i].TierValues) {
+			t.Fatalf("%v != %v", len(b2.nodes[i].TierValues), len(b.nodes[i].TierValues))
+		}
+		for j := 0; j < len(b2.nodes[i].TierValues); j++ {
+			if b2.nodes[i].TierValues[j] != b.nodes[i].TierValues[j] {
+				t.Fatalf("%v != %v", b2.nodes[i].TierValues[j], b.nodes[i].TierValues[j])
+			}
+		}
+		if b2.nodes[i].Address != b.nodes[i].Address {
+			t.Fatalf("%v != %v", b2.nodes[i].Address, b.nodes[i].Address)
+		}
+		if b2.nodes[i].Meta != b.nodes[i].Meta {
+			t.Fatalf("%v != %v", b2.nodes[i].Meta, b.nodes[i].Meta)
+		}
+	}
+	if b2.partitionBitCount != b.partitionBitCount {
+		t.Fatalf("%v != %v", b2.partitionBitCount, b.partitionBitCount)
+	}
+	if len(b2.replicaToPartitionToNodeIndex) != len(b.replicaToPartitionToNodeIndex) {
+		t.Fatalf("%v != %v", len(b2.replicaToPartitionToNodeIndex), len(b.replicaToPartitionToNodeIndex))
+	}
+	for i := 0; i < len(b2.replicaToPartitionToNodeIndex); i++ {
+		if len(b2.replicaToPartitionToNodeIndex[i]) != len(b.replicaToPartitionToNodeIndex[i]) {
+			t.Fatalf("%v != %v", len(b2.replicaToPartitionToNodeIndex[i]), len(b.replicaToPartitionToNodeIndex[i]))
+		}
+		for j := 0; j < len(b2.replicaToPartitionToNodeIndex[i]); j++ {
+			if b2.replicaToPartitionToNodeIndex[i][j] != b.replicaToPartitionToNodeIndex[i][j] {
+				t.Fatalf("%v != %v", b2.replicaToPartitionToNodeIndex[i][j], b.replicaToPartitionToNodeIndex[i][j])
+			}
+		}
+	}
+	if len(b2.replicaToPartitionToLastMove) != len(b.replicaToPartitionToLastMove) {
+		t.Fatalf("%v != %v", len(b2.replicaToPartitionToLastMove), len(b.replicaToPartitionToLastMove))
+	}
+	for i := 0; i < len(b2.replicaToPartitionToLastMove); i++ {
+		if len(b2.replicaToPartitionToLastMove[i]) != len(b.replicaToPartitionToLastMove[i]) {
+			t.Fatalf("%v != %v", len(b2.replicaToPartitionToLastMove[i]), len(b.replicaToPartitionToLastMove[i]))
+		}
+		for j := 0; j < len(b2.replicaToPartitionToLastMove[i]); j++ {
+			if b2.replicaToPartitionToLastMove[i][j] != b.replicaToPartitionToLastMove[i][j] {
+				t.Fatalf("%v != %v", b2.replicaToPartitionToLastMove[i][j], b.replicaToPartitionToLastMove[i][j])
+			}
+		}
+	}
+	if b2.pointsAllowed != b.pointsAllowed {
+		t.Fatalf("%v != %v", b2.pointsAllowed, b.pointsAllowed)
+	}
+	if b2.maxPartitionBitCount != b.maxPartitionBitCount {
+		t.Fatalf("%v != %v", b2.maxPartitionBitCount, b.maxPartitionBitCount)
+	}
+	if b2.moveWait != b.moveWait {
+		t.Fatalf("%v != %v", b2.moveWait, b.moveWait)
 	}
 }
 

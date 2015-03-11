@@ -109,7 +109,7 @@ type Node struct {
 	// Here the tier values are represented by ints, presumably as indexes to
 	// the actual values stored elsewhere. This is done for speed during
 	// rebalancing.
-	TierValues []int
+	TierValues []int32
 	// Address gives the location information for the node; probably something
 	// like an ip:port.
 	Address string

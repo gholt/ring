@@ -1,6 +1,9 @@
 package ring
 
 import (
+	"encoding/binary"
+	"fmt"
+	"io"
 	"math"
 	"time"
 )
@@ -11,7 +14,7 @@ type Builder struct {
 	partitionBitCount             uint16
 	replicaToPartitionToNodeIndex [][]int32
 	replicaToPartitionToLastMove  [][]uint16
-	pointsAllowed                 int
+	pointsAllowed                 byte
 	maxPartitionBitCount          uint16
 	moveWait                      uint16
 }
@@ -35,14 +38,238 @@ func NewBuilder(replicaCount int) *Builder {
 	return b
 }
 
+func LoadBuilder(r io.Reader) (*Builder, error) {
+	header := make([]byte, 16)
+	_, err := io.ReadFull(r, header)
+	if err != nil {
+		return nil, err
+	}
+	if string(header) != "RINGBUILDERv0001" {
+		return nil, fmt.Errorf("unknown header %s", string(header))
+	}
+	b := &Builder{}
+	err = binary.Read(r, binary.BigEndian, &b.version)
+	if err != nil {
+		return nil, err
+	}
+	var vint32 int32
+	err = binary.Read(r, binary.BigEndian, &vint32)
+	if err != nil {
+		return nil, err
+	}
+	b.nodes = make([]*Node, vint32)
+	for i := int32(0); i < vint32; i++ {
+		b.nodes[i] = &Node{}
+		err = binary.Read(r, binary.BigEndian, &b.nodes[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		tf := byte(0)
+		err = binary.Read(r, binary.BigEndian, &tf)
+		if err != nil {
+			return nil, err
+		}
+		if tf == 1 {
+			b.nodes[i].Inactive = true
+		}
+		err = binary.Read(r, binary.BigEndian, &b.nodes[i].Capacity)
+		if err != nil {
+			return nil, err
+		}
+		var vvint32 int32
+		err = binary.Read(r, binary.BigEndian, &vvint32)
+		if err != nil {
+			return nil, err
+		}
+		b.nodes[i].TierValues = make([]int32, vvint32)
+		for j := int32(0); j < vvint32; j++ {
+			err = binary.Read(r, binary.BigEndian, &b.nodes[i].TierValues[j])
+			if err != nil {
+				return nil, err
+			}
+		}
+		err = binary.Read(r, binary.BigEndian, &vvint32)
+		if err != nil {
+			return nil, err
+		}
+		byts := make([]byte, vvint32)
+		_, err = io.ReadFull(r, byts)
+		if err != nil {
+			return nil, err
+		}
+		b.nodes[i].Address = string(byts)
+		err = binary.Read(r, binary.BigEndian, &vvint32)
+		if err != nil {
+			return nil, err
+		}
+		byts = make([]byte, vvint32)
+		_, err = io.ReadFull(r, byts)
+		if err != nil {
+			return nil, err
+		}
+		b.nodes[i].Meta = string(byts)
+	}
+	err = binary.Read(r, binary.BigEndian, &b.partitionBitCount)
+	if err != nil {
+		return nil, err
+	}
+	err = binary.Read(r, binary.BigEndian, &vint32)
+	if err != nil {
+		return nil, err
+	}
+	b.replicaToPartitionToNodeIndex = make([][]int32, vint32)
+	for i := int32(0); i < vint32; i++ {
+		var vvint32 int32
+		err = binary.Read(r, binary.BigEndian, &vvint32)
+		if err != nil {
+			return nil, err
+		}
+		b.replicaToPartitionToNodeIndex[i] = make([]int32, vvint32)
+		err = binary.Read(r, binary.BigEndian, b.replicaToPartitionToNodeIndex[i])
+	}
+	err = binary.Read(r, binary.BigEndian, &vint32)
+	if err != nil {
+		return nil, err
+	}
+	b.replicaToPartitionToLastMove = make([][]uint16, vint32)
+	for i := int32(0); i < vint32; i++ {
+		var vvint32 int32
+		err = binary.Read(r, binary.BigEndian, &vvint32)
+		if err != nil {
+			return nil, err
+		}
+		b.replicaToPartitionToLastMove[i] = make([]uint16, vvint32)
+		err = binary.Read(r, binary.BigEndian, b.replicaToPartitionToLastMove[i])
+	}
+	err = binary.Read(r, binary.BigEndian, &b.pointsAllowed)
+	if err != nil {
+		return nil, err
+	}
+	err = binary.Read(r, binary.BigEndian, &b.maxPartitionBitCount)
+	if err != nil {
+		return nil, err
+	}
+	err = binary.Read(r, binary.BigEndian, &b.moveWait)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func (b *Builder) Persist(w io.Writer) error {
+	_, err := w.Write([]byte("RINGBUILDERv0001"))
+	if err != nil {
+		return err
+	}
+	err = binary.Write(w, binary.BigEndian, b.version)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(w, binary.BigEndian, int32(len(b.nodes)))
+	if err != nil {
+		return err
+	}
+	for _, node := range b.nodes {
+		err = binary.Write(w, binary.BigEndian, node.ID)
+		if err != nil {
+			return err
+		}
+		tf := byte(0)
+		if node.Inactive {
+			tf = 1
+		}
+		err = binary.Write(w, binary.BigEndian, tf)
+		if err != nil {
+			return err
+		}
+		err = binary.Write(w, binary.BigEndian, node.Capacity)
+		if err != nil {
+			return err
+		}
+		err = binary.Write(w, binary.BigEndian, int32(len(node.TierValues)))
+		if err != nil {
+			return err
+		}
+		for v := range node.TierValues {
+			err = binary.Write(w, binary.BigEndian, v)
+			if err != nil {
+				return err
+			}
+		}
+		b := []byte(node.Address)
+		err = binary.Write(w, binary.BigEndian, int32(len(b)))
+		if err != nil {
+			return err
+		}
+		_, err = w.Write(b)
+		if err != nil {
+			return err
+		}
+		b = []byte(node.Meta)
+		err = binary.Write(w, binary.BigEndian, int32(len(b)))
+		if err != nil {
+			return err
+		}
+		_, err = w.Write(b)
+		if err != nil {
+			return err
+		}
+	}
+	err = binary.Write(w, binary.BigEndian, b.partitionBitCount)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(w, binary.BigEndian, int32(len(b.replicaToPartitionToNodeIndex)))
+	if err != nil {
+		return err
+	}
+	for _, partitionToNodeIndex := range b.replicaToPartitionToNodeIndex {
+		err = binary.Write(w, binary.BigEndian, int32(len(partitionToNodeIndex)))
+		if err != nil {
+			return err
+		}
+		err = binary.Write(w, binary.BigEndian, partitionToNodeIndex)
+		if err != nil {
+			return err
+		}
+	}
+	err = binary.Write(w, binary.BigEndian, int32(len(b.replicaToPartitionToLastMove)))
+	if err != nil {
+		return err
+	}
+	for _, partitionToLastMove := range b.replicaToPartitionToLastMove {
+		err = binary.Write(w, binary.BigEndian, int32(len(partitionToLastMove)))
+		if err != nil {
+			return err
+		}
+		err = binary.Write(w, binary.BigEndian, partitionToLastMove)
+		if err != nil {
+			return err
+		}
+	}
+	err = binary.Write(w, binary.BigEndian, b.pointsAllowed)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(w, binary.BigEndian, b.maxPartitionBitCount)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(w, binary.BigEndian, b.moveWait)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // PointsAllowed is the number of percentage points over or under that the ring
 // will try to keep data assignments within. The default is 1 for one percent
 // extra or less data.
-func (b *Builder) PointsAllowed() int {
+func (b *Builder) PointsAllowed() byte {
 	return b.pointsAllowed
 }
 
-func (b *Builder) SetPointsAllowed(points int) {
+func (b *Builder) SetPointsAllowed(points byte) {
 	b.pointsAllowed = points
 }
 

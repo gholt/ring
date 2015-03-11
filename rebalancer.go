@@ -22,7 +22,7 @@ type rebalancer struct {
 }
 
 type tierSeparation struct {
-	values              []int
+	values              []int32
 	nodeIndexesByDesire []int32
 	used                bool
 }
@@ -123,7 +123,7 @@ func (context *rebalancer) initTierInfo() {
 			for _, candidateTierSep := range context.tierToTierSeps[tier] {
 				tierSep = candidateTierSep
 				for valueIndex := 0; valueIndex <= context.maxTier-tier; valueIndex++ {
-					value := 0
+					value := int32(0)
 					if valueIndex+tier < len(nodeTierValues) {
 						value = nodeTierValues[valueIndex+tier]
 					}
@@ -137,9 +137,9 @@ func (context *rebalancer) initTierInfo() {
 				}
 			}
 			if tierSep == nil {
-				tierSep = &tierSeparation{values: make([]int, context.maxTier-tier+1), nodeIndexesByDesire: []int32{int32(nodeIndex)}}
+				tierSep = &tierSeparation{values: make([]int32, context.maxTier-tier+1), nodeIndexesByDesire: []int32{int32(nodeIndex)}}
 				for valueIndex := 0; valueIndex <= context.maxTier-tier; valueIndex++ {
-					value := 0
+					value := int32(0)
 					if valueIndex+tier < len(nodeTierValues) {
 						value = nodeTierValues[valueIndex+tier]
 					}

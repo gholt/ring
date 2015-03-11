@@ -27,7 +27,7 @@ func TestNewRingBuilder(t *testing.T) {
 	}
 	pprof.StartCPUProfile(f)
 	fmt.Println(" nodes inactive partitions bits capacity maxunder maxover seconds")
-	for zones := 10; zones <= 200; {
+	for zones := int32(10); zones <= 200; {
 		helperTestNewRingBuilder(t, zones)
 		if zones < 100 {
 			zones += 10
@@ -38,16 +38,16 @@ func TestNewRingBuilder(t *testing.T) {
 	pprof.StopCPUProfile()
 }
 
-func helperTestNewRingBuilder(t *testing.T, zones int) {
+func helperTestNewRingBuilder(t *testing.T, zones int32) {
 	builder := NewBuilder(3)
 	nodeID := uint64(0)
 	//capacity := uint32(1)
 	capacity := uint32(100)
-	for zone := 0; zone < zones; zone++ {
-		for server := 0; server < 50; server++ {
-			for device := 0; device < 2; device++ {
+	for zone := int32(0); zone < zones; zone++ {
+		for server := int32(0); server < 50; server++ {
+			for device := int32(0); device < 2; device++ {
 				nodeID++
-				builder.Add(&Node{ID: nodeID, Capacity: capacity, TierValues: []int{server, zone}})
+				builder.Add(&Node{ID: nodeID, Capacity: capacity, TierValues: []int32{server, zone}})
 				//capacity++
 				//if capacity > 100 {
 				//	capacity = 1
