@@ -7,12 +7,214 @@
 // communication between nodes in the ring.
 package ring
 
+import (
+	"compress/gzip"
+	"encoding/binary"
+	"fmt"
+	"io"
+)
+
 type Ring struct {
-	version                       int64
+	version int64
+	// TODO: Need to be able to set this (ring gets transferred to another node
+	// and they need to re-local-node it).
 	localNodeIndex                int32
 	partitionBitCount             uint16
 	nodes                         []*Node
 	replicaToPartitionToNodeIndex [][]int32
+}
+
+func LoadRing(r io.Reader) (*Ring, error) {
+	// CONSIDER: This code uses binary.Read which incurs fleeting allocations;
+	// these could be reduced by creating a buffer upfront and using
+	// binary.Put* calls instead.
+	gr, err := gzip.NewReader(r)
+	if err != nil {
+		return nil, err
+	}
+	defer gr.Close() // does not close the underlying reader
+	header := make([]byte, 16)
+	_, err = io.ReadFull(gr, header)
+	if err != nil {
+		return nil, err
+	}
+	if string(header) != "RINGv00000000001" {
+		return nil, fmt.Errorf("unknown header %s", string(header))
+	}
+	ring := &Ring{}
+	err = binary.Read(gr, binary.BigEndian, &ring.version)
+	if err != nil {
+		return nil, err
+	}
+	err = binary.Read(gr, binary.BigEndian, &ring.localNodeIndex)
+	if err != nil {
+		return nil, err
+	}
+	err = binary.Read(gr, binary.BigEndian, &ring.partitionBitCount)
+	if err != nil {
+		return nil, err
+	}
+	var vint32 int32
+	err = binary.Read(gr, binary.BigEndian, &vint32)
+	if err != nil {
+		return nil, err
+	}
+	ring.nodes = make([]*Node, vint32)
+	for i := int32(0); i < vint32; i++ {
+		ring.nodes[i] = &Node{}
+		err = binary.Read(gr, binary.BigEndian, &ring.nodes[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		tf := byte(0)
+		err = binary.Read(gr, binary.BigEndian, &tf)
+		if err != nil {
+			return nil, err
+		}
+		if tf == 1 {
+			ring.nodes[i].Inactive = true
+		}
+		err = binary.Read(gr, binary.BigEndian, &ring.nodes[i].Capacity)
+		if err != nil {
+			return nil, err
+		}
+		var vvint32 int32
+		err = binary.Read(gr, binary.BigEndian, &vvint32)
+		if err != nil {
+			return nil, err
+		}
+		ring.nodes[i].TierValues = make([]int32, vvint32)
+		for j := int32(0); j < vvint32; j++ {
+			err = binary.Read(gr, binary.BigEndian, &ring.nodes[i].TierValues[j])
+			if err != nil {
+				return nil, err
+			}
+		}
+		err = binary.Read(gr, binary.BigEndian, &vvint32)
+		if err != nil {
+			return nil, err
+		}
+		byts := make([]byte, vvint32)
+		_, err = io.ReadFull(gr, byts)
+		if err != nil {
+			return nil, err
+		}
+		ring.nodes[i].Address = string(byts)
+		err = binary.Read(gr, binary.BigEndian, &vvint32)
+		if err != nil {
+			return nil, err
+		}
+		byts = make([]byte, vvint32)
+		_, err = io.ReadFull(gr, byts)
+		if err != nil {
+			return nil, err
+		}
+		ring.nodes[i].Meta = string(byts)
+	}
+	err = binary.Read(gr, binary.BigEndian, &vint32)
+	if err != nil {
+		return nil, err
+	}
+	ring.replicaToPartitionToNodeIndex = make([][]int32, vint32)
+	for i := int32(0); i < vint32; i++ {
+		var vvint32 int32
+		err = binary.Read(gr, binary.BigEndian, &vvint32)
+		if err != nil {
+			return nil, err
+		}
+		ring.replicaToPartitionToNodeIndex[i] = make([]int32, vvint32)
+		err = binary.Read(gr, binary.BigEndian, ring.replicaToPartitionToNodeIndex[i])
+	}
+	return ring, nil
+}
+
+func (ring *Ring) Persist(w io.Writer) error {
+	// CONSIDER: This code uses binary.Write which incurs fleeting allocations;
+	// these could be reduced by creating a buffer upfront and using
+	// binary.Put* calls instead.
+	gw := gzip.NewWriter(w)
+	defer gw.Close() // does not close the underlying writer
+	_, err := gw.Write([]byte("RINGv00000000001"))
+	if err != nil {
+		return err
+	}
+	err = binary.Write(gw, binary.BigEndian, ring.version)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(gw, binary.BigEndian, ring.localNodeIndex)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(gw, binary.BigEndian, ring.partitionBitCount)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(gw, binary.BigEndian, int32(len(ring.nodes)))
+	if err != nil {
+		return err
+	}
+	for _, node := range ring.nodes {
+		err = binary.Write(gw, binary.BigEndian, node.ID)
+		if err != nil {
+			return err
+		}
+		tf := byte(0)
+		if node.Inactive {
+			tf = 1
+		}
+		err = binary.Write(gw, binary.BigEndian, tf)
+		if err != nil {
+			return err
+		}
+		err = binary.Write(gw, binary.BigEndian, node.Capacity)
+		if err != nil {
+			return err
+		}
+		err = binary.Write(gw, binary.BigEndian, int32(len(node.TierValues)))
+		if err != nil {
+			return err
+		}
+		for _, v := range node.TierValues {
+			err = binary.Write(gw, binary.BigEndian, v)
+			if err != nil {
+				return err
+			}
+		}
+		ring := []byte(node.Address)
+		err = binary.Write(gw, binary.BigEndian, int32(len(ring)))
+		if err != nil {
+			return err
+		}
+		_, err = gw.Write(ring)
+		if err != nil {
+			return err
+		}
+		ring = []byte(node.Meta)
+		err = binary.Write(gw, binary.BigEndian, int32(len(ring)))
+		if err != nil {
+			return err
+		}
+		_, err = gw.Write(ring)
+		if err != nil {
+			return err
+		}
+	}
+	err = binary.Write(gw, binary.BigEndian, int32(len(ring.replicaToPartitionToNodeIndex)))
+	if err != nil {
+		return err
+	}
+	for _, partitionToNodeIndex := range ring.replicaToPartitionToNodeIndex {
+		err = binary.Write(gw, binary.BigEndian, int32(len(partitionToNodeIndex)))
+		if err != nil {
+			return err
+		}
+		err = binary.Write(gw, binary.BigEndian, partitionToNodeIndex)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Version can indicate changes in ring data; for example, if a server is

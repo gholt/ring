@@ -88,6 +88,27 @@ func helperTestNewRingBuilder(t *testing.T, zones int32) {
 		t.Fatal(err)
 	}
 	builder.PretendMoveElapsed(math.MaxUint16)
-	stats = builder.Ring(0).Stats()
+	ring := builder.Ring(0)
+	stats = ring.Stats()
+	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
+	start = time.Now()
+	f, err = os.Create("long_test.ring")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ring.Persist(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	f, err = os.Open("long_test.ring")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ring, err = LoadRing(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats = ring.Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 }
