@@ -40,6 +40,9 @@ func NewBuilder(replicaCount int) *Builder {
 }
 
 func LoadBuilder(r io.Reader) (*Builder, error) {
+	// CONSIDER: This code uses binary.Read which incurs fleeting allocations;
+	// these could be reduced by creating a buffer upfront and using
+	// binary.Put* calls instead.
 	gr, err := gzip.NewReader(r)
 	if err != nil {
 		return nil, err
@@ -163,6 +166,9 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 }
 
 func (b *Builder) Persist(w io.Writer) error {
+	// CONSIDER: This code uses binary.Write which incurs fleeting allocations;
+	// these could be reduced by creating a buffer upfront and using
+	// binary.Put* calls instead.
 	gw := gzip.NewWriter(w)
 	defer gw.Close() // does not close the underlying writer
 	_, err := gw.Write([]byte("RINGBUILDERv0001"))
