@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/gholt/brimtext-v1"
 	"github.com/gholt/ring"
@@ -19,46 +20,77 @@ func main() {
 }
 
 func main2(args []string) error {
+	var err error
 	if len(args) < 2 {
 		fmt.Printf("Syntax: %s <file> [command]\n", filepath.Base(args[0]))
 		return nil
-	}
-	f, err := os.Open(args[1])
-	if err != nil {
-		return err
-	}
-	gf, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	header := make([]byte, 16)
-	_, err = io.ReadFull(gf, header)
-	if err != nil {
-		return err
-	}
-	if string(header[:5]) == "RINGv" {
-		gf.Close()
-		_, err = f.Seek(0, 0)
-		if err != nil {
-			return err
+	} else if len(args) > 2 && args[2] == "create" {
+		replicas := 3
+		if len(args) > 3 {
+			if replicas, err = strconv.Atoi(args[3]); err != nil {
+				return err
+			} else if replicas < 1 {
+				return fmt.Errorf("replicas cannot be less than 1")
+			}
 		}
-		return mainRing(args, f)
-	} else if string(header[:12]) == "RINGBUILDERv" {
-		gf.Close()
-		_, err = f.Seek(0, 0)
-		if err != nil {
+		if _, err = os.Stat(args[1]); err == nil {
+			return fmt.Errorf("file already exists")
+		} else if !os.IsNotExist(err) {
 			return err
+		} else if f, err := os.Create(args[1]); err != nil {
+			return err
+		} else {
+			b := ring.NewBuilder(replicas)
+			if err = b.Persist(f); err != nil {
+				return err
+			} else if err = f.Close(); err != nil {
+				return err
+			} else {
+				return nil
+			}
 		}
-		return mainBuilder(args, f)
+	} else if tf, rb, err := ringOrBuilder(args[1]); err != nil {
+		return err
+	} else if tf {
+		return mainRing(args, rb.(*ring.Ring))
+	} else {
+		return mainBuilder(args, rb.(*ring.Builder))
 	}
-	return fmt.Errorf("unknown file type")
 }
 
-func mainRing(args []string, f *os.File) error {
-	r, err := ring.LoadRing(f)
-	if err != nil {
-		return err
+func ringOrBuilder(fileName string) (bool, interface{}, error) {
+	if f, err := os.Open(fileName); err != nil {
+		return false, nil, err
+	} else if gf, err := gzip.NewReader(f); err != nil {
+		return false, nil, err
+	} else {
+		header := make([]byte, 16)
+		if _, err = io.ReadFull(gf, header); err != nil {
+			return false, nil, err
+		} else if string(header[:5]) == "RINGv" {
+			gf.Close()
+			if _, err = f.Seek(0, 0); err != nil {
+				return false, nil, err
+			} else if r, err := ring.LoadRing(f); err != nil {
+				return false, nil, err
+			} else {
+				return true, r, nil
+			}
+		} else if string(header[:12]) == "RINGBUILDERv" {
+			gf.Close()
+			if _, err = f.Seek(0, 0); err != nil {
+				return false, nil, err
+			} else if b, err := ring.LoadBuilder(f); err != nil {
+				return false, nil, err
+			} else {
+				return false, b, nil
+			}
+		}
 	}
+	return false, nil, fmt.Errorf("Should be impossible to get here")
+}
+
+func mainRing(args []string, r *ring.Ring) error {
 	s := r.Stats()
 	report := [][]string{
 		[]string{brimtext.ThousandsSep(int64(s.PartitionCount), ","), "Partitions"},
@@ -71,15 +103,11 @@ func mainRing(args []string, f *os.File) error {
 	}
 	reportOpts := brimtext.NewDefaultAlignOptions()
 	reportOpts.Alignments = []brimtext.Alignment{brimtext.Right, brimtext.Left}
-	fmt.Println(brimtext.Align(report, reportOpts))
+	fmt.Print(brimtext.Align(report, reportOpts))
 	return nil
 }
 
-func mainBuilder(args []string, f *os.File) error {
-	b, err := ring.LoadBuilder(f)
-	if err != nil {
-		return err
-	}
+func mainBuilder(args []string, b *ring.Builder) error {
 	fmt.Printf("Builder %p loaded fine.\n", b)
 	return nil
 }
