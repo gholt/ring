@@ -295,14 +295,17 @@ func (ring *Ring) ResponsibleNodes(partition uint32) []*Node {
 type Node struct {
 	// NodeID uniquely identifies this node; it must be non-zero as zero is
 	// used to indicate "no node".
-	ID       uint64
-	Inactive bool
+	ID uint64
+	// Address gives the location information for the node; probably something
+	// like an ip:port.
+	Address string
 	// Capacity indicates the amount of data that should be assigned to a node
 	// relative to other nodes. It can be in any unit of designation as long as
 	// all nodes use the same designation. Most commonly this is the number of
 	// gigabytes the node can store, but could be based on CPU capacity or
 	// another resource if that makes more sense to balance.
 	Capacity uint32
+	Inactive bool
 	// Tiers indicate the layout of the node with respect to other nodes. For
 	// example, the lowest tier, tier 0, might be the server ip (where each
 	// node represents a drive on that server). The next tier, 1, might then be
@@ -312,9 +315,6 @@ type Node struct {
 	// the actual values stored elsewhere. This is done for speed during
 	// rebalancing.
 	TierValues []int32
-	// Address gives the location information for the node; probably something
-	// like an ip:port.
-	Address string
 	// Meta is additional information for the node; not defined or used by the
 	// builder or ring directly.
 	Meta string

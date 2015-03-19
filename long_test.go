@@ -1,3 +1,5 @@
+// Will be run if environment long_test=true
+
 package ring
 
 import (
@@ -12,7 +14,7 @@ import (
 var RUN_LONG bool = false
 
 func init() {
-	if os.Getenv("github_com_gholt_ring_long_test") == "true" {
+	if os.Getenv("long_test") == "true" {
 		RUN_LONG = true
 	}
 }
