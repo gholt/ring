@@ -66,8 +66,13 @@ func TestBuilderPersistence(t *testing.T) {
 				t.Fatalf("%v != %v", b2.nodes[i].TierValues[j], b.nodes[i].TierValues[j])
 			}
 		}
-		if b2.nodes[i].Address != b.nodes[i].Address {
-			t.Fatalf("%v != %v", b2.nodes[i].Address, b.nodes[i].Address)
+		if len(b2.nodes[i].Addresses) != len(b.nodes[i].Addresses) {
+			t.Fatalf("%v != %v", len(b2.nodes[i].Addresses), len(b.nodes[i].Addresses))
+		}
+		for j := 0; j < len(b2.nodes[i].Addresses); j++ {
+			if b2.nodes[i].Addresses[j] != b.nodes[i].Addresses[j] {
+				t.Fatalf("%v != %v", b2.nodes[i].Addresses[j], b.nodes[i].Addresses[j])
+			}
 		}
 		if b2.nodes[i].Meta != b.nodes[i].Meta {
 			t.Fatalf("%v != %v", b2.nodes[i].Meta, b.nodes[i].Meta)

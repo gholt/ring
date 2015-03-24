@@ -14,8 +14,8 @@ import (
 
 func newCommsTestRing() *Ring {
 	b := NewBuilder(3)
-	b.Add(&Node{ID: 1, Address: "127.0.0.1:9999"})
-	b.Add(&Node{ID: 2, Address: "127.0.0.1:9999"})
+	b.Add(&Node{ID: 1, Addresses: []string{"127.0.0.1:9999"}})
+	b.Add(&Node{ID: 2, Addresses: []string{"127.0.0.1:9999"}})
 	return b.Ring(1)
 }
 
@@ -178,7 +178,7 @@ func Test_MsgToNode(t *testing.T) {
 	conn := new(testConn)
 	r := newCommsTestRing()
 	msgring := NewTCPMsgRing(r)
-	addr := msgring.ring.Node(uint64(1)).Address
+	addr := msgring.ring.Node(uint64(1)).Addresses[0]
 	msgring.conns[addr] = NewRingConn(conn)
 	msg := TestMsg{}
 	msgring.MsgToNode(uint64(1), &msg)
@@ -203,7 +203,7 @@ func Test_MsgToNodeChan(t *testing.T) {
 	conn := new(testConn)
 	r := newCommsTestRing()
 	msgring := NewTCPMsgRing(r)
-	addr := msgring.ring.Node(uint64(1)).Address
+	addr := msgring.ring.Node(uint64(1)).Addresses[0]
 	msgring.conns[addr] = NewRingConn(conn)
 	msg := TestMsg{}
 	retch := make(chan struct{})
@@ -230,7 +230,7 @@ func Test_MsgToOtherReplicas(t *testing.T) {
 	conn := new(testConn)
 	r := newCommsTestRing()
 	msgring := NewTCPMsgRing(r)
-	addr := msgring.ring.Node(uint64(1)).Address
+	addr := msgring.ring.Node(uint64(1)).Addresses[0]
 	msgring.conns[addr] = NewRingConn(conn)
 	msg := TestMsg{}
 	msgring.MsgToOtherReplicas(int64(1), uint32(1), &msg)

@@ -101,17 +101,25 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 		if err != nil {
 			return nil, err
 		}
-		byts := make([]byte, vvint32)
-		_, err = io.ReadFull(gr, byts)
-		if err != nil {
-			return nil, err
+		b.nodes[i].Addresses = make([]string, vvint32)
+		for j := int32(0); j < vvint32; j++ {
+			var vvvint32 int32
+			err = binary.Read(gr, binary.BigEndian, &vvvint32)
+			if err != nil {
+				return nil, err
+			}
+			byts := make([]byte, vvvint32)
+			_, err = io.ReadFull(gr, byts)
+			if err != nil {
+				return nil, err
+			}
+			b.nodes[i].Addresses = append(b.nodes[i].Addresses, string(byts))
 		}
-		b.nodes[i].Address = string(byts)
 		err = binary.Read(gr, binary.BigEndian, &vvint32)
 		if err != nil {
 			return nil, err
 		}
-		byts = make([]byte, vvint32)
+		byts := make([]byte, vvint32)
 		_, err = io.ReadFull(gr, byts)
 		if err != nil {
 			return nil, err
@@ -210,21 +218,27 @@ func (b *Builder) Persist(w io.Writer) error {
 				return err
 			}
 		}
-		b := []byte(node.Address)
-		err = binary.Write(gw, binary.BigEndian, int32(len(b)))
+		err = binary.Write(gw, binary.BigEndian, int32(len(node.Addresses)))
 		if err != nil {
 			return err
 		}
-		_, err = gw.Write(b)
+		for _, address := range node.Addresses {
+			byts := []byte(address)
+			err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
+			if err != nil {
+				return err
+			}
+			_, err = gw.Write(byts)
+			if err != nil {
+				return err
+			}
+		}
+		byts := []byte(node.Meta)
+		err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
 		if err != nil {
 			return err
 		}
-		b = []byte(node.Meta)
-		err = binary.Write(gw, binary.BigEndian, int32(len(b)))
-		if err != nil {
-			return err
-		}
-		_, err = gw.Write(b)
+		_, err = gw.Write(byts)
 		if err != nil {
 			return err
 		}

@@ -94,17 +94,25 @@ func LoadRing(r io.Reader) (*Ring, error) {
 		if err != nil {
 			return nil, err
 		}
-		byts := make([]byte, vvint32)
-		_, err = io.ReadFull(gr, byts)
-		if err != nil {
-			return nil, err
+		ring.nodes[i].Addresses = make([]string, vvint32)
+		for j := int32(0); j < vvint32; j++ {
+			var vvvint32 int32
+			err = binary.Read(gr, binary.BigEndian, &vvvint32)
+			if err != nil {
+				return nil, err
+			}
+			byts := make([]byte, vvvint32)
+			_, err = io.ReadFull(gr, byts)
+			if err != nil {
+				return nil, err
+			}
+			ring.nodes[i].Addresses = append(ring.nodes[i].Addresses, string(byts))
 		}
-		ring.nodes[i].Address = string(byts)
 		err = binary.Read(gr, binary.BigEndian, &vvint32)
 		if err != nil {
 			return nil, err
 		}
-		byts = make([]byte, vvint32)
+		byts := make([]byte, vvint32)
 		_, err = io.ReadFull(gr, byts)
 		if err != nil {
 			return nil, err
@@ -181,21 +189,27 @@ func (ring *Ring) Persist(w io.Writer) error {
 				return err
 			}
 		}
-		ring := []byte(node.Address)
-		err = binary.Write(gw, binary.BigEndian, int32(len(ring)))
+		err = binary.Write(gw, binary.BigEndian, int32(len(node.Addresses)))
 		if err != nil {
 			return err
 		}
-		_, err = gw.Write(ring)
+		for _, address := range node.Addresses {
+			byts := []byte(address)
+			err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
+			if err != nil {
+				return err
+			}
+			_, err = gw.Write(byts)
+			if err != nil {
+				return err
+			}
+		}
+		byts := []byte(node.Meta)
+		err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
 		if err != nil {
 			return err
 		}
-		ring = []byte(node.Meta)
-		err = binary.Write(gw, binary.BigEndian, int32(len(ring)))
-		if err != nil {
-			return err
-		}
-		_, err = gw.Write(ring)
+		_, err = gw.Write(byts)
 		if err != nil {
 			return err
 		}
@@ -296,9 +310,11 @@ type Node struct {
 	// NodeID uniquely identifies this node; it must be non-zero as zero is
 	// used to indicate "no node".
 	ID uint64
-	// Address gives the location information for the node; probably something
-	// like an ip:port.
-	Address string
+	// Addresses give location information for the node; probably something
+	// like ip:port. This is a list for those use cases where different
+	// processes use different networks (such as replication using a
+	// replication-only network).
+	Addresses []string
 	// Capacity indicates the amount of data that should be assigned to a node
 	// relative to other nodes. It can be in any unit of designation as long as
 	// all nodes use the same designation. Most commonly this is the number of

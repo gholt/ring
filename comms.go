@@ -181,17 +181,19 @@ func (m *TCPMsgRing) msgToNode(nodeID uint64, msg Msg) {
 		return
 	}
 	// See if we have a connection already
-	conn, ok := m.conns[n.Address]
+	// TODO: This whole thing should be configurable to use a given "slot" in
+	// the Addresses list.
+	conn, ok := m.conns[n.Addresses[0]]
 	if !ok {
 		// We need to open a connection
 		// TODO: Handle connection timeouts
-		tcpconn, err := net.DialTimeout("tcp", n.Address, DefaultTimeout)
+		tcpconn, err := net.DialTimeout("tcp", n.Addresses[0], DefaultTimeout)
 		if err != nil {
-			log.Println("ERR: Trying to connect to", n.Address, err)
+			log.Println("ERR: Trying to connect to", n.Addresses[0], err)
 			return
 		}
 		conn := NewRingConn(tcpconn)
-		m.conns[n.Address] = conn
+		m.conns[n.Addresses[0]] = conn
 	}
 	conn.Lock() // Make sure we only have one writer at a time
 	// TODO: Handle write timeouts
