@@ -331,6 +331,10 @@ func (b *Builder) PretendMoveElapsed(minutes uint16) {
 	}
 }
 
+func (b *Builder) Nodes() []*Node {
+	return b.nodes
+}
+
 func (b *Builder) Add(n *Node) {
 	b.nodes = append(b.nodes, n)
 }

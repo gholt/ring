@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/gholt/brimtext-v1"
 	"github.com/gholt/ring"
@@ -43,7 +45,7 @@ func main2(args []string) error {
 %[1]s <file> node meta=<value>
     Lists detailed information about the node(s) identified by the meta value.
 
-%[1]s <file> partition <value>
+%[1]s <file> partition=<value>
     Lists information about the given partition's node assignments.
 
 %[1]s <builder-file> create [<name>=<value>] [<name>=<value>] ...
@@ -76,6 +78,8 @@ func main2(args []string) error {
             The <value> is a network address that can be accepted by Go's
             network library <golang.org/pkg/net/#Dial>; some examples:
             12.34.56.78:80 host.com:http [2001:db8::1]:http [fe80::1%%lo0]:80
+            This can be a list of addresses by separating each by a space
+            (enclose the whole in quotes).
         capacity=<value>
             The <value> is a decimal number from 0 to 4294967295 and indicates
             how much of the ring to assign to the node relative to other nodes.
@@ -122,12 +126,21 @@ func main2(args []string) error {
 				return nil
 			}
 		}
-	} else if tf, rb, err := ringOrBuilder(args[1]); err != nil {
+	} else if isRing, rb, err := ringOrBuilder(args[1]); err != nil {
 		return err
-	} else if tf {
-		return mainRing(args, rb.(*ring.Ring))
+	} else if len(args) < 3 {
+		if isRing {
+			return mainRing(rb.(*ring.Ring))
+		} else {
+			return mainBuilder(rb.(*ring.Builder))
+		}
 	} else {
-		return mainBuilder(args, rb.(*ring.Builder))
+		switch args[2] {
+		case "node", "nodes":
+			return nodeCmd(args[3:], isRing, rb)
+		default:
+			return fmt.Errorf("unknown command: %#v", args[2])
+		}
 	}
 }
 
@@ -163,7 +176,7 @@ func ringOrBuilder(fileName string) (bool, interface{}, error) {
 	return false, nil, fmt.Errorf("Should be impossible to get here")
 }
 
-func mainRing(args []string, r *ring.Ring) error {
+func mainRing(r *ring.Ring) error {
 	s := r.Stats()
 	report := [][]string{
 		[]string{brimtext.ThousandsSep(int64(s.PartitionCount), ","), "Partitions"},
@@ -180,7 +193,96 @@ func mainRing(args []string, r *ring.Ring) error {
 	return nil
 }
 
-func mainBuilder(args []string, b *ring.Builder) error {
+func mainBuilder(b *ring.Builder) error {
 	fmt.Printf("Builder %p loaded fine.\n", b)
+	return nil
+}
+
+func nodeCmd(args []string, isRing bool, ringOrBuilder interface{}) error {
+	var nodes []*ring.Node
+	if isRing {
+		nodes = ringOrBuilder.(*ring.Ring).Nodes()
+	} else {
+		nodes = ringOrBuilder.(*ring.Builder).Nodes()
+	}
+	for _, filter := range args {
+		var matcher *regexp.Regexp
+		var matchAgainst func(node *ring.Node) string
+		if strings.HasPrefix(filter, "id=") {
+			matcher = regexp.MustCompile(filter[3:])
+			matchAgainst = func(node *ring.Node) string {
+				return fmt.Sprintf("%08x", node.ID)
+			}
+		}
+		var nodesMatched []*ring.Node
+		for _, node := range nodes {
+			if matcher.MatchString(matchAgainst(node)) {
+				nodesMatched = append(nodesMatched, node)
+			}
+		}
+		nodes = nodesMatched
+	}
+	hadActive := false
+	report := [][]string{[]string{
+		"ID",
+		"Address",
+		"Capacity",
+		"Meta",
+	}}
+	reportAlign := brimtext.NewDefaultAlignOptions()
+	reportAlign.Alignments = []brimtext.Alignment{
+		brimtext.Left,
+		brimtext.Right,
+		brimtext.Right,
+		brimtext.Left,
+	}
+	for _, node := range nodes {
+		if node.Inactive {
+			continue
+		}
+		address := ""
+		if len(node.Addresses) > 0 {
+			address = node.Addresses[0]
+		}
+		report = append(report, []string{
+			fmt.Sprintf("%08x", node.ID),
+			address,
+			fmt.Sprintf("%d", node.Capacity),
+			node.Meta,
+		})
+	}
+	if len(report) > 1 {
+		hadActive = true
+		fmt.Println("Active Nodes:")
+		fmt.Print(brimtext.Align(report, reportAlign))
+	}
+	report = [][]string{[]string{
+		"ID",
+		"Address",
+		"Capacity",
+		"Meta",
+	}}
+	for _, node := range nodes {
+		if !node.Inactive {
+			continue
+		}
+		address := ""
+		if len(node.Addresses) > 0 {
+			address = node.Addresses[0]
+		}
+		report = append(report, []string{
+			fmt.Sprintf("%08x", node.ID),
+			address,
+			fmt.Sprintf("%d", node.Capacity),
+			node.Meta,
+		})
+	}
+	if len(report) > 1 {
+		if hadActive {
+			fmt.Println()
+		}
+		fmt.Println("Inactive Nodes:")
+		fmt.Print(brimtext.Align(report, reportAlign))
+	}
 	return nil
 }
