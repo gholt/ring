@@ -343,17 +343,31 @@ type NodeSlice []*Node
 func (ns NodeSlice) Filter(filters []string) NodeSlice {
 	nsB := ns
 	for _, filter := range filters {
-		var matcher *regexp.Regexp
-		var matchAgainst func(node *Node) string
+		var matcher func(node *Node) bool
 		if strings.HasPrefix(filter, "id=") {
-			matcher = regexp.MustCompile(filter[3:])
-			matchAgainst = func(node *Node) string {
-				return fmt.Sprintf("%08x", node.ID)
+			re := regexp.MustCompile(filter[3:])
+			matcher = func(node *Node) bool {
+				return re.MatchString(fmt.Sprintf("%08x", node.ID))
+			}
+		} else if strings.HasPrefix(filter, "address=") {
+			re := regexp.MustCompile(filter[8:])
+			matcher = func(node *Node) bool {
+				for _, address := range node.Addresses {
+					if re.MatchString(address) {
+						return true
+					}
+				}
+				return false
+			}
+		} else if strings.HasPrefix(filter, "meta=") {
+			re := regexp.MustCompile(filter[5:])
+			matcher = func(node *Node) bool {
+				return re.MatchString(node.Meta)
 			}
 		}
 		var nsC NodeSlice
 		for _, node := range nsB {
-			if matcher.MatchString(matchAgainst(node)) {
+			if matcher(node) {
 				nsC = append(nsC, node)
 			}
 		}

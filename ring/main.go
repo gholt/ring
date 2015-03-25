@@ -36,7 +36,7 @@ func main2(args []string) error {
 %[1]s <file> node address=<value>
     Lists detailed information about the node(s) identified by the address.
 
-%[1]s <file> node tiers=[names]
+TODO: %[1]s <file> node tiers=[names]
     Lists detailed information about the node(s) identified by the comma
     separated list of tier names. Use * to match all names for a given tier.
 
