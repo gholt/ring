@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/gholt/brimtext-v1"
 	"github.com/gholt/ring"
@@ -182,8 +183,8 @@ func mainRing(r *ring.Ring) error {
 		[]string{brimtext.ThousandsSep(int64(s.NodeCount), ","), "Nodes"},
 		[]string{brimtext.ThousandsSep(int64(s.InactiveNodeCount), ","), "Inactive Nodes"},
 		[]string{brimtext.ThousandsSepU(s.TotalCapacity, ","), "Total Node Capacity"},
-		[]string{fmt.Sprintf("%.02f%%", s.MaxUnderNodePercentage), fmt.Sprintf("Worst Underweight Node (ID %x)", r.Nodes()[s.MaxUnderNodeIndex].ID)},
-		[]string{fmt.Sprintf("%.02f%%", s.MaxOverNodePercentage), fmt.Sprintf("Worst Overweight Node (ID %x)", r.Nodes()[s.MaxOverNodeIndex].ID)},
+		[]string{fmt.Sprintf("%.02f%%", s.MaxUnderNodePercentage), fmt.Sprintf("Worst Underweight Node (ID %08x)", r.Nodes()[s.MaxUnderNodeIndex].ID)},
+		[]string{fmt.Sprintf("%.02f%%", s.MaxOverNodePercentage), fmt.Sprintf("Worst Overweight Node (ID %08x)", r.Nodes()[s.MaxOverNodeIndex].ID)},
 	}
 	reportOpts := brimtext.NewDefaultAlignOptions()
 	reportOpts.Alignments = []brimtext.Alignment{brimtext.Right, brimtext.Left}
@@ -204,6 +205,21 @@ func nodeCmd(args []string, isRing bool, ringOrBuilder interface{}) error {
 		nodes = ringOrBuilder.(*ring.Builder).Nodes()
 	}
 	nodes = nodes.Filter(args)
+	if len(nodes) == 1 {
+		node := nodes[0]
+		// TODO: Display tier info
+		report := [][]string{
+			[]string{"ID:", fmt.Sprintf("%08x", node.ID)},
+			[]string{"Addresses:", strings.Join(node.Addresses, "\n")},
+			[]string{"Capacity:", fmt.Sprintf("%d", node.Capacity)},
+			[]string{"Meta:", node.Meta},
+		}
+		fmt.Print(brimtext.Align(report, nil))
+		if node.Inactive {
+			fmt.Println("\nNode is marked as inactive.")
+		}
+		return nil
+	}
 	hadActive := false
 	report := [][]string{[]string{
 		"ID",
