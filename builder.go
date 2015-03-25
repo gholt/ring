@@ -11,7 +11,7 @@ import (
 
 type Builder struct {
 	version                       int64
-	nodes                         []*Node
+	nodes                         NodeSlice
 	partitionBitCount             uint16
 	replicaToPartitionToNodeIndex [][]int32
 	replicaToPartitionToLastMove  [][]uint16
@@ -22,7 +22,7 @@ type Builder struct {
 
 func NewBuilder(replicaCount int) *Builder {
 	b := &Builder{
-		nodes:                         make([]*Node, 0),
+		nodes:                         make(NodeSlice, 0),
 		partitionBitCount:             1,
 		replicaToPartitionToNodeIndex: make([][]int32, replicaCount),
 		replicaToPartitionToLastMove:  make([][]uint16, replicaCount),
@@ -66,7 +66,7 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 	if err != nil {
 		return nil, err
 	}
-	b.nodes = make([]*Node, vint32)
+	b.nodes = make(NodeSlice, vint32)
 	for i := int32(0); i < vint32; i++ {
 		b.nodes[i] = &Node{}
 		err = binary.Read(gr, binary.BigEndian, &b.nodes[i].ID)
@@ -331,7 +331,7 @@ func (b *Builder) PretendMoveElapsed(minutes uint16) {
 	}
 }
 
-func (b *Builder) Nodes() []*Node {
+func (b *Builder) Nodes() NodeSlice {
 	return b.nodes
 }
 
@@ -398,7 +398,7 @@ func (b *Builder) Ring(localNodeID uint64) *Ring {
 		}
 	}
 	localNodeIndex := int32(-1)
-	nodes := make([]*Node, len(b.nodes))
+	nodes := make(NodeSlice, len(b.nodes))
 	copy(nodes, b.nodes)
 	for i, node := range nodes {
 		if node.ID == localNodeID {

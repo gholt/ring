@@ -24,7 +24,7 @@ func TestRingReplicaCount(t *testing.T) {
 }
 
 func TestRingNodes(t *testing.T) {
-	v := (&Ring{nodes: []*Node{&Node{ID: 1}, &Node{ID: 2}}}).Nodes()
+	v := (&Ring{nodes: NodeSlice{&Node{ID: 1}, &Node{ID: 2}}}).Nodes()
 	if len(v) != 2 {
 		t.Fatalf("Nodes() gave %d entries instead of 2", len(v))
 	}
@@ -34,15 +34,15 @@ func TestRingNodes(t *testing.T) {
 }
 
 func TestRingNode(t *testing.T) {
-	v := (&Ring{nodes: []*Node{&Node{ID: 1}, &Node{ID: 2}}}).Node(1)
+	v := (&Ring{nodes: NodeSlice{&Node{ID: 1}, &Node{ID: 2}}}).Node(1)
 	if v.ID != 1 {
 		t.Fatalf("Nodes() gave %v instead of &{1}", v)
 	}
-	v = (&Ring{nodes: []*Node{&Node{ID: 1}, &Node{ID: 2}}}).Node(2)
+	v = (&Ring{nodes: NodeSlice{&Node{ID: 1}, &Node{ID: 2}}}).Node(2)
 	if v.ID != 2 {
 		t.Fatalf("Nodes() gave %v instead of &{2}", v)
 	}
-	v = (&Ring{nodes: []*Node{&Node{ID: 1}, &Node{ID: 2}}}).Node(3)
+	v = (&Ring{nodes: NodeSlice{&Node{ID: 1}, &Node{ID: 2}}}).Node(3)
 	if v != nil {
 		t.Fatalf("Nodes() gave %v instead of nil", v)
 	}
@@ -53,11 +53,11 @@ func TestRingLocalNode(t *testing.T) {
 	if v != nil {
 		t.Fatalf("LocalNode() gave %v instead of nil", v)
 	}
-	v = (&Ring{localNodeIndex: 0, nodes: []*Node{&Node{ID: 123}, &Node{ID: 456}, &Node{ID: 789}}}).LocalNode()
+	v = (&Ring{localNodeIndex: 0, nodes: NodeSlice{&Node{ID: 123}, &Node{ID: 456}, &Node{ID: 789}}}).LocalNode()
 	if v.ID != 123 {
 		t.Fatalf("LocalNode() gave %v instead of 0", v)
 	}
-	v = (&Ring{localNodeIndex: 1, nodes: []*Node{&Node{ID: 123}, &Node{ID: 456}, &Node{ID: 789}}}).LocalNode()
+	v = (&Ring{localNodeIndex: 1, nodes: NodeSlice{&Node{ID: 123}, &Node{ID: 456}, &Node{ID: 789}}}).LocalNode()
 	if v.ID != 456 {
 		t.Fatalf("LocalNode() gave %v instead of 0", v)
 	}
@@ -87,11 +87,11 @@ func TestRingResponsibleIDs(t *testing.T) {
 	d[0] = []int32{0, 1, 2}
 	d[1] = []int32{3, 4, 5}
 	d[2] = []int32{6, 7, 8}
-	v := (&Ring{nodes: []*Node{&Node{ID: 10}, &Node{ID: 11}, &Node{ID: 12}, &Node{ID: 13}, &Node{ID: 14}, &Node{ID: 15}, &Node{ID: 16}, &Node{ID: 17}, &Node{ID: 18}}, replicaToPartitionToNodeIndex: d}).ResponsibleNodes(0)
+	v := (&Ring{nodes: NodeSlice{&Node{ID: 10}, &Node{ID: 11}, &Node{ID: 12}, &Node{ID: 13}, &Node{ID: 14}, &Node{ID: 15}, &Node{ID: 16}, &Node{ID: 17}, &Node{ID: 18}}, replicaToPartitionToNodeIndex: d}).ResponsibleNodes(0)
 	if len(v) != 3 || v[0].ID != 10 || v[1].ID != 13 || v[2].ID != 16 {
 		t.Fatalf("ResponsibleNodes(0) gave %v instead of [10 13 16]", v)
 	}
-	v = (&Ring{nodes: []*Node{&Node{ID: 10}, &Node{ID: 11}, &Node{ID: 12}, &Node{ID: 13}, &Node{ID: 14}, &Node{ID: 15}, &Node{ID: 16}, &Node{ID: 17}, &Node{ID: 18}}, replicaToPartitionToNodeIndex: d}).ResponsibleNodes(2)
+	v = (&Ring{nodes: NodeSlice{&Node{ID: 10}, &Node{ID: 11}, &Node{ID: 12}, &Node{ID: 13}, &Node{ID: 14}, &Node{ID: 15}, &Node{ID: 16}, &Node{ID: 17}, &Node{ID: 18}}, replicaToPartitionToNodeIndex: d}).ResponsibleNodes(2)
 	if len(v) != 3 || v[0].ID != 12 || v[1].ID != 15 || v[2].ID != 18 {
 		t.Fatalf("ResponsibleNodes(2) gave %v instead of [12 15 18]", v)
 	}
@@ -100,7 +100,7 @@ func TestRingResponsibleIDs(t *testing.T) {
 func TestRingStats(t *testing.T) {
 	s := (&Ring{
 		partitionBitCount: 2,
-		nodes: []*Node{
+		nodes: NodeSlice{
 			&Node{ID: 0, Capacity: 100},
 			&Node{ID: 1, Capacity: 101},
 			&Node{ID: 2, Capacity: 102},

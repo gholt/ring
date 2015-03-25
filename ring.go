@@ -12,6 +12,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"regexp"
+	"strings"
 )
 
 type Ring struct {
@@ -20,7 +22,7 @@ type Ring struct {
 	// and they need to re-local-node it).
 	localNodeIndex                int32
 	partitionBitCount             uint16
-	nodes                         []*Node
+	nodes                         NodeSlice
 	replicaToPartitionToNodeIndex [][]int32
 }
 
@@ -59,7 +61,7 @@ func LoadRing(r io.Reader) (*Ring, error) {
 	if err != nil {
 		return nil, err
 	}
-	ring.nodes = make([]*Node, vint32)
+	ring.nodes = make(NodeSlice, vint32)
 	for i := int32(0); i < vint32; i++ {
 		ring.nodes[i] = &Node{}
 		err = binary.Read(gr, binary.BigEndian, &ring.nodes[i].ID)
@@ -254,8 +256,8 @@ func (ring *Ring) ReplicaCount() int {
 }
 
 // Nodes returns a list of nodes referenced by the ring.
-func (ring *Ring) Nodes() []*Node {
-	nodes := make([]*Node, len(ring.nodes))
+func (ring *Ring) Nodes() NodeSlice {
+	nodes := make(NodeSlice, len(ring.nodes))
 	copy(nodes, ring.nodes)
 	return nodes
 }
@@ -296,8 +298,8 @@ func (ring *Ring) Responsible(partition uint32) bool {
 
 // ResponsibleNodes will return a list of nodes for considered responsible for
 // the replicas of the partition given.
-func (ring *Ring) ResponsibleNodes(partition uint32) []*Node {
-	nodes := make([]*Node, ring.ReplicaCount())
+func (ring *Ring) ResponsibleNodes(partition uint32) NodeSlice {
+	nodes := make(NodeSlice, ring.ReplicaCount())
 	for replica, partitionToNodeIndex := range ring.replicaToPartitionToNodeIndex {
 		nodes[replica] = ring.nodes[partitionToNodeIndex[partition]]
 	}
@@ -334,6 +336,30 @@ type Node struct {
 	// Meta is additional information for the node; not defined or used by the
 	// builder or ring directly.
 	Meta string
+}
+
+type NodeSlice []*Node
+
+func (ns NodeSlice) Filter(filters []string) NodeSlice {
+	nsB := ns
+	for _, filter := range filters {
+		var matcher *regexp.Regexp
+		var matchAgainst func(node *Node) string
+		if strings.HasPrefix(filter, "id=") {
+			matcher = regexp.MustCompile(filter[3:])
+			matchAgainst = func(node *Node) string {
+				return fmt.Sprintf("%08x", node.ID)
+			}
+		}
+		var nsC NodeSlice
+		for _, node := range nsB {
+			if matcher.MatchString(matchAgainst(node)) {
+				nsC = append(nsC, node)
+			}
+		}
+		nsB = nsC
+	}
+	return nsB
 }
 
 type RingStats struct {

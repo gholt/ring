@@ -6,9 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/gholt/brimtext-v1"
 	"github.com/gholt/ring"
@@ -199,29 +197,13 @@ func mainBuilder(b *ring.Builder) error {
 }
 
 func nodeCmd(args []string, isRing bool, ringOrBuilder interface{}) error {
-	var nodes []*ring.Node
+	var nodes ring.NodeSlice
 	if isRing {
 		nodes = ringOrBuilder.(*ring.Ring).Nodes()
 	} else {
 		nodes = ringOrBuilder.(*ring.Builder).Nodes()
 	}
-	for _, filter := range args {
-		var matcher *regexp.Regexp
-		var matchAgainst func(node *ring.Node) string
-		if strings.HasPrefix(filter, "id=") {
-			matcher = regexp.MustCompile(filter[3:])
-			matchAgainst = func(node *ring.Node) string {
-				return fmt.Sprintf("%08x", node.ID)
-			}
-		}
-		var nodesMatched []*ring.Node
-		for _, node := range nodes {
-			if matcher.MatchString(matchAgainst(node)) {
-				nodesMatched = append(nodesMatched, node)
-			}
-		}
-		nodes = nodesMatched
-	}
+	nodes = nodes.Filter(args)
 	hadActive := false
 	report := [][]string{[]string{
 		"ID",
