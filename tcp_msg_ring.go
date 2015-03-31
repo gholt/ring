@@ -54,15 +54,6 @@ func (m *TCPMsgRing) Ring() Ring {
 	return m.ring
 }
 
-func (m *TCPMsgRing) getNodesForPart(ringVersion int64, partition uint32) []uint64 {
-	// Just a dummy function for now
-	var ids []uint64
-	for _, n := range m.ring.ResponsibleNodes(partition) {
-		ids = append(ids, n.ID())
-	}
-	return ids
-}
-
 func (m *TCPMsgRing) MaxMsgLength() uint64 {
 	return math.MaxUint64
 }
@@ -129,8 +120,8 @@ func (m *TCPMsgRing) msgToNodeChan(nodeID uint64, msg Msg, retchan chan struct{}
 	retchan <- struct{}{}
 }
 
-func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg) {
-	nodes := m.getNodesForPart(ringVersion, partition)
+func (m *TCPMsgRing) MsgToOtherReplicas(partition uint32, msg Msg) {
+	nodes := m.ring.ResponsibleNodes(partition)
 	retchan := make(chan struct{}, 2)
 	localNode := m.ring.LocalNode()
 	var localID uint64
@@ -138,10 +129,10 @@ func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg
 		localID = localNode.ID()
 	}
 	sent := 0
-	for _, nodeID := range nodes {
-		if nodeID != localID {
-			sent++
-			go m.msgToNodeChan(nodeID, msg, retchan)
+	for n := range nodes {
+		if nodes[n].ID() != localID {
+			go m.msgToNodeChan(nodes[n].ID(), msg, retchan)
+			sent += 1
 		}
 	}
 	for i := 0; i < sent; i++ {
