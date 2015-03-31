@@ -46,23 +46,14 @@ func newRebalancer(builder *Builder) *rebalancer {
 }
 
 func (context *rebalancer) initMaxTier() {
-	context.maxTier = -1
-	for _, node := range context.builder.nodes {
-		if node.Inactive {
-			continue
-		}
-		nodeMaxTier := len(node.TierValues) - 1
-		if nodeMaxTier > context.maxTier {
-			context.maxTier = nodeMaxTier
-		}
-	}
+	context.maxTier = len(context.builder.tiers)
 }
 
 func (context *rebalancer) initNodeDesires() {
 	totalCapacity := float64(0)
 	for _, node := range context.builder.nodes {
-		if !node.Inactive {
-			totalCapacity += (float64)(node.Capacity)
+		if !node.inactive {
+			totalCapacity += (float64)(node.capacity)
 		}
 	}
 	nodeIndexToPartitionCount := make([]int32, len(context.builder.nodes))
@@ -76,10 +67,10 @@ func (context *rebalancer) initNodeDesires() {
 	context.nodeIndexToDesire = make([]int32, len(context.builder.nodes))
 	allPartitionsCount := float64(len(context.builder.replicaToPartitionToNodeIndex) * len(context.builder.replicaToPartitionToNodeIndex[0]))
 	for nodeIndex, node := range context.builder.nodes {
-		if node.Inactive {
+		if node.inactive {
 			context.nodeIndexToDesire[nodeIndex] = math.MinInt32
 		} else {
-			context.nodeIndexToDesire[nodeIndex] = int32(float64(node.Capacity)/totalCapacity*allPartitionsCount+0.5) - nodeIndexToPartitionCount[nodeIndex]
+			context.nodeIndexToDesire[nodeIndex] = int32(float64(node.capacity)/totalCapacity*allPartitionsCount+0.5) - nodeIndexToPartitionCount[nodeIndex]
 		}
 	}
 	context.nodeIndexesByDesire = make([]int32, len(context.builder.nodes))
@@ -117,15 +108,15 @@ func (context *rebalancer) initTierInfo() {
 		context.tierToTierSeps[tier] = make([]*tierSeparation, 0)
 	}
 	for nodeIndex, node := range context.builder.nodes {
-		nodeTierValues := node.TierValues
+		nodeTierIndexes := node.tierIndexes
 		for tier := 0; tier <= context.maxTier; tier++ {
 			var tierSep *tierSeparation
 			for _, candidateTierSep := range context.tierToTierSeps[tier] {
 				tierSep = candidateTierSep
 				for valueIndex := 0; valueIndex <= context.maxTier-tier; valueIndex++ {
 					value := int32(0)
-					if valueIndex+tier < len(nodeTierValues) {
-						value = nodeTierValues[valueIndex+tier]
+					if valueIndex+tier < len(nodeTierIndexes) {
+						value = nodeTierIndexes[valueIndex+tier]
 					}
 					if tierSep.values[valueIndex] != value {
 						tierSep = nil
@@ -140,8 +131,8 @@ func (context *rebalancer) initTierInfo() {
 				tierSep = &tierSeparation{values: make([]int32, context.maxTier-tier+1), nodeIndexesByDesire: []int32{int32(nodeIndex)}}
 				for valueIndex := 0; valueIndex <= context.maxTier-tier; valueIndex++ {
 					value := int32(0)
-					if valueIndex+tier < len(nodeTierValues) {
-						value = nodeTierValues[valueIndex+tier]
+					if valueIndex+tier < len(nodeTierIndexes) {
+						value = nodeTierIndexes[valueIndex+tier]
 					}
 					tierSep.values[valueIndex] = value
 				}
@@ -352,7 +343,7 @@ func (context *rebalancer) assignUnassigned() {
 // (deleted or failed nodes).
 func (context *rebalancer) reassignDeactivated() {
 	for deletedNodeIndex, deletedNode := range context.builder.nodes {
-		if !deletedNode.Inactive {
+		if !deletedNode.inactive {
 			continue
 		}
 		for replica := context.maxReplica; replica >= 0; replica-- {
@@ -481,7 +472,7 @@ OverweightLoop:
 		if context.nodeIndexToDesire[overweightNodeIndex] >= 0 {
 			break
 		}
-		if visited[overweightNodeIndex] || context.builder.nodes[overweightNodeIndex].Inactive {
+		if visited[overweightNodeIndex] || context.builder.nodes[overweightNodeIndex].inactive {
 			continue
 		}
 		// First pass to reassign to only underweight nodes.

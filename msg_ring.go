@@ -3,7 +3,7 @@ package ring
 import "io"
 
 type MsgRing interface {
-	Ring() *Ring
+	Ring() Ring
 	// MaxMsgLength indicates the maximum number of bytes the content of a
 	// message may contain to be handled by this MsgRing.
 	MaxMsgLength() uint64

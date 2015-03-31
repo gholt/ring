@@ -10,51 +10,57 @@ import (
 	"time"
 )
 
-var (
-	DefaultChunksize int           = 1024 * 16       // 16Kb
-	DefaultTimeout   time.Duration = 2 * time.Second // 2 seconds
-)
+const _DEFAULT_CHUNK_SIZE int = 16 * 1024
+const _DEFAULT_TIMEOUT time.Duration = 2 * time.Second
 
-const (
-	DefaultAddress = iota
-)
-
-type RingConn struct {
+type ringConn struct {
 	Conn   net.Conn
-	Writer *TimeoutWriter
+	Writer *timeoutWriter
 	sync.Mutex
 }
 
-func NewRingConn(conn net.Conn) *RingConn {
-	return &RingConn{
+func newRingConn(conn net.Conn, chunkSize int, timeout time.Duration) *ringConn {
+	return &ringConn{
 		Conn:   conn,
-		Writer: NewTimeoutWriter(conn),
+		Writer: newTimeoutWriter(conn, chunkSize, timeout),
 	}
 }
 
 type TCPMsgRing struct {
-	ring        *Ring
+	// AddressIndex is the index given to a Node's Address method to determine
+	// the network address to connect to (see Node's Address method for more
+	// information).
+	AddressIndex int
+	// ChunkSize is the size of network reads and writes.
+	ChunkSize int
+	// Timeout is the duration before network reads and writes expire.
+	Timeout     time.Duration
+	ring        Ring
 	msgHandlers map[uint64]MsgUnmarshaller
-	conns       map[string]*RingConn
-	AddressIdx  uint // Set this to use a different node address
+	conns       map[string]*ringConn
 }
 
-func NewTCPMsgRing(r *Ring) *TCPMsgRing {
+func NewTCPMsgRing(r Ring) *TCPMsgRing {
 	return &TCPMsgRing{
 		ring:        r,
 		msgHandlers: make(map[uint64]MsgUnmarshaller),
-		conns:       make(map[string]*RingConn),
-		AddressIdx:  DefaultAddress,
+		conns:       make(map[string]*ringConn),
+		ChunkSize:   _DEFAULT_CHUNK_SIZE,
+		Timeout:     _DEFAULT_TIMEOUT,
 	}
 }
 
-func (m *TCPMsgRing) Ring() *Ring {
+func (m *TCPMsgRing) Ring() Ring {
 	return m.ring
 }
 
-func (m *TCPMsgRing) GetNodesForPart(ringVersion int64, partition uint32) []uint64 {
+func (m *TCPMsgRing) getNodesForPart(ringVersion int64, partition uint32) []uint64 {
 	// Just a dummy function for now
-	return []uint64{uint64(1), uint64(2)}
+	var ids []uint64
+	for _, n := range m.ring.ResponsibleNodes(partition) {
+		ids = append(ids, n.ID())
+	}
+	return ids
 }
 
 func (m *TCPMsgRing) MaxMsgLength() uint64 {
@@ -79,17 +85,17 @@ func (m *TCPMsgRing) msgToNode(nodeID uint64, msg Msg) {
 	// See if we have a connection already
 	// TODO: This whole thing should be configurable to use a given "slot" in
 	// the Addresses list.
-	conn, ok := m.conns[n.Addresses[m.AddressIdx]]
+	conn, ok := m.conns[n.Address(m.AddressIndex)]
 	if !ok {
 		// We need to open a connection
 		// TODO: Handle connection timeouts
-		tcpconn, err := net.DialTimeout("tcp", n.Addresses[m.AddressIdx], DefaultTimeout)
+		tcpconn, err := net.DialTimeout("tcp", n.Address(m.AddressIndex), m.Timeout)
 		if err != nil {
-			log.Println("ERR: Trying to connect to", n.Addresses[m.AddressIdx], err)
+			log.Println("ERR: Trying to connect to", n.Address(m.AddressIndex), err)
 			return
 		}
-		conn := NewRingConn(tcpconn)
-		m.conns[n.Addresses[m.AddressIdx]] = conn
+		conn := newRingConn(tcpconn, m.ChunkSize, m.Timeout)
+		m.conns[n.Address(m.AddressIndex)] = conn
 	}
 	conn.Lock() // Make sure we only have one writer at a time
 	// TODO: Handle write timeouts
@@ -118,25 +124,34 @@ func (m *TCPMsgRing) msgToNode(nodeID uint64, msg Msg) {
 	}
 }
 
-func (m *TCPMsgRing) MsgToNodeChan(nodeID uint64, msg Msg, retchan chan struct{}) {
+func (m *TCPMsgRing) msgToNodeChan(nodeID uint64, msg Msg, retchan chan struct{}) {
 	m.msgToNode(nodeID, msg)
 	retchan <- struct{}{}
 }
 
 func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg) {
-	nodes := m.GetNodesForPart(ringVersion, partition)
+	nodes := m.getNodesForPart(ringVersion, partition)
 	retchan := make(chan struct{}, 2)
-	for _, nodeID := range nodes {
-		go m.MsgToNodeChan(nodeID, msg, retchan)
+	localNode := m.ring.LocalNode()
+	var localID uint64
+	if localNode != nil {
+		localID = localNode.ID()
 	}
-	for i := 0; i < len(nodes); i++ {
+	sent := 0
+	for _, nodeID := range nodes {
+		if nodeID != localID {
+			sent++
+			go m.msgToNodeChan(nodeID, msg, retchan)
+		}
+	}
+	for i := 0; i < sent; i++ {
 		<-retchan
 	}
 	msg.Done()
 }
 
 func (m *TCPMsgRing) handle(conn net.Conn) error {
-	reader := NewTimeoutReader(conn)
+	reader := newTimeoutReader(conn, m.ChunkSize, m.Timeout)
 	var length uint64
 	var msgType uint64
 	for {
@@ -183,7 +198,10 @@ func (m *TCPMsgRing) handle(conn net.Conn) error {
 	}
 }
 
-func (m *TCPMsgRing) Listen(addr string) error {
+// TODO: This should result in a public method for activating this TCPMsgRing;
+// which would involve listening on the address identified by the local node's
+// address according to AddressIndex, etc.
+func (m *TCPMsgRing) listen(addr string) error {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
 		return err

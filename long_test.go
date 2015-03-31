@@ -41,7 +41,8 @@ func TestNewRingBuilder(t *testing.T) {
 }
 
 func helperTestNewRingBuilder(t *testing.T, zones int32) {
-	builder := NewBuilder(3)
+	b := NewBuilder()
+	b.SetReplicaCount(3)
 	nodeID := uint64(0)
 	//capacity := uint32(1)
 	capacity := uint32(100)
@@ -49,7 +50,7 @@ func helperTestNewRingBuilder(t *testing.T, zones int32) {
 		for server := int32(0); server < 50; server++ {
 			for device := int32(0); device < 2; device++ {
 				nodeID++
-				builder.Add(&Node{ID: nodeID, Capacity: capacity, TierValues: []int32{server, zone}})
+				b.AddNode(true, capacity, []string{fmt.Sprintf("server%d", server), fmt.Sprintf("zone%d", zone)}, nil, "")
 				//capacity++
 				//if capacity > 100 {
 				//	capacity = 1
@@ -58,25 +59,25 @@ func helperTestNewRingBuilder(t *testing.T, zones int32) {
 		}
 	}
 	start := time.Now()
-	builder.PretendMoveElapsed(math.MaxUint16)
-	stats := builder.Ring(0).Stats()
+	b.PretendMoveElapsed(math.MaxUint16)
+	stats := b.Ring().Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
-	builder.Node(25).Inactive = true
+	b.nodes[25].SetActive(false)
 	start = time.Now()
-	builder.PretendMoveElapsed(math.MaxUint16)
-	stats = builder.Ring(0).Stats()
+	b.PretendMoveElapsed(math.MaxUint16)
+	stats = b.Ring().Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
-	builder.Node(20).Capacity = 75
+	b.nodes[20].SetCapacity(75)
 	start = time.Now()
-	builder.PretendMoveElapsed(math.MaxUint16)
-	stats = builder.Ring(0).Stats()
+	b.PretendMoveElapsed(math.MaxUint16)
+	stats = b.Ring().Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 	start = time.Now()
 	f, err := os.Create("long_test.builder")
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = builder.Persist(f)
+	err = b.Persist(f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,20 +86,20 @@ func helperTestNewRingBuilder(t *testing.T, zones int32) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	builder, err = LoadBuilder(f)
+	b, err = LoadBuilder(f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	builder.PretendMoveElapsed(math.MaxUint16)
-	ring := builder.Ring(0)
-	stats = ring.Stats()
+	b.PretendMoveElapsed(math.MaxUint16)
+	r := b.Ring()
+	stats = r.Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 	start = time.Now()
 	f, err = os.Create("long_test.ring")
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ring.Persist(f)
+	err = r.Persist(f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,10 +108,10 @@ func helperTestNewRingBuilder(t *testing.T, zones int32) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ring, err = LoadRing(f)
+	r, err = LoadRing(f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	stats = ring.Stats()
+	stats = r.Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 }

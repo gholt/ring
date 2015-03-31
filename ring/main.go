@@ -4,8 +4,10 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"math"
 	"os"
-	"path/filepath"
+	"path"
 	"strconv"
 	"strings"
 
@@ -14,37 +16,94 @@ import (
 )
 
 func main() {
-	if err := main2(os.Args); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	if err := mainEntry(os.Args); err != nil {
+		fmt.Fprintln(os.Stderr, brimtext.Sentence(err.Error()))
 		os.Exit(1)
 	}
 }
 
-func main2(args []string) error {
+func mainEntry(args []string) error {
+	// TODO: Command for listing tiers
+	var r ring.Ring
+	var b *ring.Builder
 	var err error
 	if len(args) < 2 {
-		fmt.Printf(`Ring Command Line Development Version <github.com/gholt/ring>
+		return helpCmd(args)
+	}
+	if len(args) > 2 && args[2] == "create" {
+		return createCmd(args[3:])
+	}
+	if r, b, err = ringOrBuilder(args[1]); err != nil {
+		return err
+	}
+	if len(args) < 3 {
+		return mainCmd(r, b)
+	}
+	switch args[2] {
+	case "node", "nodes":
+		changed := false
+		if changed, err = nodeCmd(r, b, args[3:], false); err != nil {
+			return err
+		}
+		if changed {
+			return persist(r, b, args[1])
+		}
+		return nil
+	case "fullnode", "fullnodes":
+		changed := false
+		if changed, err = nodeCmd(r, b, args[3:], true); err != nil {
+			return err
+		}
+		if changed {
+			return persist(r, b, args[1])
+		}
+		return nil
+	case "part", "partition":
+		return partitionCmd(r, b, args[3:])
+	case "add":
+		if err = addOrSetCmd(r, b, args[3:], nil); err != nil {
+			return err
+		}
+		return persist(r, b, args[1])
+	case "remove":
+		if err = removeCmd(r, b, args[3:]); err != nil {
+			return err
+		}
+		return persist(r, b, args[1])
+	case "ring":
+		return ringCmd(r, b, args[1])
+	}
+	return fmt.Errorf("unknown command: %#v", args[2])
+}
+
+func helpCmd(args []string) error {
+	fmt.Printf(`Ring Command Line Development Version <github.com/gholt/ring>
 
 %[1]s <file>
     Shows general information about the data within the <file>.
 
-%[1]s <file> node
-    Lists the nodes contained within the <file>.
+%[1]s <file> node [filter] ...
+    Lists the nodes contained within the <file>, with optional filtering.
+    Filters are attribute=value for exact string matches or attribute~=value
+    for regular expression matches (per the http://golang.org/pkg/regexp/
+    implementation).
 
-%[1]s <file> node id=<value>
-    Lists detailed information about the node identified.
+    Available Filter Attributes:
 
-%[1]s <file> node address=<value>
-    Lists detailed information about the node(s) identified by the address.
+    id          A node's id.
+    active      Whether a node is active or not (use "true" or "false").
+    capacity    A node's capacity.
+    tier        Any tier of a node.
+    tierX       A node's specific tier level specified by X.
+    address     Any address of a node.
+    addressX    A node's specific address index specified by X.
+    meta        A node's meta attribute.
 
-TODO: %[1]s <file> node tiers=[names]
-    Lists detailed information about the node(s) identified by the comma
-    separated list of tier names. Use * to match all names for a given tier.
+%[1]s <file> fullnode [filter] ...
+    Same as "node" above, but always lists the full information for each
+    matching node.
 
-%[1]s <file> node meta=<value>
-    Lists detailed information about the node(s) identified by the meta value.
-
-%[1]s <file> partition=<value>
+%[1]s <ring-file> partition <value>
     Lists information about the given partition's node assignments.
 
 %[1]s <builder-file> create [<name>=<value>] [<name>=<value>] ...
@@ -56,231 +115,481 @@ TODO: %[1]s <file> node tiers=[names]
             the number of percentage points the builder should try to keep each
             node balanced within. In other words, by default, plus or minus one
             percent assignments per node based on the relative capacity.
-        max-partition-bit-count=<value>
+        max-partition-bits=<value>
             The <value> is a positive number that defaults to 23 and indicates
-            the maximum bit count for partition numbers, which limits the
-            memory size of the ring but also limits the balancing ability. 23
-            allows for 8388608 partitions which, with a 3 replica ring, would
-            use about 100M of memory.
+            the maximum bits for partition numbers, which limits the memory
+            size of the ring but also limits the balancing ability. 23 allows
+            for 8388608 partitions which, with a 3 replica ring, would use
+            about 100M of memory.
         move-wait=<value>
             The <value> is a positive number that defaults to 60 and indicates
             the number of minutes to wait before reassigning a given replica of
             a partition. This is to give time for actual data to rebalance in
             the system before changing where it is assigned again.
 
-%[1]s <builder-file> node <name>=<value> [<name>=<value>] ...
-    Sets node attributes, creating a new node if needed. Attributes:
-        id=<value>
-            The <value> is a hex number from 0 to ffffffffffffffff. If not
-            specified, a new unique id will be generated, creating a new node.
-        address=<value>
-            The <value> is a network address that can be accepted by Go's
-            network library <golang.org/pkg/net/#Dial>; some examples:
-            12.34.56.78:80 host.com:http [2001:db8::1]:http [fe80::1%%lo0]:80
-            This can be a list of addresses by separating each by a space
-            (enclose the whole in quotes).
+%[1]s <builder-file> add [<name>=<value>] ...
+    Adds a new node to the builder. Available attributes:
+        active=<true|false>
+            Nodes are active by default; this attribute can change that status.
         capacity=<value>
             The <value> is a decimal number from 0 to 4294967295 and indicates
             how much of the ring to assign to the node relative to other nodes.
-        inactive=<true|false>
-            Nodes are active by default; this attribute can toggle that status.
-        tiers=[names]
-            If [names] is empty, all tier information for the node will be
-            cleared. Otherwise, names should be a comma separated list of tier
-            names, sorted from lowest tier to highest.
+        tierX=<value>
+            Sets the value for the tier level specified by X.
+            For example: "tier0=server233 tier1=zone74"
+        addressX=<value>
+            Sets the value for the address index specified by X.
+            For example: "address0=10.1.2.3:12345 address1="192.1.2.3:54321"
+            The <value> is a network address that can be accepted by Go's
+            network library <golang.org/pkg/net/#Dial>; some examples:
+            12.34.56.78:80 host.com:http [2001:db8::1]:http [fe80::1%%lo0]:80
         meta=[value]
             The [value] can be any string and is not used directly by the
             builder or ring. It can be used for notes about the node if
             desired, such as the model or serial number.
 
+%[1]s <builder-file> remove id=<value>
+    Removes the specified node from the builder. Often it's quicker to just set
+    a node as inactive with "node id=<value> set active=false" and that will
+    retain a record of the node having existed, but permanent removal from the
+    record may be desired.
+
+%[1]s <builder-file> node [filter] ... set [<name>=<value>] ...
+    Updates existing node attributes. The filters are the same as for the
+    generic "node" command above. The available attributes to set are the same
+    as for the "add" command above. Examples:
+
+    %[1]s my.builder node id=a839da27 set active=false
+    %[1]s my.builder node tier0=server50 set capacity=3 meta="3T WD3003FZEX"
+
 %[1]s <builder-file> ring
     Writes a new ring file based on the information contained in the builder.
     This may take a while if rebalancing ring assignments are needed. The ring
-    file's name will be the base name of the builder file plus a .ring
-    extension.
-`, filepath.Base(args[0]))
-		return nil
-	} else if len(args) > 2 && args[2] == "create" {
-		replicas := 3
-		if len(args) > 3 {
-			if replicas, err = strconv.Atoi(args[3]); err != nil {
-				return err
-			} else if replicas < 1 {
-				return fmt.Errorf("replicas cannot be less than 1")
-			}
-		}
-		if _, err = os.Stat(args[1]); err == nil {
-			return fmt.Errorf("file already exists")
-		} else if !os.IsNotExist(err) {
-			return err
-		} else if f, err := os.Create(args[1]); err != nil {
-			return err
-		} else {
-			b := ring.NewBuilder(replicas)
-			if err = b.Persist(f); err != nil {
-				return err
-			} else if err = f.Close(); err != nil {
-				return err
-			} else {
-				return nil
-			}
-		}
-	} else if isRing, rb, err := ringOrBuilder(args[1]); err != nil {
-		return err
-	} else if len(args) < 3 {
-		if isRing {
-			return mainRing(rb.(*ring.Ring))
-		} else {
-			return mainBuilder(rb.(*ring.Builder))
-		}
-	} else {
-		switch args[2] {
-		case "node", "nodes":
-			return nodeCmd(args[3:], isRing, rb)
-		default:
-			return fmt.Errorf("unknown command: %#v", args[2])
-		}
-	}
-}
-
-func ringOrBuilder(fileName string) (bool, interface{}, error) {
-	if f, err := os.Open(fileName); err != nil {
-		return false, nil, err
-	} else if gf, err := gzip.NewReader(f); err != nil {
-		return false, nil, err
-	} else {
-		header := make([]byte, 16)
-		if _, err = io.ReadFull(gf, header); err != nil {
-			return false, nil, err
-		} else if string(header[:5]) == "RINGv" {
-			gf.Close()
-			if _, err = f.Seek(0, 0); err != nil {
-				return false, nil, err
-			} else if r, err := ring.LoadRing(f); err != nil {
-				return false, nil, err
-			} else {
-				return true, r, nil
-			}
-		} else if string(header[:12]) == "RINGBUILDERv" {
-			gf.Close()
-			if _, err = f.Seek(0, 0); err != nil {
-				return false, nil, err
-			} else if b, err := ring.LoadBuilder(f); err != nil {
-				return false, nil, err
-			} else {
-				return false, b, nil
-			}
-		}
-	}
-	return false, nil, fmt.Errorf("Should be impossible to get here")
-}
-
-func mainRing(r *ring.Ring) error {
-	s := r.Stats()
-	report := [][]string{
-		[]string{brimtext.ThousandsSep(int64(s.PartitionCount), ","), "Partitions"},
-		[]string{brimtext.ThousandsSep(int64(s.PartitionBitCount), ","), "Partition Bits"},
-		[]string{brimtext.ThousandsSep(int64(s.NodeCount), ","), "Nodes"},
-		[]string{brimtext.ThousandsSep(int64(s.InactiveNodeCount), ","), "Inactive Nodes"},
-		[]string{brimtext.ThousandsSepU(s.TotalCapacity, ","), "Total Node Capacity"},
-		[]string{fmt.Sprintf("%.02f%%", s.MaxUnderNodePercentage), fmt.Sprintf("Worst Underweight Node (ID %08x)", r.Nodes()[s.MaxUnderNodeIndex].ID)},
-		[]string{fmt.Sprintf("%.02f%%", s.MaxOverNodePercentage), fmt.Sprintf("Worst Overweight Node (ID %08x)", r.Nodes()[s.MaxOverNodeIndex].ID)},
-	}
-	reportOpts := brimtext.NewDefaultAlignOptions()
-	reportOpts.Alignments = []brimtext.Alignment{brimtext.Right, brimtext.Left}
-	fmt.Print(brimtext.Align(report, reportOpts))
+    file name will be the base name of the builder file plus a .ring extension.
+`, path.Base(args[0]))
 	return nil
 }
 
-func mainBuilder(b *ring.Builder) error {
-	fmt.Printf("Builder %p loaded fine.\n", b)
-	return nil
-}
-
-func nodeCmd(args []string, isRing bool, ringOrBuilder interface{}) error {
-	var nodes ring.NodeSlice
-	if isRing {
-		nodes = ringOrBuilder.(*ring.Ring).Nodes()
-	} else {
-		nodes = ringOrBuilder.(*ring.Builder).Nodes()
-	}
-	nodes = nodes.Filter(args)
-	if len(nodes) == 1 {
-		node := nodes[0]
-		// TODO: Display tier info
+func mainCmd(r ring.Ring, b *ring.Builder) error {
+	if r != nil {
+		// TODO:
+		//  Version Info (the value as well as the time translation)
+		//  Number of tier levels
+		//  Replica count
+		//  Indication of how risky the assignments are:
+		//      Replicas not in distinct tiers, nodes
+		s := r.Stats()
 		report := [][]string{
-			[]string{"ID:", fmt.Sprintf("%08x", node.ID)},
-			[]string{"Addresses:", strings.Join(node.Addresses, "\n")},
-			[]string{"Capacity:", fmt.Sprintf("%d", node.Capacity)},
-			[]string{"Meta:", node.Meta},
+			[]string{brimtext.ThousandsSep(int64(s.PartitionCount), ","), "Partitions"},
+			[]string{brimtext.ThousandsSep(int64(s.PartitionBitCount), ","), "Partition Bits"},
+			[]string{brimtext.ThousandsSep(int64(s.NodeCount), ","), "Nodes"},
+			[]string{brimtext.ThousandsSep(int64(s.InactiveNodeCount), ","), "Inactive Nodes"},
+			[]string{brimtext.ThousandsSepU(s.TotalCapacity, ","), "Total Node Capacity"},
+			[]string{fmt.Sprintf("%.02f%%", s.MaxUnderNodePercentage), fmt.Sprintf("Worst Underweight Node (ID %08x)", s.MaxUnderNodeID)},
+			[]string{fmt.Sprintf("%.02f%%", s.MaxOverNodePercentage), fmt.Sprintf("Worst Overweight Node (ID %08x)", s.MaxOverNodeID)},
 		}
-		fmt.Print(brimtext.Align(report, nil))
-		if node.Inactive {
-			fmt.Println("\nNode is marked as inactive.")
+		reportOpts := brimtext.NewDefaultAlignOptions()
+		reportOpts.Alignments = []brimtext.Alignment{brimtext.Right, brimtext.Left}
+		fmt.Print(brimtext.Align(report, reportOpts))
+	}
+	if b != nil {
+		// TODO:
+		//  Inactive node count
+		//  Total capacity
+		report := [][]string{
+			[]string{brimtext.ThousandsSep(int64(len(b.Nodes())), ","), "Nodes"},
+			[]string{brimtext.ThousandsSep(int64(b.ReplicaCount()), ","), "Replicas"},
+			[]string{brimtext.ThousandsSep(int64(b.PointsAllowed()), ","), "Points Allowed"},
+			[]string{brimtext.ThousandsSep(int64(b.MaxPartitionBitCount()), ","), "Max Partition Bits"},
+			[]string{brimtext.ThousandsSep(int64(b.MoveWait()), ","), "Move Wait"},
 		}
+		reportOpts := brimtext.NewDefaultAlignOptions()
+		reportOpts.Alignments = []brimtext.Alignment{brimtext.Right, brimtext.Left}
+		fmt.Print(brimtext.Align(report, reportOpts))
 		return nil
 	}
-	hadActive := false
-	report := [][]string{[]string{
+	return nil
+}
+
+func nodeCmd(r ring.Ring, b *ring.Builder, args []string, full bool) (changed bool, err error) {
+	var nodes ring.NodeSlice
+	if r != nil {
+		nodes = r.Nodes()
+	} else {
+		bnodes := b.Nodes()
+		nodes = make(ring.NodeSlice, len(bnodes))
+		for i := len(nodes) - 1; i >= 0; i-- {
+			nodes[i] = bnodes[i]
+		}
+	}
+	filterArgs := make([]string, 0)
+	setArgs := make([]string, 0)
+	setFound := false
+	for _, arg := range args {
+		if arg == "set" {
+			setFound = true
+			continue
+		}
+		if setFound {
+			setArgs = append(setArgs, arg)
+		} else {
+			filterArgs = append(filterArgs, arg)
+		}
+	}
+	if len(setArgs) > 0 && b == nil {
+		err = fmt.Errorf("set is only valid for builder files")
+		return
+	}
+	if nodes, err = nodes.Filter(filterArgs); err != nil {
+		return
+	}
+	if len(nodes) > 0 && len(setArgs) > 0 {
+		for _, n := range nodes {
+			if err = addOrSetCmd(r, b, setArgs, n.(ring.BuilderNode)); err != nil {
+				return
+			}
+			changed = true
+		}
+	}
+	if full || len(nodes) == 1 {
+		first := true
+		for _, n := range nodes {
+			if first {
+				first = false
+			} else {
+				fmt.Println()
+			}
+			report := [][]string{
+				[]string{"ID:", fmt.Sprintf("%08x", n.ID())},
+				[]string{"Active:", fmt.Sprintf("%v", n.Active())},
+				[]string{"Capacity:", fmt.Sprintf("%d", n.Capacity())},
+				[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
+				[]string{"Addresses:", strings.Join(n.Addresses(), "\n")},
+				[]string{"Meta:", n.Meta()},
+			}
+			fmt.Print(brimtext.Align(report, nil))
+		}
+		return
+	}
+	header := []string{
 		"ID",
-		"Address",
+		"Active",
 		"Capacity",
+		"Address",
 		"Meta",
-	}}
+	}
+	report := [][]string{header}
 	reportAlign := brimtext.NewDefaultAlignOptions()
 	reportAlign.Alignments = []brimtext.Alignment{
 		brimtext.Left,
 		brimtext.Right,
 		brimtext.Right,
+		brimtext.Right,
 		brimtext.Left,
 	}
-	for _, node := range nodes {
-		if node.Inactive {
-			continue
+	reportLine := func(n ring.Node) []string {
+		return []string{
+			fmt.Sprintf("%08x", n.ID()),
+			fmt.Sprintf("%v", n.Active()),
+			fmt.Sprintf("%d", n.Capacity()),
+			n.Address(0),
+			n.Meta(),
 		}
-		address := ""
-		if len(node.Addresses) > 0 {
-			address = node.Addresses[0]
-		}
-		report = append(report, []string{
-			fmt.Sprintf("%08x", node.ID),
-			address,
-			fmt.Sprintf("%d", node.Capacity),
-			node.Meta,
-		})
 	}
-	if len(report) > 1 {
-		hadActive = true
-		fmt.Println("Active Nodes:")
-		fmt.Print(brimtext.Align(report, reportAlign))
-	}
-	report = [][]string{[]string{
-		"ID",
-		"Address",
-		"Capacity",
-		"Meta",
-	}}
-	for _, node := range nodes {
-		if !node.Inactive {
-			continue
+	for _, n := range nodes {
+		if n.Active() {
+			report = append(report, reportLine(n))
 		}
-		address := ""
-		if len(node.Addresses) > 0 {
-			address = node.Addresses[0]
-		}
-		report = append(report, []string{
-			fmt.Sprintf("%08x", node.ID),
-			address,
-			fmt.Sprintf("%d", node.Capacity),
-			node.Meta,
-		})
 	}
-	if len(report) > 1 {
-		if hadActive {
+	for _, n := range nodes {
+		if !n.Active() {
+			report = append(report, reportLine(n))
+		}
+	}
+	fmt.Print(brimtext.Align(report, reportAlign))
+	return
+}
+
+func partitionCmd(r ring.Ring, b *ring.Builder, args []string) error {
+	if b != nil {
+		return fmt.Errorf("cannot use partition command with a builder; generate a ring and use it on that")
+	}
+	if len(args) != 1 {
+		return fmt.Errorf("use the syntax: partition <value>")
+	}
+	p, err := strconv.Atoi(args[0])
+	if err != nil {
+		return err
+	}
+	first := true
+	for _, n := range r.ResponsibleNodes(uint32(p)) {
+		if first {
+			first = false
+		} else {
 			fmt.Println()
 		}
-		fmt.Println("Inactive Nodes:")
-		fmt.Print(brimtext.Align(report, reportAlign))
+		report := [][]string{
+			[]string{"ID:", fmt.Sprintf("%08x", n.ID())},
+			[]string{"Capacity:", fmt.Sprintf("%d", n.Capacity())},
+			[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
+			[]string{"Addresses:", strings.Join(n.Addresses(), "\n")},
+			[]string{"Meta:", n.Meta()},
+		}
+		fmt.Print(brimtext.Align(report, nil))
 	}
 	return nil
+}
+
+func createCmd(args []string) error {
+	replicaCount := 3
+	pointsAllowed := 1
+	maxPartitionBitCount := 23
+	moveWait := 60
+	var err error
+	for _, arg := range args[3:] {
+		switch arg {
+		case "replicas":
+			if replicaCount, err = strconv.Atoi(arg); err != nil {
+				return err
+			}
+			if replicaCount < 1 {
+				replicaCount = 1
+			}
+		case "points-allowed":
+			if pointsAllowed, err = strconv.Atoi(arg); err != nil {
+				return err
+			}
+			if pointsAllowed < 0 {
+				pointsAllowed = 0
+			} else if pointsAllowed > 255 {
+				pointsAllowed = 255
+			}
+		case "max-partition-bits":
+			if maxPartitionBitCount, err = strconv.Atoi(arg); err != nil {
+				return err
+			}
+			if maxPartitionBitCount < 1 {
+				maxPartitionBitCount = 1
+			} else if maxPartitionBitCount > 64 {
+				maxPartitionBitCount = 64
+			}
+		case "move-wait":
+			if moveWait, err = strconv.Atoi(arg); err != nil {
+				return err
+			}
+			if moveWait < 0 {
+				moveWait = 0
+			} else if moveWait > math.MaxUint16 {
+				moveWait = math.MaxUint16
+			}
+		}
+	}
+	if _, err = os.Stat(args[1]); err == nil {
+		return fmt.Errorf("file already exists")
+	}
+	if !os.IsNotExist(err) {
+		return err
+	}
+	var f *os.File
+	if f, err = os.Create(args[1]); err != nil {
+		return err
+	}
+	b := ring.NewBuilder()
+	b.SetReplicaCount(replicaCount)
+	b.SetPointsAllowed(byte(pointsAllowed))
+	b.SetMaxPartitionBitCount(uint16(maxPartitionBitCount))
+	b.SetMoveWait(uint16(moveWait))
+	if err = b.Persist(f); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func addOrSetCmd(r ring.Ring, b *ring.Builder, args []string, n ring.BuilderNode) error {
+	if r != nil {
+		return fmt.Errorf("cannot add a node to ring; use with a builder instead")
+	}
+	active := true
+	capacity := uint32(1)
+	var tiers []string
+	var addresses []string
+	meta := ""
+	for _, arg := range args {
+		sarg := strings.SplitN(arg, "=", 2)
+		if len(sarg) != 2 {
+			return fmt.Errorf(`invalid expression %#v; needs "="`, arg)
+		}
+		if sarg[0] == "" {
+			return fmt.Errorf(`invalid expression %#v; nothing was left of "="`, arg)
+		}
+		if sarg[1] == "" {
+			return fmt.Errorf(`invalid expression %#v; nothing was right of "="`, arg)
+		}
+		switch sarg[0] {
+		case "active":
+			switch sarg[1] {
+			case "true":
+				active = true
+			case "false":
+				active = false
+			default:
+				return fmt.Errorf(`invalid expression %#v; use "true" or "false" for the value of active`, arg)
+			}
+			if n != nil {
+				n.SetActive(active)
+			}
+		case "capacity":
+			c, err := strconv.Atoi(sarg[1])
+			if err != nil {
+				return fmt.Errorf("invalid expression %#v; %s", arg, err)
+			}
+			if c < 0 {
+				return fmt.Errorf("invalid expression %#v; min is 0", arg)
+			}
+			if c > math.MaxUint32 {
+				return fmt.Errorf("invalid expression %#v; max is %d", arg, math.MaxUint32)
+			}
+			capacity = uint32(c)
+			if n != nil {
+				n.SetCapacity(capacity)
+			}
+		case "meta":
+			meta = sarg[1]
+			if n != nil {
+				n.SetMeta(meta)
+			}
+		default:
+			if strings.HasPrefix(sarg[0], "tier") {
+				level, err := strconv.Atoi(sarg[0][4:])
+				if err != nil {
+					return fmt.Errorf("invalid expression %#v; %#v doesn't specify a number", arg, sarg[0][4:])
+				}
+				if level < 0 {
+					return fmt.Errorf("invalid expression %#v; minimum level is 0", arg)
+				}
+				if len(tiers) <= level {
+					t := make([]string, level+1)
+					copy(t, tiers)
+					tiers = t
+				}
+				tiers[level] = sarg[1]
+				if n != nil {
+					n.SetTier(level, tiers[level])
+				}
+			} else if strings.HasPrefix(sarg[0], "address") {
+				index, err := strconv.Atoi(sarg[0][7:])
+				if err != nil {
+					return fmt.Errorf("invalid expression %#v; %#v doesn't specify a number", arg, sarg[0][4:])
+				}
+				if index < 0 {
+					return fmt.Errorf("invalid expression %#v; minimum index is 0", arg)
+				}
+				if len(addresses) <= index {
+					a := make([]string, index+1)
+					copy(a, addresses)
+					addresses = a
+				}
+				addresses[index] = sarg[1]
+				if n != nil {
+					n.SetAddress(index, addresses[index])
+				}
+			}
+		}
+	}
+	if n == nil {
+		n = b.AddNode(active, capacity, tiers, addresses, meta)
+		report := [][]string{
+			[]string{"ID:", fmt.Sprintf("%08x", n.ID())},
+			[]string{"Active:", fmt.Sprintf("%v", n.Active())},
+			[]string{"Capacity:", fmt.Sprintf("%d", n.Capacity())},
+			[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
+			[]string{"Addresses:", strings.Join(n.Addresses(), "\n")},
+			[]string{"Meta:", n.Meta()},
+		}
+		fmt.Print(brimtext.Align(report, nil))
+	}
+	return nil
+}
+
+func removeCmd(r ring.Ring, b *ring.Builder, args []string) error {
+	if r != nil {
+		return fmt.Errorf("cannot remove a node from a ring; use with a builder instead")
+	}
+	if len(args) != 1 || !strings.HasPrefix(args[0], "id=") {
+		return fmt.Errorf("must specify node to remove with id=<value>")
+	}
+	id, err := strconv.ParseUint(args[0][3:], 16, 64)
+	if err != nil {
+		return fmt.Errorf("invalid id %#v", args[0][3:])
+	}
+	b.RemoveNode(id)
+	return nil
+}
+
+func ringCmd(r ring.Ring, b *ring.Builder, filename string) error {
+	if b == nil {
+		return fmt.Errorf("only valid for builder files")
+	}
+	r = b.Ring()
+	if err := persist(nil, b, filename); err != nil {
+		return err
+	}
+	return persist(r, nil, strings.TrimSuffix(filename, ".builder")+".ring")
+}
+
+func ringOrBuilder(fileName string) (r ring.Ring, b *ring.Builder, err error) {
+	var f *os.File
+	if f, err = os.Open(fileName); err != nil {
+		return
+	}
+	var gf *gzip.Reader
+	if gf, err = gzip.NewReader(f); err != nil {
+		return
+	}
+	header := make([]byte, 16)
+	if _, err = io.ReadFull(gf, header); err != nil {
+		return
+	}
+	if string(header[:5]) == "RINGv" {
+		gf.Close()
+		if _, err = f.Seek(0, 0); err != nil {
+			return
+		}
+		r, err = ring.LoadRing(f)
+	} else if string(header[:12]) == "RINGBUILDERv" {
+		gf.Close()
+		if _, err = f.Seek(0, 0); err != nil {
+			return
+		}
+		b, err = ring.LoadBuilder(f)
+	}
+	return
+}
+
+func persist(r ring.Ring, b *ring.Builder, filename string) error {
+	dir, name := path.Split(filename)
+	if dir == "" {
+		dir = "."
+	}
+	f, err := ioutil.TempFile(dir, name+".")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	if r != nil {
+		err = r.Persist(f)
+	} else {
+		err = b.Persist(f)
+	}
+	if err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(path.Join(dir, tmp), filename)
 }

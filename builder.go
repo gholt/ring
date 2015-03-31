@@ -10,8 +10,9 @@ import (
 )
 
 type Builder struct {
+	tierBase
 	version                       int64
-	nodes                         NodeSlice
+	nodes                         []*node
 	partitionBitCount             uint16
 	replicaToPartitionToNodeIndex [][]int32
 	replicaToPartitionToLastMove  [][]uint16
@@ -20,22 +21,19 @@ type Builder struct {
 	moveWait                      uint16
 }
 
-func NewBuilder(replicaCount int) *Builder {
+func NewBuilder() *Builder {
 	b := &Builder{
-		nodes:                         make(NodeSlice, 0),
 		partitionBitCount:             1,
-		replicaToPartitionToNodeIndex: make([][]int32, replicaCount),
-		replicaToPartitionToLastMove:  make([][]uint16, replicaCount),
+		replicaToPartitionToNodeIndex: make([][]int32, 1),
+		replicaToPartitionToLastMove:  make([][]uint16, 1),
 		pointsAllowed:                 1,
 		// 1 << 23 is 8388608 which, with 3 replicas, would use about 100M of
 		// memory.
 		maxPartitionBitCount: 23,
 		moveWait:             60, // 1 hour default
 	}
-	for replica := 0; replica < replicaCount; replica++ {
-		b.replicaToPartitionToNodeIndex[replica] = []int32{-1, -1}
-		b.replicaToPartitionToLastMove[replica] = []uint16{math.MaxUint16, math.MaxUint16}
-	}
+	b.replicaToPartitionToNodeIndex[0] = []int32{-1, -1}
+	b.replicaToPartitionToLastMove[0] = []uint16{math.MaxUint16, math.MaxUint16}
 	return b
 }
 
@@ -66,42 +64,14 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 	if err != nil {
 		return nil, err
 	}
-	b.nodes = make(NodeSlice, vint32)
+	b.tiers = make([][]string, vint32)
 	for i := int32(0); i < vint32; i++ {
-		b.nodes[i] = &Node{}
-		err = binary.Read(gr, binary.BigEndian, &b.nodes[i].ID)
-		if err != nil {
-			return nil, err
-		}
-		tf := byte(0)
-		err = binary.Read(gr, binary.BigEndian, &tf)
-		if err != nil {
-			return nil, err
-		}
-		if tf == 1 {
-			b.nodes[i].Inactive = true
-		}
-		err = binary.Read(gr, binary.BigEndian, &b.nodes[i].Capacity)
-		if err != nil {
-			return nil, err
-		}
 		var vvint32 int32
 		err = binary.Read(gr, binary.BigEndian, &vvint32)
 		if err != nil {
 			return nil, err
 		}
-		b.nodes[i].TierValues = make([]int32, vvint32)
-		for j := int32(0); j < vvint32; j++ {
-			err = binary.Read(gr, binary.BigEndian, &b.nodes[i].TierValues[j])
-			if err != nil {
-				return nil, err
-			}
-		}
-		err = binary.Read(gr, binary.BigEndian, &vvint32)
-		if err != nil {
-			return nil, err
-		}
-		b.nodes[i].Addresses = make([]string, vvint32)
+		b.tiers[i] = make([]string, vvint32)
 		for j := int32(0); j < vvint32; j++ {
 			var vvvint32 int32
 			err = binary.Read(gr, binary.BigEndian, &vvvint32)
@@ -113,7 +83,61 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 			if err != nil {
 				return nil, err
 			}
-			b.nodes[i].Addresses = append(b.nodes[i].Addresses, string(byts))
+			b.tiers[i][j] = string(byts)
+		}
+	}
+	err = binary.Read(gr, binary.BigEndian, &vint32)
+	if err != nil {
+		return nil, err
+	}
+	b.nodes = make([]*node, vint32)
+	for i := int32(0); i < vint32; i++ {
+		b.nodes[i] = &node{tierBase: &b.tierBase}
+		err = binary.Read(gr, binary.BigEndian, &b.nodes[i].id)
+		if err != nil {
+			return nil, err
+		}
+		tf := byte(0)
+		err = binary.Read(gr, binary.BigEndian, &tf)
+		if err != nil {
+			return nil, err
+		}
+		if tf == 1 {
+			b.nodes[i].inactive = true
+		}
+		err = binary.Read(gr, binary.BigEndian, &b.nodes[i].capacity)
+		if err != nil {
+			return nil, err
+		}
+		var vvint32 int32
+		err = binary.Read(gr, binary.BigEndian, &vvint32)
+		if err != nil {
+			return nil, err
+		}
+		b.nodes[i].tierIndexes = make([]int32, vvint32)
+		for j := int32(0); j < vvint32; j++ {
+			err = binary.Read(gr, binary.BigEndian, &b.nodes[i].tierIndexes[j])
+			if err != nil {
+				return nil, err
+			}
+		}
+		err = binary.Read(gr, binary.BigEndian, &vvint32)
+		if err != nil {
+			return nil, err
+		}
+		b.nodes[i].addresses = make([]string, vvint32)
+		for j := int32(0); j < vvint32; j++ {
+			var vvvint32 int32
+			err = binary.Read(gr, binary.BigEndian, &vvvint32)
+			if err != nil {
+				return nil, err
+			}
+			byts := make([]byte, vvvint32)
+			_, err = io.ReadFull(gr, byts)
+			if err != nil {
+				return nil, err
+			}
+			b.nodes[i].addresses[j] = string(byts)
 		}
 		err = binary.Read(gr, binary.BigEndian, &vvint32)
 		if err != nil {
@@ -124,7 +148,7 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 		if err != nil {
 			return nil, err
 		}
-		b.nodes[i].Meta = string(byts)
+		b.nodes[i].meta = string(byts)
 	}
 	err = binary.Read(gr, binary.BigEndian, &b.partitionBitCount)
 	if err != nil {
@@ -187,42 +211,63 @@ func (b *Builder) Persist(w io.Writer) error {
 	if err != nil {
 		return err
 	}
+	err = binary.Write(gw, binary.BigEndian, int32(len(b.tiers)))
+	if err != nil {
+		return err
+	}
+	for _, tier := range b.tiers {
+		err = binary.Write(gw, binary.BigEndian, int32(len(tier)))
+		if err != nil {
+			return err
+		}
+		for _, name := range tier {
+			byts := []byte(name)
+			err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
+			if err != nil {
+				return err
+			}
+			_, err = gw.Write(byts)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	err = binary.Write(gw, binary.BigEndian, int32(len(b.nodes)))
 	if err != nil {
 		return err
 	}
-	for _, node := range b.nodes {
-		err = binary.Write(gw, binary.BigEndian, node.ID)
+	for _, n := range b.nodes {
+		err = binary.Write(gw, binary.BigEndian, n.id)
 		if err != nil {
 			return err
 		}
 		tf := byte(0)
-		if node.Inactive {
+		if n.inactive {
 			tf = 1
 		}
 		err = binary.Write(gw, binary.BigEndian, tf)
 		if err != nil {
 			return err
 		}
-		err = binary.Write(gw, binary.BigEndian, node.Capacity)
+		err = binary.Write(gw, binary.BigEndian, n.capacity)
 		if err != nil {
 			return err
 		}
-		err = binary.Write(gw, binary.BigEndian, int32(len(node.TierValues)))
+		err = binary.Write(gw, binary.BigEndian, int32(len(n.tierIndexes)))
 		if err != nil {
 			return err
 		}
-		for _, v := range node.TierValues {
+		for _, v := range n.tierIndexes {
 			err = binary.Write(gw, binary.BigEndian, v)
 			if err != nil {
 				return err
 			}
 		}
-		err = binary.Write(gw, binary.BigEndian, int32(len(node.Addresses)))
+		err = binary.Write(gw, binary.BigEndian, int32(len(n.addresses)))
 		if err != nil {
 			return err
 		}
-		for _, address := range node.Addresses {
+		for _, address := range n.addresses {
 			byts := []byte(address)
 			err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
 			if err != nil {
@@ -233,7 +278,7 @@ func (b *Builder) Persist(w io.Writer) error {
 				return err
 			}
 		}
-		byts := []byte(node.Meta)
+		byts := []byte(n.meta)
 		err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
 		if err != nil {
 			return err
@@ -290,6 +335,36 @@ func (b *Builder) Persist(w io.Writer) error {
 	return nil
 }
 
+func (b *Builder) ReplicaCount() int {
+	return len(b.replicaToPartitionToNodeIndex)
+}
+
+func (b *Builder) SetReplicaCount(count int) {
+	if count < 1 {
+		count = 1
+	}
+	if count < len(b.replicaToPartitionToNodeIndex) {
+		b.replicaToPartitionToNodeIndex = b.replicaToPartitionToNodeIndex[:count]
+		b.replicaToPartitionToLastMove = make([][]uint16, count)
+		partitionCount := len(b.replicaToPartitionToNodeIndex[0])
+		for i := 0; i < count; i++ {
+			b.replicaToPartitionToLastMove[i] = make([]uint16, partitionCount)
+		}
+	} else if count > len(b.replicaToPartitionToNodeIndex) {
+		partitionCount := len(b.replicaToPartitionToNodeIndex[0])
+		for count > len(b.replicaToPartitionToNodeIndex) {
+			newPartitionToNodeIndex := make([]int32, partitionCount)
+			newPartitionToLastMove := make([]uint16, partitionCount)
+			for i := 0; i < partitionCount; i++ {
+				newPartitionToNodeIndex[i] = -1
+				newPartitionToLastMove[i] = math.MaxUint16
+			}
+			b.replicaToPartitionToNodeIndex = append(b.replicaToPartitionToNodeIndex, newPartitionToNodeIndex)
+			b.replicaToPartitionToLastMove = append(b.replicaToPartitionToLastMove, newPartitionToLastMove)
+		}
+	}
+}
+
 // PointsAllowed is the number of percentage points over or under that the ring
 // will try to keep data assignments within. The default is 1 for one percent
 // extra or less data.
@@ -331,24 +406,38 @@ func (b *Builder) PretendMoveElapsed(minutes uint16) {
 	}
 }
 
-func (b *Builder) Nodes() NodeSlice {
-	return b.nodes
+func (b *Builder) Nodes() BuilderNodeSlice {
+	nodes := make(BuilderNodeSlice, len(b.nodes))
+	for i := len(nodes) - 1; i >= 0; i-- {
+		nodes[i] = b.nodes[i]
+	}
+	return nodes
 }
 
-func (b *Builder) Add(n *Node) {
+func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresses []string, meta string) BuilderNode {
+	addressesCopy := make([]string, len(addresses))
+	copy(addressesCopy, addresses)
+	// TODO: I'd like to make the ID a random but unique number instead of an
+	// index based value simply because it'd make impossible accidentally
+	// relying on that index property.
+	n := &node{tierBase: &b.tierBase, id: uint64(len(b.nodes) + 123), inactive: !active, capacity: capacity, addresses: addressesCopy, meta: meta}
+	for level, value := range tiers {
+		n.SetTier(level, value)
+	}
 	b.nodes = append(b.nodes, n)
+	return n
 }
 
-// Remove will remove the node from the list of nodes for this builder/ring.
-// Note that this can be relatively expensive as all nodes that had been added
-// after the removed node had been originally added will have their internal
-// indexes shifted down one and all the replica-to-partition-to-node indexing
-// will have to be updated, as well as clearing any assignments that were to
-// the removed node. Normally it is better to just leave a "dead" node in place
-// and simply set it as inactive.
-func (b *Builder) Remove(nodeID uint64) {
-	for i, node := range b.nodes {
-		if node.ID == nodeID {
+// RemoveNode will remove the node from the list of nodes for this
+// builder/ring. Note that this can be relatively expensive as all nodes that
+// had been added after the removed node had been originally added will have
+// their internal indexes shifted down one and all the
+// replica-to-partition-to-node indexing will have to be updated, as well as
+// clearing any assignments that were to the removed node. Normally it is
+// better to just leave a "dead" node in place and simply set it as inactive.
+func (b *Builder) RemoveNode(nodeID uint64) {
+	for i, n := range b.nodes {
+		if n.id == nodeID {
 			copy(b.nodes[i:], b.nodes[i+1:])
 			b.nodes = b.nodes[:len(b.nodes)-1]
 			for _, partitionToNodeIndex := range b.replicaToPartitionToNodeIndex {
@@ -365,10 +454,10 @@ func (b *Builder) Remove(nodeID uint64) {
 	}
 }
 
-func (b *Builder) Node(nodeID uint64) *Node {
-	for _, node := range b.nodes {
-		if node.ID == nodeID {
-			return node
+func (b *Builder) Node(nodeID uint64) BuilderNode {
+	for _, n := range b.nodes {
+		if n.id == nodeID {
+			return n
 		}
 	}
 	return nil
@@ -377,9 +466,16 @@ func (b *Builder) Node(nodeID uint64) *Node {
 // Ring returns a Ring instance of the data defined by the builder. This will
 // cause any pending rebalancing actions to be performed. The Ring returned
 // will be immutable; to obtain updated ring data, Ring() must be called again.
-// The localNodeID is so the Ring instance can provide local responsibility
-// information; you can give 0 if you don't intend to use those features.
-func (b *Builder) Ring(localNodeID uint64) *Ring {
+func (b *Builder) Ring() Ring {
+	validNodes := false
+	for _, n := range b.nodes {
+		if !n.inactive {
+			validNodes = true
+		}
+	}
+	if !validNodes {
+		panic("no valid nodes yet")
+	}
 	originalVersion := b.version
 	if b.resizeIfNeeded() {
 		b.version = time.Now().UnixNano()
@@ -397,22 +493,22 @@ func (b *Builder) Ring(localNodeID uint64) *Ring {
 			b.PretendMoveElapsed(d16)
 		}
 	}
-	localNodeIndex := int32(-1)
-	nodes := make(NodeSlice, len(b.nodes))
-	copy(nodes, b.nodes)
-	for i, node := range nodes {
-		if node.ID == localNodeID {
-			localNodeIndex = int32(i)
-		}
+	tiers := make([][]string, len(b.tiers))
+	for i, tier := range b.tiers {
+		tiers[i] = make([]string, len(tier))
+		copy(tiers[i], tier)
 	}
+	nodes := make([]*node, len(b.nodes))
+	copy(nodes, b.nodes)
 	replicaToPartitionToNodeIndex := make([][]int32, len(b.replicaToPartitionToNodeIndex))
 	for i := 0; i < len(replicaToPartitionToNodeIndex); i++ {
 		replicaToPartitionToNodeIndex[i] = make([]int32, len(b.replicaToPartitionToNodeIndex[i]))
 		copy(replicaToPartitionToNodeIndex[i], b.replicaToPartitionToNodeIndex[i])
 	}
-	return &Ring{
+	return &ring{
+		tierBase:          tierBase{tiers: tiers},
 		version:           b.version,
-		localNodeIndex:    localNodeIndex,
+		localNodeIndex:    -1,
 		partitionBitCount: b.partitionBitCount,
 		nodes:             nodes,
 		replicaToPartitionToNodeIndex: replicaToPartitionToNodeIndex,
@@ -429,19 +525,19 @@ func (b *Builder) resizeIfNeeded() bool {
 	// and increasing the partition count until the difference is under the
 	// points allowed.
 	totalCapacity := uint64(0)
-	for _, node := range b.nodes {
-		if !node.Inactive {
-			totalCapacity += (uint64)(node.Capacity)
+	for _, n := range b.nodes {
+		if !n.inactive {
+			totalCapacity += (uint64)(n.capacity)
 		}
 	}
 	partitionCount := len(b.replicaToPartitionToNodeIndex[0])
 	partitionBitCount := b.partitionBitCount
 	pointsAllowed := float64(b.pointsAllowed) * 0.01
-	for _, node := range b.nodes {
-		if node.Inactive {
+	for _, n := range b.nodes {
+		if n.inactive {
 			continue
 		}
-		desiredPartitionCount := float64(partitionCount) * float64(replicaCount) * (float64(node.Capacity) / float64(totalCapacity))
+		desiredPartitionCount := float64(partitionCount) * float64(replicaCount) * (float64(n.capacity) / float64(totalCapacity))
 		under := (desiredPartitionCount - float64(int(desiredPartitionCount))) / desiredPartitionCount
 		over := float64(0)
 		if desiredPartitionCount > float64(int(desiredPartitionCount)) {

@@ -12,11 +12,14 @@ import (
 
 // Mock up a bunch of stuff
 
-func newCommsTestRing() *Ring {
-	b := NewBuilder(3)
-	b.Add(&Node{ID: 1, Addresses: []string{"127.0.0.1:9999"}})
-	b.Add(&Node{ID: 2, Addresses: []string{"127.0.0.1:9999"}})
-	return b.Ring(1)
+func newCommsTestRing() (Ring, Node, Node) {
+	b := NewBuilder()
+	b.SetReplicaCount(3)
+	nA := b.AddNode(true, 1, nil, []string{"127.0.0.1:9999"}, "")
+	nB := b.AddNode(true, 1, nil, []string{"127.0.0.1:8888"}, "")
+	r := b.Ring()
+	r.SetLocalNode(nA.ID())
+	return r, nA, nB
 }
 
 var testMsg []byte = []byte("Testing")
@@ -82,9 +85,9 @@ func (c *testConn) Close() error {
 /***** Actual tests start here *****/
 
 func Test_NewTCPMsgRing(t *testing.T) {
-	r := newCommsTestRing()
+	r, _, _ := newCommsTestRing()
 	msgring := NewTCPMsgRing(r)
-	if msgring.Ring().LocalNode().ID != 1 {
+	if msgring.Ring().LocalNode().Address(0) != "127.0.0.1:9999" {
 		t.Error("Error initializing TCPMsgRing")
 	}
 }
@@ -114,7 +117,7 @@ func Test_ReadTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	reader := NewTimeoutReader(c)
+	reader := newTimeoutReader(c, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
 	reader.Timeout = -3 * time.Second
 	_, err = reader.ReadByte()
 	if err == nil {
@@ -142,7 +145,7 @@ func Test_WriteTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	writer := NewTimeoutWriter(c)
+	writer := newTimeoutWriter(c, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
 	writer.Timeout = -3 * time.Second
 	writer.Write([]byte("Test"))
 	err = writer.Flush()
@@ -165,7 +168,7 @@ func Test_handle(t *testing.T) {
 	binary.Write(&conn.readBuf, binary.LittleEndian, uint64(1))
 	binary.Write(&conn.readBuf, binary.LittleEndian, uint64(7))
 	conn.readBuf.WriteString(testStr)
-	r := newCommsTestRing()
+	r, _, _ := newCommsTestRing()
 	msgring := NewTCPMsgRing(r)
 	msgring.SetMsgHandler(1, test_stringmarshaller)
 	err := msgring.handle(conn)
@@ -176,12 +179,11 @@ func Test_handle(t *testing.T) {
 
 func Test_MsgToNode(t *testing.T) {
 	conn := new(testConn)
-	r := newCommsTestRing()
+	r, _, nB := newCommsTestRing()
 	msgring := NewTCPMsgRing(r)
-	addr := msgring.ring.Node(uint64(1)).Addresses[0]
-	msgring.conns[addr] = NewRingConn(conn)
+	msgring.conns[nB.Address(0)] = newRingConn(conn, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
 	msg := TestMsg{}
-	msgring.MsgToNode(uint64(1), &msg)
+	msgring.MsgToNode(nB.ID(), &msg)
 	var msgtype uint64
 	binary.Read(&conn.writeBuf, binary.LittleEndian, &msgtype)
 	if int(msgtype) != 1 {
@@ -201,13 +203,12 @@ func Test_MsgToNode(t *testing.T) {
 
 func Test_MsgToNodeChan(t *testing.T) {
 	conn := new(testConn)
-	r := newCommsTestRing()
+	r, _, nB := newCommsTestRing()
 	msgring := NewTCPMsgRing(r)
-	addr := msgring.ring.Node(uint64(1)).Addresses[0]
-	msgring.conns[addr] = NewRingConn(conn)
+	msgring.conns[nB.Address(0)] = newRingConn(conn, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
 	msg := TestMsg{}
 	retch := make(chan struct{})
-	go msgring.MsgToNodeChan(uint64(1), &msg, retch)
+	go msgring.msgToNodeChan(nB.ID(), &msg, retch)
 	<-retch
 	var msgtype uint64
 	binary.Read(&conn.writeBuf, binary.LittleEndian, &msgtype)
@@ -228,28 +229,27 @@ func Test_MsgToNodeChan(t *testing.T) {
 
 func Test_MsgToOtherReplicas(t *testing.T) {
 	conn := new(testConn)
-	r := newCommsTestRing()
+	r, _, nB := newCommsTestRing()
 	msgring := NewTCPMsgRing(r)
-	addr := msgring.ring.Node(uint64(1)).Addresses[0]
-	msgring.conns[addr] = NewRingConn(conn)
+	msgring.conns[nB.Address(0)] = newRingConn(conn, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
 	msg := TestMsg{}
 	msgring.MsgToOtherReplicas(int64(1), uint32(1), &msg)
-	// The following should be written twice
-	for i := 0; i < 2; i++ {
-		var msgtype uint64
-		binary.Read(&conn.writeBuf, binary.LittleEndian, &msgtype)
-		if int(msgtype) != 1 {
-			t.Error("Message type not written correctly")
-		}
-		var msgsize uint64
-		binary.Read(&conn.writeBuf, binary.LittleEndian, &msgsize)
-		if msgsize != 7 {
-			t.Error("Incorrect message size")
-		}
-		msgcontent := make([]byte, 7)
-		conn.writeBuf.Read(msgcontent)
-		if !bytes.Equal(msgcontent, testMsg) {
-			t.Error("Incorrect message contents")
-		}
+	var msgtype uint64
+	err := binary.Read(&conn.writeBuf, binary.LittleEndian, &msgtype)
+	if err != nil {
+		t.Error(err)
+	}
+	if int(msgtype) != 1 {
+		t.Errorf("Message type not written correctly was %d", msgtype)
+	}
+	var msgsize uint64
+	binary.Read(&conn.writeBuf, binary.LittleEndian, &msgsize)
+	if msgsize != 7 {
+		t.Error("Incorrect message size")
+	}
+	msgcontent := make([]byte, 7)
+	conn.writeBuf.Read(msgcontent)
+	if !bytes.Equal(msgcontent, testMsg) {
+		t.Error("Incorrect message contents")
 	}
 }
