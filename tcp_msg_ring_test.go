@@ -233,7 +233,7 @@ func Test_MsgToOtherReplicas(t *testing.T) {
 	msgring := NewTCPMsgRing(r)
 	msgring.conns[nB.Address(0)] = newRingConn(conn, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
 	msg := TestMsg{}
-	msgring.MsgToOtherReplicas(int64(1), uint32(1), &msg)
+	msgring.MsgToOtherReplicas(uint32(1), &msg)
 	var msgtype uint64
 	err := binary.Read(&conn.writeBuf, binary.LittleEndian, &msgtype)
 	if err != nil {
