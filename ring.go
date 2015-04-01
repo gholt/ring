@@ -18,6 +18,7 @@ type Ring interface {
 	Version() int64
 	Node(id uint64) Node
 	Nodes() NodeSlice
+	Tiers() [][]string
 	PartitionBitCount() uint16
 	ReplicaCount() int
 	LocalNode() Node
@@ -335,6 +336,15 @@ func (r *ring) Node(id uint64) Node {
 		}
 	}
 	return nil
+}
+
+func (r *ring) Tiers() [][]string {
+	rv := make([][]string, len(r.tiers))
+	for i, t := range r.tiers {
+		rv[i] = make([]string, len(t))
+		copy(rv[i], t)
+	}
+	return rv
 }
 
 // LocalNode contains the information for the local node; determining which

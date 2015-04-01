@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -23,7 +24,6 @@ func main() {
 }
 
 func mainEntry(args []string) error {
-	// TODO: Command for listing tiers
 	var r ring.Ring
 	var b *ring.Builder
 	var err error
@@ -31,7 +31,7 @@ func mainEntry(args []string) error {
 		return helpCmd(args)
 	}
 	if len(args) > 2 && args[2] == "create" {
-		return createCmd(args[3:])
+		return createCmd(args[1], args[3:])
 	}
 	if r, b, err = ringOrBuilder(args[1]); err != nil {
 		return err
@@ -58,6 +58,8 @@ func mainEntry(args []string) error {
 			return persist(r, b, args[1])
 		}
 		return nil
+	case "tier", "tiers":
+		return tierCmd(r, b, args[3:])
 	case "part", "partition":
 		return partitionCmd(r, b, args[3:])
 	case "add":
@@ -102,6 +104,9 @@ func helpCmd(args []string) error {
 %[1]s <file> fullnode [filter] ...
     Same as "node" above, but always lists the full information for each
     matching node.
+
+%[1]s <file> tier
+    Lists the tiers in the ring or builder file.
 
 %[1]s <ring-file> partition <value>
     Lists information about the given partition's node assignments.
@@ -310,6 +315,49 @@ func nodeCmd(r ring.Ring, b *ring.Builder, args []string, full bool) (changed bo
 	return
 }
 
+func tierCmd(r ring.Ring, b *ring.Builder, args []string) error {
+	var tiers [][]string
+	if r == nil {
+		tiers = b.Tiers()
+	} else {
+		tiers = r.Tiers()
+	}
+	report := [][]string{
+		[]string{"Tier", "Existing"},
+		[]string{"Level", "Values"},
+	}
+	reportOpts := brimtext.NewDefaultAlignOptions()
+	reportOpts.Alignments = []brimtext.Alignment{brimtext.Right, brimtext.Left}
+	fmted := false
+OUT:
+	for _, values := range tiers {
+		for _, value := range values {
+			if strings.Contains(value, " ") {
+				fmted = true
+				break OUT
+			}
+		}
+	}
+	for level, values := range tiers {
+		sort.Strings(values)
+		var pvalue string
+		if fmted {
+			for _, value := range values[1:] {
+				pvalue += fmt.Sprintf(" %#v", value)
+			}
+			pvalue = strings.Trim(pvalue, " ")
+		} else {
+			pvalue = strings.Join(values[1:], " ")
+		}
+		report = append(report, []string{
+			strconv.Itoa(level),
+			strings.Trim(pvalue, " "),
+		})
+	}
+	fmt.Print(brimtext.Align(report, reportOpts))
+	return nil
+}
+
 func partitionCmd(r ring.Ring, b *ring.Builder, args []string) error {
 	if b != nil {
 		return fmt.Errorf("cannot use partition command with a builder; generate a ring and use it on that")
@@ -340,13 +388,13 @@ func partitionCmd(r ring.Ring, b *ring.Builder, args []string) error {
 	return nil
 }
 
-func createCmd(args []string) error {
+func createCmd(filename string, args []string) error {
 	replicaCount := 3
 	pointsAllowed := 1
 	maxPartitionBitCount := 23
 	moveWait := 60
 	var err error
-	for _, arg := range args[3:] {
+	for _, arg := range args {
 		switch arg {
 		case "replicas":
 			if replicaCount, err = strconv.Atoi(arg); err != nil {
@@ -384,14 +432,14 @@ func createCmd(args []string) error {
 			}
 		}
 	}
-	if _, err = os.Stat(args[1]); err == nil {
+	if _, err = os.Stat(filename); err == nil {
 		return fmt.Errorf("file already exists")
 	}
 	if !os.IsNotExist(err) {
 		return err
 	}
 	var f *os.File
-	if f, err = os.Create(args[1]); err != nil {
+	if f, err = os.Create(filename); err != nil {
 		return err
 	}
 	b := ring.NewBuilder()

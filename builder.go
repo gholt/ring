@@ -198,6 +198,7 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 }
 
 func (b *Builder) Persist(w io.Writer) error {
+	b.minimizeTiers()
 	// CONSIDER: This code uses binary.Write which incurs fleeting allocations;
 	// these could be reduced by creating a buffer upfront and using
 	// binary.Put* calls instead.
@@ -335,6 +336,40 @@ func (b *Builder) Persist(w io.Writer) error {
 	return nil
 }
 
+func (b *Builder) minimizeTiers() {
+	u := make([][]bool, len(b.tiers))
+	for i, t := range b.tiers {
+		u[i] = make([]bool, len(t))
+	}
+	for _, n := range b.nodes {
+		for lv, i := range n.tierIndexes {
+			u[lv][i] = true
+		}
+	}
+	for lv, us := range u {
+		for i := len(us) - 1; i >= 0; i-- {
+			if us[i] {
+				continue
+			}
+			b.tiers[lv][i] = ""
+			for _, n := range b.nodes {
+				if n.tierIndexes[lv] > int32(i) {
+					n.tierIndexes[lv]--
+				}
+			}
+		}
+	}
+	for lv := 0; lv < len(b.tiers); lv++ {
+		ts := make([]string, 1, len(b.tiers[lv]))
+		for _, t := range b.tiers[lv][1:] {
+			if t != "" {
+				ts = append(ts, t)
+			}
+		}
+		b.tiers[lv] = ts
+	}
+}
+
 func (b *Builder) ReplicaCount() int {
 	return len(b.replicaToPartitionToNodeIndex)
 }
@@ -461,6 +496,15 @@ func (b *Builder) Node(nodeID uint64) BuilderNode {
 		}
 	}
 	return nil
+}
+
+func (b *Builder) Tiers() [][]string {
+	rv := make([][]string, len(b.tiers))
+	for i, t := range b.tiers {
+		rv[i] = make([]string, len(t))
+		copy(rv[i], t)
+	}
+	return rv
 }
 
 // Ring returns a Ring instance of the data defined by the builder. This will
