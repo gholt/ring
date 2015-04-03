@@ -1,7 +1,6 @@
 package ring
 
 import (
-	"encoding/binary"
 	"errors"
 	"log"
 	"math"
@@ -147,11 +146,15 @@ func (m *TCPMsgRing) handle(conn net.Conn) error {
 	var msgType uint64
 	for {
 		// for v.00002 we will store this in the fist 8 bytes
-		err := binary.Read(reader, binary.LittleEndian, &msgType)
-		if err != nil {
-			log.Println("Closing connection")
-			conn.Close()
-			return err
+		msgType = 0
+		for i := uint(0); i <= 56; i += 8 {
+			b, err := reader.ReadByte()
+			if err != nil {
+				log.Println("Closing connection")
+				conn.Close()
+				return err
+			}
+			msgType += uint64(b) << i
 		}
 		handle, ok := m.msgHandlers[msgType]
 		if !ok {
@@ -162,13 +165,15 @@ func (m *TCPMsgRing) handle(conn net.Conn) error {
 			return errors.New("Unknown message type")
 		}
 		// for v.00002 the msg length will be the next 8 bytes
-		err = binary.Read(reader, binary.LittleEndian, &length)
-		if err != nil {
-			log.Println("ERR: Error reading length")
-			// TODO: Handle errors better
-			log.Println("Closing connection")
-			conn.Close()
-			return err
+		length = 0
+		for i := uint(0); i <= 56; i += 8 {
+			b, err := reader.ReadByte()
+			if err != nil {
+				log.Println("Closing connection")
+				conn.Close()
+				return err
+			}
+			length += uint64(b) << i
 		}
 		// attempt to handle the message
 		consumed, err := handle(reader, length)

@@ -12,7 +12,7 @@ import (
 
 // Mock up a bunch of stuff
 
-func newCommsTestRing() (Ring, Node, Node) {
+func newTestRing() (Ring, Node, Node) {
 	b := NewBuilder()
 	b.SetReplicaCount(3)
 	nA := b.AddNode(true, 1, nil, []string{"127.0.0.1:9999"}, "")
@@ -85,7 +85,7 @@ func (c *testConn) Close() error {
 /***** Actual tests start here *****/
 
 func Test_NewTCPMsgRing(t *testing.T) {
-	r, _, _ := newCommsTestRing()
+	r, _, _ := newTestRing()
 	msgring := NewTCPMsgRing(r)
 	if msgring.Ring().LocalNode().Address(0) != "127.0.0.1:9999" {
 		t.Error("Error initializing TCPMsgRing")
@@ -101,74 +101,12 @@ func test_stringmarshaller(reader io.Reader, size uint64) (uint64, error) {
 	return uint64(c), err
 }
 
-func isTimeout(err error) bool {
-	e, ok := err.(net.Error)
-	return ok && e.Timeout()
-}
-
-func Test_ReadTimeout(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	c, err := net.DialTCP("tcp", nil, ln.Addr().(*net.TCPAddr))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-	reader := newTimeoutReader(c, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
-	reader.Timeout = -3 * time.Second
-	_, err = reader.ReadByte()
-	if err == nil {
-		t.Error("Read didn't timeout")
-	} else if !isTimeout(err) {
-		t.Error("Error wasn't a timeout: ", err)
-	}
-	reader.Timeout = 10 * time.Millisecond
-	_, err = reader.ReadByte()
-	if err == nil {
-		t.Error("Read didn't timeout")
-	} else if !isTimeout(err) {
-		t.Error("Error wasn't a timeout: ", err)
-	}
-}
-
-func Test_WriteTimeout(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	c, err := net.DialTCP("tcp", nil, ln.Addr().(*net.TCPAddr))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-	writer := newTimeoutWriter(c, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
-	writer.Timeout = -3 * time.Second
-	writer.Write([]byte("Test"))
-	err = writer.Flush()
-	if err == nil {
-		t.Error("Write didn't timeout")
-	} else if !isTimeout(err) {
-		t.Error("Error wasn't a timeout: ", err)
-	}
-	writer.Timeout = 10 * time.Millisecond
-	err = writer.Flush()
-	if err == nil {
-		t.Error("Read didn't timeout")
-	} else if !isTimeout(err) {
-		t.Error("Error wasn't a timeout: ", err)
-	}
-}
-
 func Test_handle(t *testing.T) {
 	conn := new(testConn)
 	binary.Write(&conn.readBuf, binary.LittleEndian, uint64(1))
 	binary.Write(&conn.readBuf, binary.LittleEndian, uint64(7))
 	conn.readBuf.WriteString(testStr)
-	r, _, _ := newCommsTestRing()
+	r, _, _ := newTestRing()
 	msgring := NewTCPMsgRing(r)
 	msgring.SetMsgHandler(1, test_stringmarshaller)
 	err := msgring.handle(conn)
@@ -179,7 +117,7 @@ func Test_handle(t *testing.T) {
 
 func Test_MsgToNode(t *testing.T) {
 	conn := new(testConn)
-	r, _, nB := newCommsTestRing()
+	r, _, nB := newTestRing()
 	msgring := NewTCPMsgRing(r)
 	msgring.conns[nB.Address(0)] = newRingConn(conn, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
 	msg := TestMsg{}
@@ -203,7 +141,7 @@ func Test_MsgToNode(t *testing.T) {
 
 func Test_MsgToNodeChan(t *testing.T) {
 	conn := new(testConn)
-	r, _, nB := newCommsTestRing()
+	r, _, nB := newTestRing()
 	msgring := NewTCPMsgRing(r)
 	msgring.conns[nB.Address(0)] = newRingConn(conn, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
 	msg := TestMsg{}
@@ -229,7 +167,7 @@ func Test_MsgToNodeChan(t *testing.T) {
 
 func Test_MsgToOtherReplicas(t *testing.T) {
 	conn := new(testConn)
-	r, _, nB := newCommsTestRing()
+	r, _, nB := newTestRing()
 	msgring := NewTCPMsgRing(r)
 	msgring.conns[nB.Address(0)] = newRingConn(conn, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
 	msg := TestMsg{}
