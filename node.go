@@ -2,10 +2,14 @@ package ring
 
 import (
 	"fmt"
+	"math/rand"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
+
+var idSource rand.Source = rand.NewSource(time.Now().UnixNano())
 
 // Node represents an endpoint for ring data or other ring-based services.
 type Node interface {
@@ -65,6 +69,22 @@ type node struct {
 	tierIndexes []int32
 	addresses   []string
 	meta        string
+}
+
+func newNode(b *tierBase, others []*node) *node {
+	// The ids should be unique, non-zero, and random so others don't base
+	// their node references on indexes.
+	var id uint64
+	for id == 0 {
+		id = (uint64(idSource.Int63()) << 63) | uint64(idSource.Int63())
+		for _, n := range others {
+			if n.id == id {
+				id = 0
+				break
+			}
+		}
+	}
+	return &node{tierBase: b, id: id}
 }
 
 func (n *node) ID() uint64 {

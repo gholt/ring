@@ -347,7 +347,7 @@ func (b *Builder) minimizeTiers() {
 		}
 	}
 	for lv, us := range u {
-		for i := len(us) - 1; i >= 0; i-- {
+		for i := len(us) - 1; i > 0; i-- {
 			if us[i] {
 				continue
 			}
@@ -429,7 +429,7 @@ func (b *Builder) SetMoveWait(minutes uint16) {
 	b.moveWait = minutes
 }
 
-func (b *Builder) PretendMoveElapsed(minutes uint16) {
+func (b *Builder) PretendElapsed(minutes uint16) {
 	for _, partitionToLastMove := range b.replicaToPartitionToLastMove {
 		for partition := len(partitionToLastMove) - 1; partition >= 0; partition-- {
 			if math.MaxUint16-partitionToLastMove[partition] > minutes {
@@ -452,10 +452,11 @@ func (b *Builder) Nodes() BuilderNodeSlice {
 func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresses []string, meta string) BuilderNode {
 	addressesCopy := make([]string, len(addresses))
 	copy(addressesCopy, addresses)
-	// TODO: I'd like to make the ID a random but unique number instead of an
-	// index based value simply because it'd make impossible accidentally
-	// relying on that index property.
-	n := &node{tierBase: &b.tierBase, id: uint64(len(b.nodes) + 123), inactive: !active, capacity: capacity, addresses: addressesCopy, meta: meta}
+	n := newNode(&b.tierBase, b.nodes)
+	n.inactive = !active
+	n.capacity = capacity
+	n.addresses = addressesCopy
+	n.meta = meta
 	for level, value := range tiers {
 		n.SetTier(level, value)
 	}
@@ -534,7 +535,7 @@ func (b *Builder) Ring() Ring {
 			if d < math.MaxUint16 {
 				d16 = uint16(d)
 			}
-			b.PretendMoveElapsed(d16)
+			b.PretendElapsed(d16)
 		}
 	}
 	tiers := make([][]string, len(b.tiers))

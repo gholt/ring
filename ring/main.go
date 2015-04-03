@@ -74,6 +74,11 @@ func mainEntry(args []string) error {
 		return persist(r, b, args[1])
 	case "ring":
 		return ringCmd(r, b, args[1])
+	case "pretend-elapsed":
+		if err = pretendElapsedCmd(r, b, args[3:]); err != nil {
+			return err
+		}
+		return persist(r, b, args[1])
 	}
 	return fmt.Errorf("unknown command: %#v", args[2])
 }
@@ -171,6 +176,11 @@ func helpCmd(args []string) error {
     Writes a new ring file based on the information contained in the builder.
     This may take a while if rebalancing ring assignments are needed. The ring
     file name will be the base name of the builder file plus a .ring extension.
+
+%[1]s <builder-file> pretend-elapsed <minutes>
+    Pretends the number of <minutes> have elapsed. Useful for testing and you
+    want to work around the protections that restrict reassigning data quicker
+    than the move-wait limit.
 `, path.Base(args[0]))
 	return nil
 }
@@ -586,6 +596,27 @@ func ringCmd(r ring.Ring, b *ring.Builder, filename string) error {
 		return err
 	}
 	return persist(r, nil, strings.TrimSuffix(filename, ".builder")+".ring")
+}
+
+func pretendElapsedCmd(r ring.Ring, b *ring.Builder, args []string) error {
+	if b == nil {
+		return fmt.Errorf("only valid for builder files")
+	}
+	if len(args) != 1 {
+		return fmt.Errorf("syntax: <minutes>")
+	}
+	m, err := strconv.Atoi(args[0])
+	if err != nil {
+		return fmt.Errorf("could not parse %#v: %s", args[0], err.Error())
+	}
+	if m < 0 {
+		return fmt.Errorf("cannot pretend to go backwards in time")
+	}
+	if m > math.MaxUint16 {
+		return fmt.Errorf("cannot pretend to elapse more than %d minutes", math.MaxUint16)
+	}
+	b.PretendElapsed(uint16(m))
+	return nil
 }
 
 func ringOrBuilder(fileName string) (r ring.Ring, b *ring.Builder, err error) {
