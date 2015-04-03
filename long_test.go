@@ -59,17 +59,17 @@ func helperTestNewRingBuilder(t *testing.T, zones int32) {
 		}
 	}
 	start := time.Now()
-	b.PretendMoveElapsed(math.MaxUint16)
+	b.PretendElapsed(math.MaxUint16)
 	stats := b.Ring().Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 	b.nodes[25].SetActive(false)
 	start = time.Now()
-	b.PretendMoveElapsed(math.MaxUint16)
+	b.PretendElapsed(math.MaxUint16)
 	stats = b.Ring().Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 	b.nodes[20].SetCapacity(75)
 	start = time.Now()
-	b.PretendMoveElapsed(math.MaxUint16)
+	b.PretendElapsed(math.MaxUint16)
 	stats = b.Ring().Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 	start = time.Now()
@@ -90,7 +90,7 @@ func helperTestNewRingBuilder(t *testing.T, zones int32) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.PretendMoveElapsed(math.MaxUint16)
+	b.PretendElapsed(math.MaxUint16)
 	r := b.Ring()
 	stats = r.Stats()
 	fmt.Printf("%6d %8d %10d %4d %8d %7.02f%% %6.02f%% %7d\n", stats.NodeCount, stats.InactiveNodeCount, stats.PartitionCount, stats.PartitionBitCount, stats.TotalCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))

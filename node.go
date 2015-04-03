@@ -2,15 +2,24 @@ package ring
 
 import (
 	"fmt"
+	"math/rand"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
+var idSource rand.Source = rand.NewSource(time.Now().UnixNano())
+
+// Node represents an endpoint for ring data or other ring-based services.
 type Node interface {
 	// ID uniquely identifies this node; it will be non-zero as zero is used to
 	// indicate "no node".
 	ID() uint64
+	// Active indicates whether the node should be in use or not. Nodes may be
+	// deactivated for a while (during a maintenance, for example) and then
+	// reactivated later. While deactivated, the builder will reassign all data
+	// previously assigned to the node.
 	Active() bool
 	// Capacity indicates the amount of data that should be assigned to a node
 	// relative to other nodes. It can be in any unit of designation as long as
@@ -24,18 +33,23 @@ type Node interface {
 	// the power zone the server is in. The number of tiers is flexible, so
 	// later an additional tier for geographic region could be added.
 	Tiers() []string
+	// Tier returns just the single tier value for the level.
 	Tier(level int) string
 	// Addresses give location information for the node; probably something
 	// like ip:port. This is a list for those use cases where different
 	// processes use different networks (such as replication using a
 	// replication-only network).
 	Addresses() []string
+	// Address returns just the single address for the index.
 	Address(index int) string
 	// Meta is additional information for the node; not defined or used by the
 	// builder or ring directly.
 	Meta() string
 }
 
+// BuilderNode extends Node to allow for updating attributes. A Ring needs
+// immutable nodes as the assignments are static at that point, but the Builder
+// doesn't have that restriction.
 type BuilderNode interface {
 	Node
 	SetActive(value bool)
@@ -45,8 +59,6 @@ type BuilderNode interface {
 	SetMeta(value string)
 }
 
-// Node is a single item assigned to a ring, usually a single device like a
-// disk drive.
 type node struct {
 	tierBase *tierBase
 	id       uint64
@@ -57,6 +69,22 @@ type node struct {
 	tierIndexes []int32
 	addresses   []string
 	meta        string
+}
+
+func newNode(b *tierBase, others []*node) *node {
+	// The ids should be unique, non-zero, and random so others don't base
+	// their node references on indexes.
+	var id uint64
+	for id == 0 {
+		id = (uint64(idSource.Int63()) << 63) | uint64(idSource.Int63())
+		for _, n := range others {
+			if n.id == id {
+				id = 0
+				break
+			}
+		}
+	}
+	return &node{tierBase: b, id: id}
 }
 
 func (n *node) ID() uint64 {
@@ -159,6 +187,24 @@ func (n *node) SetMeta(value string) {
 
 type NodeSlice []Node
 
+// Filter will return a new NodeSlice with just the nodes that match the
+// filters given. The basic filter syntax is that "attribute=value" will filter
+// to just nodes whose attribute exactly match the value and "attribute~=value"
+// will similarly filter but treat the value as a regular expression. The
+// available attributes to filter on are:
+//
+//      id          A node's id.
+//      active      Whether a node is active or not (use "true" or "false").
+//      capacity    A node's capacity.
+//      tier        Any tier of a node.
+//      tierX       A node's specific tier level specified by X.
+//      address     Any address of a node.
+//      addressX    A node's specific address index specified by X.
+//      meta        A node's meta attribute.
+//
+// For example:
+//
+//      ring.Nodes().Filter([]string{"active=true", `address=10\.1\.2\..*`})
 func (ns NodeSlice) Filter(filters []string) (NodeSlice, error) {
 	nsB := ns
 	for _, filter := range filters {

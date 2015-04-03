@@ -198,6 +198,7 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 }
 
 func (b *Builder) Persist(w io.Writer) error {
+	b.minimizeTiers()
 	// CONSIDER: This code uses binary.Write which incurs fleeting allocations;
 	// these could be reduced by creating a buffer upfront and using
 	// binary.Put* calls instead.
@@ -335,6 +336,40 @@ func (b *Builder) Persist(w io.Writer) error {
 	return nil
 }
 
+func (b *Builder) minimizeTiers() {
+	u := make([][]bool, len(b.tiers))
+	for i, t := range b.tiers {
+		u[i] = make([]bool, len(t))
+	}
+	for _, n := range b.nodes {
+		for lv, i := range n.tierIndexes {
+			u[lv][i] = true
+		}
+	}
+	for lv, us := range u {
+		for i := len(us) - 1; i > 0; i-- {
+			if us[i] {
+				continue
+			}
+			b.tiers[lv][i] = ""
+			for _, n := range b.nodes {
+				if n.tierIndexes[lv] > int32(i) {
+					n.tierIndexes[lv]--
+				}
+			}
+		}
+	}
+	for lv := 0; lv < len(b.tiers); lv++ {
+		ts := make([]string, 1, len(b.tiers[lv]))
+		for _, t := range b.tiers[lv][1:] {
+			if t != "" {
+				ts = append(ts, t)
+			}
+		}
+		b.tiers[lv] = ts
+	}
+}
+
 func (b *Builder) ReplicaCount() int {
 	return len(b.replicaToPartitionToNodeIndex)
 }
@@ -394,7 +429,7 @@ func (b *Builder) SetMoveWait(minutes uint16) {
 	b.moveWait = minutes
 }
 
-func (b *Builder) PretendMoveElapsed(minutes uint16) {
+func (b *Builder) PretendElapsed(minutes uint16) {
 	for _, partitionToLastMove := range b.replicaToPartitionToLastMove {
 		for partition := len(partitionToLastMove) - 1; partition >= 0; partition-- {
 			if math.MaxUint16-partitionToLastMove[partition] > minutes {
@@ -417,10 +452,11 @@ func (b *Builder) Nodes() BuilderNodeSlice {
 func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresses []string, meta string) BuilderNode {
 	addressesCopy := make([]string, len(addresses))
 	copy(addressesCopy, addresses)
-	// TODO: I'd like to make the ID a random but unique number instead of an
-	// index based value simply because it'd make impossible accidentally
-	// relying on that index property.
-	n := &node{tierBase: &b.tierBase, id: uint64(len(b.nodes) + 123), inactive: !active, capacity: capacity, addresses: addressesCopy, meta: meta}
+	n := newNode(&b.tierBase, b.nodes)
+	n.inactive = !active
+	n.capacity = capacity
+	n.addresses = addressesCopy
+	n.meta = meta
 	for level, value := range tiers {
 		n.SetTier(level, value)
 	}
@@ -463,6 +499,15 @@ func (b *Builder) Node(nodeID uint64) BuilderNode {
 	return nil
 }
 
+func (b *Builder) Tiers() [][]string {
+	rv := make([][]string, len(b.tiers))
+	for i, t := range b.tiers {
+		rv[i] = make([]string, len(t))
+		copy(rv[i], t)
+	}
+	return rv
+}
+
 // Ring returns a Ring instance of the data defined by the builder. This will
 // cause any pending rebalancing actions to be performed. The Ring returned
 // will be immutable; to obtain updated ring data, Ring() must be called again.
@@ -490,7 +535,7 @@ func (b *Builder) Ring() Ring {
 			if d < math.MaxUint16 {
 				d16 = uint16(d)
 			}
-			b.PretendMoveElapsed(d16)
+			b.PretendElapsed(d16)
 		}
 	}
 	tiers := make([][]string, len(b.tiers))
