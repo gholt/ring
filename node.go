@@ -69,9 +69,11 @@ type node struct {
 	meta        string
 }
 
-var idSource rand.Source = rand.NewSource(time.Now().UnixNano())
-
 func newNode(b *tierBase, others []*node) *node {
+	return newNodeWithSource(b, others, rand.NewSource(time.Now().UnixNano()))
+}
+
+func newNodeWithSource(b *tierBase, others []*node, idSource rand.Source) *node {
 	// The ids should be unique, non-zero, and random so others don't base
 	// their node references on indexes.
 	var id uint64
