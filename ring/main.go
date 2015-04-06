@@ -200,8 +200,8 @@ func mainCmd(r ring.Ring, b *ring.Builder) error {
 			[]string{brimtext.ThousandsSep(int64(s.NodeCount), ","), "Nodes"},
 			[]string{brimtext.ThousandsSep(int64(s.InactiveNodeCount), ","), "Inactive Nodes"},
 			[]string{brimtext.ThousandsSepU(s.TotalCapacity, ","), "Total Node Capacity"},
-			[]string{fmt.Sprintf("%.02f%%", s.MaxUnderNodePercentage), fmt.Sprintf("Worst Underweight Node (ID %08x)", s.MaxUnderNodeID)},
-			[]string{fmt.Sprintf("%.02f%%", s.MaxOverNodePercentage), fmt.Sprintf("Worst Overweight Node (ID %08x)", s.MaxOverNodeID)},
+			[]string{fmt.Sprintf("%.02f%%", s.MaxUnderNodePercentage), fmt.Sprintf("Worst Underweight Node (ID %016x)", s.MaxUnderNodeID)},
+			[]string{fmt.Sprintf("%.02f%%", s.MaxOverNodePercentage), fmt.Sprintf("Worst Overweight Node (ID %016x)", s.MaxOverNodeID)},
 		}
 		reportOpts := brimtext.NewDefaultAlignOptions()
 		reportOpts.Alignments = []brimtext.Alignment{brimtext.Right, brimtext.Left}
@@ -275,7 +275,7 @@ func nodeCmd(r ring.Ring, b *ring.Builder, args []string, full bool) (changed bo
 				fmt.Println()
 			}
 			report := [][]string{
-				[]string{"ID:", fmt.Sprintf("%08x", n.ID())},
+				[]string{"ID:", fmt.Sprintf("%016x", n.ID())},
 				[]string{"Active:", fmt.Sprintf("%v", n.Active())},
 				[]string{"Capacity:", fmt.Sprintf("%d", n.Capacity())},
 				[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
@@ -304,7 +304,7 @@ func nodeCmd(r ring.Ring, b *ring.Builder, args []string, full bool) (changed bo
 	}
 	reportLine := func(n ring.Node) []string {
 		return []string{
-			fmt.Sprintf("%08x", n.ID()),
+			fmt.Sprintf("%016x", n.ID()),
 			fmt.Sprintf("%v", n.Active()),
 			fmt.Sprintf("%d", n.Capacity()),
 			n.Address(0),
@@ -387,7 +387,7 @@ func partitionCmd(r ring.Ring, b *ring.Builder, args []string) error {
 			fmt.Println()
 		}
 		report := [][]string{
-			[]string{"ID:", fmt.Sprintf("%08x", n.ID())},
+			[]string{"ID:", fmt.Sprintf("%016x", n.ID())},
 			[]string{"Capacity:", fmt.Sprintf("%d", n.Capacity())},
 			[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
 			[]string{"Addresses:", strings.Join(n.Addresses(), "\n")},
@@ -560,7 +560,7 @@ func addOrSetCmd(r ring.Ring, b *ring.Builder, args []string, n ring.BuilderNode
 	if n == nil {
 		n = b.AddNode(active, capacity, tiers, addresses, meta)
 		report := [][]string{
-			[]string{"ID:", fmt.Sprintf("%08x", n.ID())},
+			[]string{"ID:", fmt.Sprintf("%016x", n.ID())},
 			[]string{"Active:", fmt.Sprintf("%v", n.Active())},
 			[]string{"Capacity:", fmt.Sprintf("%d", n.Capacity())},
 			[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
