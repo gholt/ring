@@ -355,12 +355,12 @@ OUT:
 		sort.Strings(values)
 		var pvalue string
 		if fmted {
-			for _, value := range values[1:] {
+			for _, value := range values {
 				pvalue += fmt.Sprintf(" %#v", value)
 			}
 			pvalue = strings.Trim(pvalue, " ")
 		} else {
-			pvalue = strings.Join(values[1:], " ")
+			pvalue = strings.Join(values, " ")
 		}
 		report = append(report, []string{
 			strconv.Itoa(level),

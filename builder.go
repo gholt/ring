@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+// Builder is used to construct Rings over time. Rings are the immutable state
+// of a Builder's assignments at a given point in time.
 type Builder struct {
 	tierBase
 	version                       int64
@@ -22,6 +24,7 @@ type Builder struct {
 	moveWaitBase                  int64
 }
 
+// NewBuilder creates an empty Builder with all default settings.
 func NewBuilder() *Builder {
 	b := &Builder{
 		partitionBitCount:             1,
@@ -38,6 +41,8 @@ func NewBuilder() *Builder {
 	return b
 }
 
+// LoadBuilder creates a new Builder instance based on the persisted data from
+// the Reader (presumably previously saved with the Persist method).
 func LoadBuilder(r io.Reader) (*Builder, error) {
 	// CONSIDER: This code uses binary.Read which incurs fleeting allocations;
 	// these could be reduced by creating a buffer upfront and using
@@ -198,6 +203,8 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 	return b, nil
 }
 
+// Persist saves the Builder state to the given Writer for later reloading via
+// the LoadBuilder method.
 func (b *Builder) Persist(w io.Writer) error {
 	b.minimizeTiers()
 	// CONSIDER: This code uses binary.Write which incurs fleeting allocations;
@@ -408,6 +415,9 @@ func (b *Builder) SetPointsAllowed(points byte) {
 	b.pointsAllowed = points
 }
 
+// MaxPartitionBitCount caps how large the ring can grow. The default is 23,
+// which means 2**23 or 8,388,608 partitions, which is about 100M for a 3
+// replica ring (each partition replica assignment is an int32).
 func (b *Builder) MaxPartitionBitCount() uint16 {
 	return b.maxPartitionBitCount
 }
@@ -426,6 +436,10 @@ func (b *Builder) SetMoveWait(minutes uint16) {
 	b.moveWait = minutes
 }
 
+// PretendElapsed shifts the last movement records by the number of minutes
+// given. This can be useful in testing, as the ring algorithms will not
+// reassign replicas for a partition more often than once per MoveWait in order
+// to let reassignments take effect before moving the same data yet again.
 func (b *Builder) PretendElapsed(minutes uint16) {
 	for _, partitionToLastMove := range b.replicaToPartitionToLastMove {
 		for partition := len(partitionToLastMove) - 1; partition >= 0; partition-- {
@@ -438,14 +452,19 @@ func (b *Builder) PretendElapsed(minutes uint16) {
 	}
 }
 
-func (b *Builder) Nodes() BuilderNodeSlice {
-	nodes := make(BuilderNodeSlice, len(b.nodes))
+// Nodes returns a NodeSlice of the nodes the Builder references, but each Node
+// in the slice can be typecast into a BuilderNode if needed.
+func (b *Builder) Nodes() NodeSlice {
+	nodes := make(NodeSlice, len(b.nodes))
 	for i := len(nodes) - 1; i >= 0; i-- {
 		nodes[i] = b.nodes[i]
 	}
 	return nodes
 }
 
+// AddNode will add a new node to the builder for data assigment. Actual data
+// assignment won't ocurr until the Ring method is called, so you can add
+// multiple nodes or alter node values after creation if desired.
 func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresses []string, meta string) BuilderNode {
 	addressesCopy := make([]string, len(addresses))
 	copy(addressesCopy, addresses)
@@ -487,6 +506,7 @@ func (b *Builder) RemoveNode(nodeID uint64) {
 	}
 }
 
+// Node returns the node instance identified, if there is one.
 func (b *Builder) Node(nodeID uint64) BuilderNode {
 	for _, n := range b.nodes {
 		if n.id == nodeID {
@@ -496,11 +516,14 @@ func (b *Builder) Node(nodeID uint64) BuilderNode {
 	return nil
 }
 
+// Tiers returns the tier values in use at each level. Note that an empty
+// string is always an available value at any level, although it is not
+// returned from this method.
 func (b *Builder) Tiers() [][]string {
 	rv := make([][]string, len(b.tiers))
 	for i, t := range b.tiers {
-		rv[i] = make([]string, len(t))
-		copy(rv[i], t)
+		rv[i] = make([]string, len(t)-1)
+		copy(rv[i], t[1:])
 	}
 	return rv
 }
@@ -608,8 +631,9 @@ func (b *Builder) resizeIfNeeded() bool {
 		b.partitionBitCount = partitionBitCount
 		return true
 	}
-	// TODO: Shrinking the partitionToNodeIndex slices doesn't happen because
-	// it would normally cause more data movements than it's worth. Perhaps in
-	// the future we can add detection of cases when shrinking makes sense.
+	// Consider: Shrinking the partitionToNodeIndex slices doesn't happen
+	// because it would normally cause more data movements than it's worth.
+	// Perhaps in the future we can add detection of cases when shrinking makes
+	// sense.
 	return false
 }

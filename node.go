@@ -363,5 +363,3 @@ func (ns NodeSlice) Filter(filters []string) (NodeSlice, error) {
 	}
 	return nsB, nil
 }
-
-type BuilderNodeSlice []BuilderNode

@@ -457,7 +457,7 @@ func (context *rebalancer) reassignedSameTierDups() {
 	}
 }
 
-// TODO: Attempt to reassign replicas within tiers, from innermost tier to
+// Consider: Attempt to reassign replicas within tiers, from innermost tier to
 // outermost, as usually such movements are more efficient for users of the
 // ring (doesn't span switches, for example). Could be done by selecting the
 // most needy node, and then look for overweight nodes in the same tier to
