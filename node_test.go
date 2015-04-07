@@ -196,6 +196,51 @@ func TestTierCoalescing(t *testing.T) {
 	}
 }
 
+func TestNodeFilterCommonErrors(t *testing.T) {
+	_, err := NodeSlice{}.Filter([]string{"randomstringwithoutequals"})
+	if err == nil {
+		t.Fatal("")
+	}
+	if err.Error() != `invalid expression "randomstringwithoutequals"; needs "="` {
+		t.Fatal(err)
+	}
+	_, err = NodeSlice{}.Filter([]string{"trailingequals="})
+	if err == nil {
+		t.Fatal("")
+	}
+	if err.Error() != `invalid expression "trailingequals="; nothing was right of "="` {
+		t.Fatal(err)
+	}
+	_, err = NodeSlice{}.Filter([]string{"=leadingequals"})
+	if err == nil {
+		t.Fatal("")
+	}
+	if err.Error() != `invalid expression "=leadingequals"; nothing was left of "="` {
+		t.Fatal(err)
+	}
+	_, err = NodeSlice{}.Filter([]string{"~=leadingtildeequals"})
+	if err == nil {
+		t.Fatal("")
+	}
+	if err.Error() != `invalid expression "~=leadingtildeequals"; nothing was left of "~="` {
+		t.Fatal(err)
+	}
+	_, err = NodeSlice{}.Filter([]string{"meta~=(broken regular expression"})
+	if err == nil {
+		t.Fatal("")
+	}
+	if err.Error() != "invalid expression \"meta~=(broken regular expression\"; error parsing regexp: missing closing ): `(broken regular expression`" {
+		t.Fatal(err)
+	}
+	_, err = NodeSlice{}.Filter([]string{"unknown=value"})
+	if err == nil {
+		t.Fatal("")
+	}
+	if err.Error() != `invalid expression "unknown=value"; don't understand "unknown"` {
+		t.Fatal(err)
+	}
+}
+
 func TestNodeFilterID(t *testing.T) {
 	b := &tierBase{}
 	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
@@ -286,5 +331,249 @@ func TestNodeFilterCapacity(t *testing.T) {
 	}
 	if fns[1].ID() != ns[1].ID() {
 		t.Fatal("")
+	}
+}
+
+func TestNodeFilterTier(t *testing.T) {
+	b := &tierBase{}
+	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
+	ns[0].(*node).SetTier(0, "server1")
+	ns[0].(*node).SetTier(1, "zone1")
+	ns[1].(*node).SetTier(0, "server9")
+	ns[2].(*node).SetTier(0, "server2")
+	ns[2].(*node).SetTier(1, "zone1")
+	fns, err := ns.Filter([]string{"tier=server2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 1 {
+		t.Fatal("")
+	}
+	if fns[0].ID() != ns[2].ID() {
+		t.Fatal("")
+	}
+	fns, err = ns.Filter([]string{"tier~=zone1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 2 {
+		t.Fatal("")
+	}
+	if fns[0].ID() != ns[0].ID() {
+		t.Fatal("")
+	}
+	if fns[1].ID() != ns[2].ID() {
+		t.Fatal("")
+	}
+}
+
+func TestNodeFilterAddress(t *testing.T) {
+	b := &tierBase{}
+	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
+	ns[0].(*node).SetAddress(0, "1.2.3.4:5678")
+	ns[0].(*node).SetAddress(1, "1.2.3.4:9876")
+	ns[1].(*node).SetAddress(0, "5.6.7.8:5678")
+	ns[2].(*node).SetAddress(0, "9.0.1.2:5678")
+	ns[2].(*node).SetAddress(1, "9.0.1.2:9876")
+	fns, err := ns.Filter([]string{"address=1.2.3.4:5678"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 1 {
+		t.Fatal("")
+	}
+	if fns[0].ID() != ns[0].ID() {
+		t.Fatal("")
+	}
+	fns, err = ns.Filter([]string{"address~=:9876"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 2 {
+		t.Fatal("")
+	}
+	if fns[0].ID() != ns[0].ID() {
+		t.Fatal("")
+	}
+	if fns[1].ID() != ns[2].ID() {
+		t.Fatal("")
+	}
+}
+
+func TestNodeFilterMeta(t *testing.T) {
+	b := &tierBase{}
+	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
+	ns[0].(*node).SetMeta("Sparkle Servers S8000, 128G RAM, 2x Northern Analog 2T PCIe SSD")
+	ns[1].(*node).SetMeta("Sparkle Servers S9000, 128G RAM, 2x Northern Analog 2T PCIe SSD")
+	ns[2].(*node).SetMeta("Sparkle Servers S10000, 128G RAM, 2x Northern Analog 3T PCIe SSD")
+	fns, err := ns.Filter([]string{"meta=S9000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fns, err = ns.Filter([]string{"meta=Sparkle Servers S9000, 128G RAM, 2x Northern Analog 2T PCIe SSD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 1 {
+		t.Fatal("")
+	}
+	if fns[0].ID() != ns[1].ID() {
+		t.Fatal("")
+	}
+	fns, err = ns.Filter([]string{"meta~=2T PCIe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 2 {
+		t.Fatal("")
+	}
+	if fns[0].ID() != ns[0].ID() {
+		t.Fatal("")
+	}
+	if fns[1].ID() != ns[1].ID() {
+		t.Fatal("")
+	}
+	fns, err = ns.Filter([]string{"meta~=2t pcie"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 0 {
+		t.Fatal("")
+	}
+	// Quick example of case insensitivity
+	fns, err = ns.Filter([]string{"meta~=(?i)2t pcie"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 2 {
+		t.Fatal("")
+	}
+	if fns[0].ID() != ns[0].ID() {
+		t.Fatal("")
+	}
+	if fns[1].ID() != ns[1].ID() {
+		t.Fatal("")
+	}
+}
+
+func TestNodeFilterTierX(t *testing.T) {
+	b := &tierBase{}
+	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
+	ns[0].(*node).SetTier(0, "server1")
+	ns[0].(*node).SetTier(1, "zone1")
+	ns[1].(*node).SetTier(0, "server9")
+	ns[2].(*node).SetTier(0, "server2")
+	ns[2].(*node).SetTier(1, "zone1")
+	fns, err := ns.Filter([]string{"tier0=server2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 1 {
+		t.Fatal("")
+	}
+	if fns[0].ID() != ns[2].ID() {
+		t.Fatal("")
+	}
+	fns, err = ns.Filter([]string{"tier1=server2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 0 {
+		t.Fatal("")
+	}
+	fns, err = ns.Filter([]string{"tier1~=zone1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 2 {
+		t.Fatal("")
+	}
+	if fns[0].ID() != ns[0].ID() {
+		t.Fatal("")
+	}
+	if fns[1].ID() != ns[2].ID() {
+		t.Fatal("")
+	}
+	fns, err = ns.Filter([]string{"tier0~=zone1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 0 {
+		t.Fatal("")
+	}
+	fns, err = ns.Filter([]string{"tierA~=zone1"})
+	if err == nil {
+		t.Fatal("")
+	}
+	if err.Error() != `invalid expression "tierA~=zone1"; "A" doesn't specify a number` {
+		t.Fatal(err)
+	}
+	fns, err = ns.Filter([]string{"tier-1~=zone1"})
+	if err == nil {
+		t.Fatal("")
+	}
+	if err.Error() != `invalid expression "tier-1~=zone1"; minimum level is 0` {
+		t.Fatal(err)
+	}
+}
+
+func TestNodeFilterAddressX(t *testing.T) {
+	b := &tierBase{}
+	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
+	ns[0].(*node).SetAddress(0, "1.2.3.4:5678")
+	ns[0].(*node).SetAddress(1, "1.2.3.4:9876")
+	ns[1].(*node).SetAddress(0, "5.6.7.8:5678")
+	ns[2].(*node).SetAddress(0, "9.0.1.2:5678")
+	ns[2].(*node).SetAddress(1, "9.0.1.2:9876")
+	fns, err := ns.Filter([]string{"address0=1.2.3.4:5678"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 1 {
+		t.Fatal("")
+	}
+	if fns[0].ID() != ns[0].ID() {
+		t.Fatal("")
+	}
+	fns, err = ns.Filter([]string{"address1=1.2.3.4:5678"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 0 {
+		t.Fatal("")
+	}
+	fns, err = ns.Filter([]string{"address1~=:9876"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 2 {
+		t.Fatal("")
+	}
+	if fns[0].ID() != ns[0].ID() {
+		t.Fatal("")
+	}
+	if fns[1].ID() != ns[2].ID() {
+		t.Fatal("")
+	}
+	fns, err = ns.Filter([]string{"address0~=:9876"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 0 {
+		t.Fatal("")
+	}
+	fns, err = ns.Filter([]string{"addressA~=zone1"})
+	if err == nil {
+		t.Fatal("")
+	}
+	if err.Error() != `invalid expression "addressA~=zone1"; "A" doesn't specify a number` {
+		t.Fatal(err)
+	}
+	fns, err = ns.Filter([]string{"address-1~=zone1"})
+	if err == nil {
+		t.Fatal("")
+	}
+	if err.Error() != `invalid expression "address-1~=zone1"; minimum index is 0` {
+		t.Fatal(err)
 	}
 }

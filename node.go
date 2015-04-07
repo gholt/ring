@@ -337,6 +337,9 @@ func (ns NodeSlice) Filter(filters []string) (NodeSlice, error) {
 				if err != nil {
 					return nil, fmt.Errorf("invalid expression %#v; %#v doesn't specify a number", filter, sfilter[0][7:])
 				}
+				if index < 0 {
+					return nil, fmt.Errorf("invalid expression %#v; minimum index is 0", filter)
+				}
 				if re == nil {
 					matcher = func(n Node) bool {
 						return sfilter[1] == n.Address(index)
