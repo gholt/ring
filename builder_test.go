@@ -2,6 +2,7 @@ package ring
 
 import (
 	"bytes"
+	"math"
 	"testing"
 )
 
@@ -35,8 +36,9 @@ func TestNewBuilder(t *testing.T) {
 func TestBuilderPersistence(t *testing.T) {
 	b := NewBuilder()
 	b.SetReplicaCount(3)
-	b.AddNode(true, 1, nil, nil, "")
-	b.AddNode(true, 1, nil, nil, "")
+	b.AddNode(true, 1, []string{"server1", "zone1"}, []string{"1.2.3.4:56789"}, "Meta One")
+	b.AddNode(true, 1, []string{"server2", "zone1"}, []string{"1.2.3.5:56789", "1.2.3.5:9876"}, "Meta Four")
+	b.AddNode(false, 0, []string{"server3", "zone1"}, []string{"1.2.3.6:56789"}, "Meta Three")
 	b.Ring()
 	buf := bytes.NewBuffer(make([]byte, 0, 65536))
 	err := b.Persist(buf)
@@ -117,6 +119,19 @@ func TestBuilderPersistence(t *testing.T) {
 	}
 	if b2.moveWait != b.moveWait {
 		t.Fatalf("%v != %v", b2.moveWait, b.moveWait)
+	}
+}
+
+func TestBuilderLoadGarbage(t *testing.T) {
+	b, err := LoadBuilder(bytes.NewBuffer([]byte{
+		0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+		0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+	}))
+	if err == nil {
+		t.Fatal("")
+	}
+	if b != nil {
+		t.Fatal("")
 	}
 }
 
@@ -263,5 +278,111 @@ func TestBuilderResizeIfNeeded(t *testing.T) {
 	pbc = r.PartitionBitCount()
 	if pbc != 6 {
 		t.Fatalf("Ring's PartitionBitCount was %d and should've been 6", pbc)
+	}
+}
+
+func TestBuilderMinimizeTiers(t *testing.T) {
+	b := NewBuilder()
+	n := b.AddNode(true, 1, []string{"one"}, nil, "")
+	b.AddNode(true, 1, []string{"two"}, nil, "")
+	b.minimizeTiers()
+	if len(b.tiers) != 1 {
+		t.Fatal("")
+	}
+	if len(b.tiers[0]) != 3 {
+		t.Fatal("")
+	}
+	if b.tiers[0][0] != "" {
+		t.Fatal("")
+	}
+	if b.tiers[0][1] != "one" {
+		t.Fatal("")
+	}
+	if b.tiers[0][2] != "two" {
+		t.Fatal("")
+	}
+	b.RemoveNode(n.ID())
+	b.minimizeTiers()
+	if len(b.tiers) != 1 {
+		t.Fatal("")
+	}
+	if len(b.tiers[0]) != 2 {
+		t.Fatal("")
+	}
+	if b.tiers[0][0] != "" {
+		t.Fatal("")
+	}
+	if b.tiers[0][1] != "two" {
+		t.Fatal("")
+	}
+}
+
+func TestBuilderLowerReplicaCount(t *testing.T) {
+	b := NewBuilder()
+	b.SetReplicaCount(3)
+	b.AddNode(true, 1, nil, nil, "")
+	b.AddNode(true, 1, nil, nil, "")
+	b.AddNode(true, 1, nil, nil, "")
+	b.Ring()
+	// ring ends up:
+	// 0 2
+	// 1 1
+	// 2 0
+	if len(b.replicaToPartitionToNodeIndex) != 3 {
+		t.Fatal(len(b.replicaToPartitionToNodeIndex))
+	}
+	if len(b.replicaToPartitionToNodeIndex[0]) != 2 {
+		t.Fatal(len(b.replicaToPartitionToNodeIndex[0]))
+	}
+	if b.replicaToPartitionToNodeIndex[0][0] != 0 {
+		t.Fatal(b.replicaToPartitionToNodeIndex[0][0])
+	}
+	if b.replicaToPartitionToNodeIndex[0][1] != 2 {
+		t.Fatal(b.replicaToPartitionToNodeIndex[0][1])
+	}
+	if b.replicaToPartitionToNodeIndex[1][0] != 1 {
+		t.Fatal(b.replicaToPartitionToNodeIndex[1][0])
+	}
+	if b.replicaToPartitionToNodeIndex[1][1] != 1 {
+		t.Fatal(b.replicaToPartitionToNodeIndex[1][1])
+	}
+	if b.replicaToPartitionToNodeIndex[2][0] != 2 {
+		t.Fatal(b.replicaToPartitionToNodeIndex[2][0])
+	}
+	if b.replicaToPartitionToNodeIndex[2][1] != 0 {
+		t.Fatal(b.replicaToPartitionToNodeIndex[2][1])
+	}
+	// dropping the replica count should just drop the last replicas so:
+	// 0 2
+	// 1 1
+	b.SetReplicaCount(2)
+	if len(b.replicaToPartitionToNodeIndex) != 2 {
+		t.Fatal(len(b.replicaToPartitionToNodeIndex))
+	}
+	if len(b.replicaToPartitionToNodeIndex[0]) != 2 {
+		t.Fatal(len(b.replicaToPartitionToNodeIndex[0]))
+	}
+	if b.replicaToPartitionToNodeIndex[0][0] != 0 {
+		t.Fatal(b.replicaToPartitionToNodeIndex[0][0])
+	}
+	if b.replicaToPartitionToNodeIndex[0][1] != 2 {
+		t.Fatal(b.replicaToPartitionToNodeIndex[0][1])
+	}
+	if b.replicaToPartitionToNodeIndex[1][0] != 1 {
+		t.Fatal(b.replicaToPartitionToNodeIndex[1][0])
+	}
+	if b.replicaToPartitionToNodeIndex[1][1] != 1 {
+		t.Fatal(b.replicaToPartitionToNodeIndex[1][1])
+	}
+	// Just to show that now we have 2 replicas but 3 nodes and that the
+	// partition count has to jump up to try to keep good balance.
+	b.PretendElapsed(math.MaxUint16)
+	b.Ring()
+	b.SetReplicaCount(2)
+	if len(b.replicaToPartitionToNodeIndex) != 2 {
+		t.Fatal(len(b.replicaToPartitionToNodeIndex))
+	}
+	if len(b.replicaToPartitionToNodeIndex[0]) <= 2 {
+		t.Fatal(len(b.replicaToPartitionToNodeIndex[0]))
 	}
 }

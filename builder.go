@@ -19,6 +19,7 @@ type Builder struct {
 	pointsAllowed                 byte
 	maxPartitionBitCount          uint16
 	moveWait                      uint16
+	moveWaitBase                  int64
 }
 
 func NewBuilder() *Builder {
@@ -380,11 +381,7 @@ func (b *Builder) SetReplicaCount(count int) {
 	}
 	if count < len(b.replicaToPartitionToNodeIndex) {
 		b.replicaToPartitionToNodeIndex = b.replicaToPartitionToNodeIndex[:count]
-		b.replicaToPartitionToLastMove = make([][]uint16, count)
-		partitionCount := len(b.replicaToPartitionToNodeIndex[0])
-		for i := 0; i < count; i++ {
-			b.replicaToPartitionToLastMove[i] = make([]uint16, partitionCount)
-		}
+		b.replicaToPartitionToLastMove = b.replicaToPartitionToLastMove[:count]
 	} else if count > len(b.replicaToPartitionToNodeIndex) {
 		partitionCount := len(b.replicaToPartitionToNodeIndex[0])
 		for count > len(b.replicaToPartitionToNodeIndex) {
@@ -521,22 +518,21 @@ func (b *Builder) Ring() Ring {
 	if !validNodes {
 		panic("no valid nodes yet")
 	}
-	originalVersion := b.version
+	newBase := time.Now().UnixNano()
+	d := (time.Now().UnixNano() - b.moveWaitBase) / 6000000000 // minutes
+	if d > 0 {
+		var d16 uint16 = math.MaxUint16
+		if d < math.MaxUint16 {
+			d16 = uint16(d)
+		}
+		b.PretendElapsed(d16)
+		b.moveWaitBase = newBase
+	}
 	if b.resizeIfNeeded() {
-		b.version = time.Now().UnixNano()
+		b.version = newBase
 	}
 	if newRebalancer(b).rebalance() {
-		b.version = time.Now().UnixNano()
-	}
-	if b.version != originalVersion {
-		d := (b.version - originalVersion) / 6000000000 // minutes
-		if d > 0 {
-			d16 := uint16(0)
-			if d < math.MaxUint16 {
-				d16 = uint16(d)
-			}
-			b.PretendElapsed(d16)
-		}
+		b.version = newBase
 	}
 	tiers := make([][]string, len(b.tiers))
 	for i, tier := range b.tiers {
