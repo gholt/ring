@@ -23,7 +23,7 @@ func TestNewRingBuilder(t *testing.T) {
 	if !RUN_LONG {
 		return
 	}
-	f, err := os.Create("ring_test.prof")
+	f, err := os.Create("long_test.prof")
 	if err != nil {
 		t.Fatal(err)
 	}
