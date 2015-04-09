@@ -14,18 +14,40 @@ import (
 	"io"
 )
 
+// Ring is the immutable snapshot of data assignments to nodes.
 type Ring interface {
+	// Version is the time.Now().UnixNano() of when the Ring data was
+	// established.
 	Version() int64
-	Node(id uint64) Node
+	// Node returns the node instance identified, if there is one.
+	Node(nodeID uint64) Node
+	// Nodes returns a NodeSlice of the nodes the Ring references.
 	Nodes() NodeSlice
+	// Tiers returns the tier values in use at each level. Note that an empty
+	// string is always an available value at any level, although it is not
+	// returned from this method.
 	Tiers() [][]string
+	// PartitionBitCount indicates how many partitions the Ring has. For
+	// example, a PartitionBitCount of 16 would indicate 2**16 or 65,536
+	// partitions.
 	PartitionBitCount() uint16
+	// ReplicaCount specifies how many replicas the Ring has.
 	ReplicaCount() int
+	// LocalNode returns the node the ring is locally bound to, if any. This
+	// local node binding is used by things such as MsgRing to know what items
+	// are bound for the local instance or need to be sent to remote ones, etc.
 	LocalNode() Node
-	SetLocalNode(id uint64)
+	SetLocalNode(nodeID uint64)
+	// Responsible will return true if LocalNode is set and one of the
+	// partition's replicas is assigned to that local node.
 	Responsible(partition uint32) bool
+	// ResponsibleNodes will return the list of nodes that are responsible for
+	// the replicas of the partition.
 	ResponsibleNodes(partition uint32) NodeSlice
+	// Stats returns information about the ring for reporting purposes.
 	Stats() *RingStats
+	// Persist saves the Ring state to the given Writer for later reloading via
+	// the LoadBuilder method.
 	Persist(w io.Writer) error
 }
 
@@ -44,6 +66,8 @@ type ring struct {
 	replicaToPartitionToNodeIndex [][]int32
 }
 
+// LoadRing creates a new Ring instance based on the persisted data from the
+// Reader (presumably previously saved with the Ring.Persist method).
 func LoadRing(rd io.Reader) (Ring, error) {
 	// CONSIDER: This code uses binary.Read which incurs fleeting allocations;
 	// these could be reduced by creating a buffer upfront and using
@@ -341,8 +365,8 @@ func (r *ring) Node(id uint64) Node {
 func (r *ring) Tiers() [][]string {
 	rv := make([][]string, len(r.tiers))
 	for i, t := range r.tiers {
-		rv[i] = make([]string, len(t))
-		copy(rv[i], t)
+		rv[i] = make([]string, len(t)-1)
+		copy(rv[i], t[1:])
 	}
 	return rv
 }
@@ -392,6 +416,8 @@ func (r *ring) ResponsibleNodes(partition uint32) NodeSlice {
 	return nodes
 }
 
+// RingStats gives an overview of the state and health of a Ring. It is
+// returned by the Ring.Stats() method.
 type RingStats struct {
 	ReplicaCount      int
 	NodeCount         int

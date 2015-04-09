@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+// Builder is used to construct Rings over time. Rings are the immutable state
+// of a Builder's assignments at a given point in time.
 type Builder struct {
 	tierBase
 	version                       int64
@@ -19,8 +21,10 @@ type Builder struct {
 	pointsAllowed                 byte
 	maxPartitionBitCount          uint16
 	moveWait                      uint16
+	moveWaitBase                  int64
 }
 
+// NewBuilder creates an empty Builder with all default settings.
 func NewBuilder() *Builder {
 	b := &Builder{
 		partitionBitCount:             1,
@@ -37,6 +41,8 @@ func NewBuilder() *Builder {
 	return b
 }
 
+// LoadBuilder creates a new Builder instance based on the persisted data from
+// the Reader (presumably previously saved with the Persist method).
 func LoadBuilder(r io.Reader) (*Builder, error) {
 	// CONSIDER: This code uses binary.Read which incurs fleeting allocations;
 	// these could be reduced by creating a buffer upfront and using
@@ -197,6 +203,8 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 	return b, nil
 }
 
+// Persist saves the Builder state to the given Writer for later reloading via
+// the LoadBuilder method.
 func (b *Builder) Persist(w io.Writer) error {
 	b.minimizeTiers()
 	// CONSIDER: This code uses binary.Write which incurs fleeting allocations;
@@ -380,11 +388,7 @@ func (b *Builder) SetReplicaCount(count int) {
 	}
 	if count < len(b.replicaToPartitionToNodeIndex) {
 		b.replicaToPartitionToNodeIndex = b.replicaToPartitionToNodeIndex[:count]
-		b.replicaToPartitionToLastMove = make([][]uint16, count)
-		partitionCount := len(b.replicaToPartitionToNodeIndex[0])
-		for i := 0; i < count; i++ {
-			b.replicaToPartitionToLastMove[i] = make([]uint16, partitionCount)
-		}
+		b.replicaToPartitionToLastMove = b.replicaToPartitionToLastMove[:count]
 	} else if count > len(b.replicaToPartitionToNodeIndex) {
 		partitionCount := len(b.replicaToPartitionToNodeIndex[0])
 		for count > len(b.replicaToPartitionToNodeIndex) {
@@ -411,6 +415,9 @@ func (b *Builder) SetPointsAllowed(points byte) {
 	b.pointsAllowed = points
 }
 
+// MaxPartitionBitCount caps how large the ring can grow. The default is 23,
+// which means 2**23 or 8,388,608 partitions, which is about 100M for a 3
+// replica ring (each partition replica assignment is an int32).
 func (b *Builder) MaxPartitionBitCount() uint16 {
 	return b.maxPartitionBitCount
 }
@@ -429,6 +436,10 @@ func (b *Builder) SetMoveWait(minutes uint16) {
 	b.moveWait = minutes
 }
 
+// PretendElapsed shifts the last movement records by the number of minutes
+// given. This can be useful in testing, as the ring algorithms will not
+// reassign replicas for a partition more often than once per MoveWait in order
+// to let reassignments take effect before moving the same data yet again.
 func (b *Builder) PretendElapsed(minutes uint16) {
 	for _, partitionToLastMove := range b.replicaToPartitionToLastMove {
 		for partition := len(partitionToLastMove) - 1; partition >= 0; partition-- {
@@ -441,14 +452,19 @@ func (b *Builder) PretendElapsed(minutes uint16) {
 	}
 }
 
-func (b *Builder) Nodes() BuilderNodeSlice {
-	nodes := make(BuilderNodeSlice, len(b.nodes))
+// Nodes returns a NodeSlice of the nodes the Builder references, but each Node
+// in the slice can be typecast into a BuilderNode if needed.
+func (b *Builder) Nodes() NodeSlice {
+	nodes := make(NodeSlice, len(b.nodes))
 	for i := len(nodes) - 1; i >= 0; i-- {
 		nodes[i] = b.nodes[i]
 	}
 	return nodes
 }
 
+// AddNode will add a new node to the builder for data assigment. Actual data
+// assignment won't ocurr until the Ring method is called, so you can add
+// multiple nodes or alter node values after creation if desired.
 func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresses []string, meta string) BuilderNode {
 	addressesCopy := make([]string, len(addresses))
 	copy(addressesCopy, addresses)
@@ -490,6 +506,7 @@ func (b *Builder) RemoveNode(nodeID uint64) {
 	}
 }
 
+// Node returns the node instance identified, if there is one.
 func (b *Builder) Node(nodeID uint64) BuilderNode {
 	for _, n := range b.nodes {
 		if n.id == nodeID {
@@ -499,11 +516,14 @@ func (b *Builder) Node(nodeID uint64) BuilderNode {
 	return nil
 }
 
+// Tiers returns the tier values in use at each level. Note that an empty
+// string is always an available value at any level, although it is not
+// returned from this method.
 func (b *Builder) Tiers() [][]string {
 	rv := make([][]string, len(b.tiers))
 	for i, t := range b.tiers {
-		rv[i] = make([]string, len(t))
-		copy(rv[i], t)
+		rv[i] = make([]string, len(t)-1)
+		copy(rv[i], t[1:])
 	}
 	return rv
 }
@@ -521,22 +541,21 @@ func (b *Builder) Ring() Ring {
 	if !validNodes {
 		panic("no valid nodes yet")
 	}
-	originalVersion := b.version
+	newBase := time.Now().UnixNano()
+	d := (time.Now().UnixNano() - b.moveWaitBase) / 6000000000 // minutes
+	if d > 0 {
+		var d16 uint16 = math.MaxUint16
+		if d < math.MaxUint16 {
+			d16 = uint16(d)
+		}
+		b.PretendElapsed(d16)
+		b.moveWaitBase = newBase
+	}
 	if b.resizeIfNeeded() {
-		b.version = time.Now().UnixNano()
+		b.version = newBase
 	}
 	if newRebalancer(b).rebalance() {
-		b.version = time.Now().UnixNano()
-	}
-	if b.version != originalVersion {
-		d := (b.version - originalVersion) / 6000000000 // minutes
-		if d > 0 {
-			d16 := uint16(0)
-			if d < math.MaxUint16 {
-				d16 = uint16(d)
-			}
-			b.PretendElapsed(d16)
-		}
+		b.version = newBase
 	}
 	tiers := make([][]string, len(b.tiers))
 	for i, tier := range b.tiers {
@@ -612,8 +631,9 @@ func (b *Builder) resizeIfNeeded() bool {
 		b.partitionBitCount = partitionBitCount
 		return true
 	}
-	// TODO: Shrinking the partitionToNodeIndex slices doesn't happen because
-	// it would normally cause more data movements than it's worth. Perhaps in
-	// the future we can add detection of cases when shrinking makes sense.
+	// Consider: Shrinking the partitionToNodeIndex slices doesn't happen
+	// because it would normally cause more data movements than it's worth.
+	// Perhaps in the future we can add detection of cases when shrinking makes
+	// sense.
 	return false
 }

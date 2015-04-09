@@ -2,6 +2,8 @@ package ring
 
 import "io"
 
+// MsgRing will send and receive Msg instances to and from ring nodes. See
+// TCPMsgRing for a concrete implementation.
 type MsgRing interface {
 	Ring() Ring
 	// MaxMsgLength indicates the maximum number of bytes the content of a
@@ -23,6 +25,7 @@ type MsgRing interface {
 	MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg)
 }
 
+// Msg is a single message to be sent to another node or nodes.
 type Msg interface {
 	// MsgType is the unique designator for the type of message content (such
 	// as a pull replication request, a read request, etc.). Message types just

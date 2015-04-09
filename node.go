@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-var idSource rand.Source = rand.NewSource(time.Now().UnixNano())
-
 // Node represents an endpoint for ring data or other ring-based services.
 type Node interface {
 	// ID uniquely identifies this node; it will be non-zero as zero is used to
@@ -72,6 +70,10 @@ type node struct {
 }
 
 func newNode(b *tierBase, others []*node) *node {
+	return newNodeWithSource(b, others, rand.NewSource(time.Now().UnixNano()))
+}
+
+func newNodeWithSource(b *tierBase, others []*node, idSource rand.Source) *node {
 	// The ids should be unique, non-zero, and random so others don't base
 	// their node references on indexes.
 	var id uint64
@@ -193,7 +195,7 @@ type NodeSlice []Node
 // will similarly filter but treat the value as a regular expression. The
 // available attributes to filter on are:
 //
-//      id          A node's id.
+//      id          A node's id (uint64 represented as %016x).
 //      active      Whether a node is active or not (use "true" or "false").
 //      capacity    A node's capacity.
 //      tier        Any tier of a node.
@@ -235,11 +237,11 @@ func (ns NodeSlice) Filter(filters []string) (NodeSlice, error) {
 		case "id":
 			if re == nil {
 				matcher = func(n Node) bool {
-					return sfilter[1] == fmt.Sprintf("%08x", n.ID())
+					return sfilter[1] == fmt.Sprintf("%016x", n.ID())
 				}
 			} else {
 				matcher = func(n Node) bool {
-					return re.MatchString(fmt.Sprintf("%08x", n.ID()))
+					return re.MatchString(fmt.Sprintf("%016x", n.ID()))
 				}
 			}
 		case "active":
@@ -335,6 +337,9 @@ func (ns NodeSlice) Filter(filters []string) (NodeSlice, error) {
 				if err != nil {
 					return nil, fmt.Errorf("invalid expression %#v; %#v doesn't specify a number", filter, sfilter[0][7:])
 				}
+				if index < 0 {
+					return nil, fmt.Errorf("invalid expression %#v; minimum index is 0", filter)
+				}
 				if re == nil {
 					matcher = func(n Node) bool {
 						return sfilter[1] == n.Address(index)
@@ -358,5 +363,3 @@ func (ns NodeSlice) Filter(filters []string) (NodeSlice, error) {
 	}
 	return nsB, nil
 }
-
-type BuilderNodeSlice []BuilderNode
