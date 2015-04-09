@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gholt/brimtext-v1"
 	"github.com/gholt/ring"
+	"gopkg.in/gholt/brimtext.v1"
 )
 
 func main() {
