@@ -86,7 +86,7 @@ func (m *TCPMsgRing) msgToNode(nodeID uint64, msg Msg) {
 			log.Println("ERR: Trying to connect to", n.Address(m.AddressIndex), err)
 			return
 		}
-		conn := newRingConn(tcpconn, m.ChunkSize, m.Timeout)
+		conn = newRingConn(tcpconn, m.ChunkSize, m.Timeout)
 		m.conns[n.Address(m.AddressIndex)] = conn
 	}
 	conn.Lock() // Make sure we only have one writer at a time
