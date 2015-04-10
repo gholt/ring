@@ -23,7 +23,7 @@ func Test_ReadTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	reader := NewTimeoutReader(c, _DEFAULT_CHUNK_SIZE, -1*time.Second)
+	reader := newTimeoutReader(c, _DEFAULT_CHUNK_SIZE, -1*time.Second)
 	_, err = reader.ReadByte()
 	if err == nil {
 		t.Error("Read didn't timeout")
@@ -50,7 +50,7 @@ func Test_WriteTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	writer := NewTimeoutWriter(c, _DEFAULT_CHUNK_SIZE, -1*time.Second)
+	writer := newTimeoutWriter(c, _DEFAULT_CHUNK_SIZE, -1*time.Second)
 	writer.Write([]byte("Test"))
 	err = writer.Flush()
 	if err == nil {
@@ -70,7 +70,7 @@ func Test_WriteTimeout(t *testing.T) {
 func Test_ReadByte(t *testing.T) {
 	c := new(testConn)
 	c.readBuf.WriteString("ABCD")
-	reader := NewTimeoutReader(c, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
+	reader := newTimeoutReader(c, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
 	b, err := reader.ReadByte()
 	if err != nil {
 		t.Error("Error reading byte: ", err)
@@ -83,7 +83,7 @@ func Test_ReadByte(t *testing.T) {
 func Test_Read(t *testing.T) {
 	c := new(testConn)
 	c.readBuf.WriteString("ABCD")
-	reader := NewTimeoutReader(c, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
+	reader := newTimeoutReader(c, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
 	read := make([]byte, 3)
 	n, err := reader.Read(read)
 	if err != nil {
@@ -99,7 +99,7 @@ func Test_Read(t *testing.T) {
 
 func Test_WriteByte(t *testing.T) {
 	c := new(testConn)
-	writer := NewTimeoutWriter(c, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
+	writer := newTimeoutWriter(c, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
 	err := writer.WriteByte('A')
 	if err != nil {
 		t.Error("Error writing byte: ", err)
@@ -116,7 +116,7 @@ func Test_WriteByte(t *testing.T) {
 
 func Test_Write(t *testing.T) {
 	c := new(testConn)
-	writer := NewTimeoutWriter(c, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
+	writer := newTimeoutWriter(c, _DEFAULT_CHUNK_SIZE, _DEFAULT_TIMEOUT)
 	n, err := writer.Write([]byte("ABCD"))
 	if err != nil {
 		t.Error("Error writing: ", err)

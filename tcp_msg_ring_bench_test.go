@@ -38,11 +38,11 @@ func Benchmark_HandleOne(b *testing.B) {
 	msgring.SetMsgHandler(1, noopmarshaller)
 	msgring.ChunkSize = 16 // so we don't alloc too much
 	data := [16]byte{1, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0}
-	readers := make([]*TimeoutReader, b.N)
+	readers := make([]*timeoutReader, b.N)
 	for i := 0; i < b.N; i++ {
 		conn := new(testConn)
 		conn.readBuf.Write(data[:])
-		readers[i] = NewTimeoutReader(conn, msgring.ChunkSize, msgring.Timeout)
+		readers[i] = newTimeoutReader(conn, msgring.ChunkSize, msgring.Timeout)
 	}
 	log.SetOutput(ioutil.Discard)
 	b.ResetTimer()

@@ -15,14 +15,14 @@ const _DEFAULT_TIMEOUT_NEXT time.Duration = 2 * time.Hour
 
 type ringConn struct {
 	Conn   net.Conn
-	Writer *TimeoutWriter
+	Writer *timeoutWriter
 	sync.Mutex
 }
 
 func newRingConn(conn net.Conn, chunkSize int, timeout time.Duration) *ringConn {
 	return &ringConn{
 		Conn:   conn,
-		Writer: NewTimeoutWriter(conn, chunkSize, timeout),
+		Writer: newTimeoutWriter(conn, chunkSize, timeout),
 	}
 }
 
@@ -144,7 +144,7 @@ func (m *TCPMsgRing) MsgToOtherReplicas(partition uint32, msg Msg) {
 	msg.Done()
 }
 
-func (m *TCPMsgRing) handleOne(reader *TimeoutReader, wait bool) error {
+func (m *TCPMsgRing) handleOne(reader *timeoutReader, wait bool) error {
 	var length uint64 = 0
 	var msgType uint64 = 0
 	// for v.00002 we will store this in the fist 8 bytes
@@ -195,7 +195,7 @@ func (m *TCPMsgRing) handleOne(reader *TimeoutReader, wait bool) error {
 }
 
 func (m *TCPMsgRing) handle(conn net.Conn) error {
-	reader := NewTimeoutReader(conn, m.ChunkSize, m.Timeout)
+	reader := newTimeoutReader(conn, m.ChunkSize, m.Timeout)
 	err := m.handleOne(reader, false)
 	for {
 		if err != nil {
