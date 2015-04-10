@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"io/ioutil"
+	"log"
 	"net"
 	"testing"
 	"time"
@@ -102,6 +104,7 @@ func test_stringmarshaller(reader io.Reader, size uint64) (uint64, error) {
 }
 
 func Test_handle(t *testing.T) {
+	log.SetOutput(ioutil.Discard)
 	conn := new(testConn)
 	binary.Write(&conn.readBuf, binary.LittleEndian, uint64(1))
 	binary.Write(&conn.readBuf, binary.LittleEndian, uint64(7))

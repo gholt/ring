@@ -77,8 +77,6 @@ func (m *TCPMsgRing) msgToNode(nodeID uint64, msg Msg) {
 		return
 	}
 	// See if we have a connection already
-	// TODO: This whole thing should be configurable to use a given "slot" in
-	// the Addresses list.
 	conn, ok := m.conns[n.Address(m.AddressIndex)]
 	if !ok {
 		// We need to open a connection
