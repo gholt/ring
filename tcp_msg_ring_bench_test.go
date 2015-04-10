@@ -32,20 +32,24 @@ func noopmarshaller(reader io.Reader, size uint64) (uint64, error) {
 	return size, nil
 }
 
-func Benchmark_Handle(b *testing.B) {
+func Benchmark_HandleOne(b *testing.B) {
 	r, _, _ := newTestRing()
 	msgring := NewTCPMsgRing(r)
 	msgring.SetMsgHandler(1, noopmarshaller)
-	msgring.ChunkSize = 16 // so we don't alloc a lot each iter
+	msgring.ChunkSize = 16 // so we don't alloc too much
 	data := [16]byte{1, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0}
-	conns := make([]*testConn, b.N)
+	readers := make([]*timeoutReader, b.N)
 	for i := 0; i < b.N; i++ {
-		conns[i] = new(testConn)
-		conns[i].readBuf.Write(data[:])
+		conn := new(testConn)
+		conn.readBuf.Write(data[:])
+		readers[i] = newTimeoutReader(conn, msgring.ChunkSize, msgring.Timeout)
 	}
 	log.SetOutput(ioutil.Discard)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		msgring.handle(conns[i])
+		err := msgring.handleOne(readers[i], false)
+		if err != nil {
+			b.Error(err)
+		}
 	}
 }

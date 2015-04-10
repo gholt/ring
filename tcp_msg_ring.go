@@ -11,6 +11,7 @@ import (
 
 const _DEFAULT_CHUNK_SIZE int = 16 * 1024
 const _DEFAULT_TIMEOUT time.Duration = 2 * time.Second
+const _DEFAULT_TIMEOUT_NEXT time.Duration = 2 * time.Hour
 
 type ringConn struct {
 	Conn   net.Conn
@@ -33,7 +34,9 @@ type TCPMsgRing struct {
 	// ChunkSize is the size of network reads and writes.
 	ChunkSize int
 	// Timeout is the duration before network reads and writes expire.
-	Timeout     time.Duration
+	Timeout time.Duration
+	// TimeoutNext is the duration to wait for the next command
+	TimeoutNext time.Duration
 	ring        Ring
 	msgHandlers map[uint64]MsgUnmarshaller
 	conns       map[string]*ringConn
@@ -46,6 +49,7 @@ func NewTCPMsgRing(r Ring) *TCPMsgRing {
 		conns:       make(map[string]*ringConn),
 		ChunkSize:   _DEFAULT_CHUNK_SIZE,
 		Timeout:     _DEFAULT_TIMEOUT,
+		TimeoutNext: _DEFAULT_TIMEOUT_NEXT,
 	}
 }
 
@@ -140,57 +144,66 @@ func (m *TCPMsgRing) MsgToOtherReplicas(partition uint32, msg Msg) {
 	msg.Done()
 }
 
+func (m *TCPMsgRing) handleOne(reader *timeoutReader, wait bool) error {
+	var length uint64 = 0
+	var msgType uint64 = 0
+	// for v.00002 we will store this in the fist 8 bytes
+	for i := uint(0); i <= 56; i += 8 {
+		if i == 0 && wait {
+			// If this is the first read, and we are waiting, then
+			// change the timeout
+			reader.Timeout = m.TimeoutNext
+		}
+		b, err := reader.ReadByte()
+		if i == 0 && wait {
+			// Set the timeout back to normal
+			reader.Timeout = m.Timeout
+		}
+		if err != nil {
+			return err
+		}
+		msgType += uint64(b) << i
+	}
+	handle, ok := m.msgHandlers[msgType]
+	if !ok {
+		log.Println("ERR: Unknown message type", msgType)
+		// TODO: Handle errors better
+		return errors.New("Unknown message type")
+	}
+	// for v.00002 the msg length will be the next 8 bytes
+	for i := uint(0); i <= 56; i += 8 {
+		b, err := reader.ReadByte()
+		if err != nil {
+			return err
+		}
+		length += uint64(b) << i
+	}
+	// attempt to handle the message
+	consumed, err := handle(reader, length)
+	if err != nil {
+		log.Println("ERR: Error handling message", err)
+		// TODO: Handle errors better
+		return err
+	}
+	if consumed != length {
+		log.Println("ERR: Didn't consume whole message", length, consumed)
+		// TODO: Handle errors better
+		return errors.New("Didn't consume whole message")
+	}
+	// If we get here, everything is ok
+	return nil
+}
+
 func (m *TCPMsgRing) handle(conn net.Conn) error {
 	reader := newTimeoutReader(conn, m.ChunkSize, m.Timeout)
-	var length uint64
-	var msgType uint64
+	err := m.handleOne(reader, false)
 	for {
-		// for v.00002 we will store this in the fist 8 bytes
-		msgType = 0
-		for i := uint(0); i <= 56; i += 8 {
-			b, err := reader.ReadByte()
-			if err != nil {
-				log.Println("Closing connection")
-				conn.Close()
-				return err
-			}
-			msgType += uint64(b) << i
-		}
-		handle, ok := m.msgHandlers[msgType]
-		if !ok {
-			log.Println("ERR: Unknown message type", msgType)
-			// TODO: Handle errors better
-			log.Println("Closing connection")
-			conn.Close()
-			return errors.New("Unknown message type")
-		}
-		// for v.00002 the msg length will be the next 8 bytes
-		length = 0
-		for i := uint(0); i <= 56; i += 8 {
-			b, err := reader.ReadByte()
-			if err != nil {
-				log.Println("Closing connection")
-				conn.Close()
-				return err
-			}
-			length += uint64(b) << i
-		}
-		// attempt to handle the message
-		consumed, err := handle(reader, length)
 		if err != nil {
-			log.Println("ERR: Error handling message", err)
-			// TODO: Handle errors better
 			log.Println("Closing connection")
 			conn.Close()
 			return err
 		}
-		if consumed != length {
-			log.Println("ERR: Didn't consume whole message", length, consumed)
-			// TODO: Handle errors better
-			log.Println("Closing connection")
-			conn.Close()
-			return errors.New("Didn't consume whole message")
-		}
+		err = m.handleOne(reader, true)
 	}
 }
 
