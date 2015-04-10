@@ -205,11 +205,9 @@ func (m *TCPMsgRing) handle(conn net.Conn) error {
 	}
 }
 
-// TODO: This should result in a public method for activating this TCPMsgRing;
-// which would involve listening on the address identified by the local node's
-// address according to AddressIndex, etc.
-func (m *TCPMsgRing) listen(addr string) error {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
+func (m *TCPMsgRing) Listen() error {
+	node := m.ring.LocalNode()
+	tcpAddr, err := net.ResolveTCPAddr("tcp", node.Address(m.AddressIndex))
 	if err != nil {
 		return err
 	}
