@@ -121,10 +121,27 @@ func (m *TCPMsgRing) msgToNodeChan(nodeID uint64, msg Msg, retchan chan struct{}
 	retchan <- struct{}{}
 }
 
-func (m *TCPMsgRing) MsgToOtherReplicas(partition uint32, msg Msg) {
-	nodes := m.ring.ResponsibleNodes(partition)
+func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg) {
+	// TODO: Really need to change this up, possibly for this whole
+	// implementation. The ring itself is immutable, but the ring pointed to by
+	// TCPMsgRing.ring can and will be switched out on occasion for newer
+	// rings. This means these functions need to grab a pointer to the ring at
+	// the start of the function call and keep using that to the end of the
+	// call. Constantly referencing m.ring is going to be quite bad. To fix
+	// this, some internal functions will probably have to have the ring passed
+	// in to them. I've started this here, but it's not "right" yet; for
+	// examples, getting the m.ring should be an atomic read and the
+	// msgToNodeChan eventually calls msgToNode which starts using whatever is
+	// in m.ring at that time, which might not be what we established back
+	// here.
+	r := m.ring
+	if ringVersion != r.Version() {
+		msg.Done()
+		return
+	}
+	nodes := r.ResponsibleNodes(partition)
 	retchan := make(chan struct{}, 2)
-	localNode := m.ring.LocalNode()
+	localNode := r.LocalNode()
 	var localID uint64
 	if localNode != nil {
 		localID = localNode.ID()
