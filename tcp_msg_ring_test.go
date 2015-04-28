@@ -86,6 +86,12 @@ func (c *testConn) Close() error {
 
 /***** Actual tests start here *****/
 
+func TestTCPMsgRingIsMsgRing(t *testing.T) {
+	r, _, _ := newTestRing()
+	tmr := NewTCPMsgRing(r)
+	func(mr MsgRing) {}(tmr)
+}
+
 func Test_NewTCPMsgRing(t *testing.T) {
 	r, _, _ := newTestRing()
 	msgring := NewTCPMsgRing(r)
