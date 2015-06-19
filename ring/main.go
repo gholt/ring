@@ -673,5 +673,5 @@ func persist(r ring.Ring, b *ring.Builder, filename string) error {
 	if err = f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(path.Join(dir, tmp), filename)
+	return os.Rename(tmp, filename)
 }
