@@ -47,8 +47,8 @@ func Benchmark_HandleOne(b *testing.B) {
 	log.SetOutput(ioutil.Discard)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if !msgring.handleOne(conns[i]) {
-			b.Error("handleOne")
+		if err := msgring.handleOne(conns[i]); err != nil {
+			b.Error(err)
 		}
 	}
 }

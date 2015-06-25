@@ -3,6 +3,7 @@ package ring
 import (
 	"encoding/binary"
 	"fmt"
+	"log"
 	"math"
 	"net"
 	"sync"
@@ -115,6 +116,7 @@ func (m *TCPMsgRing) msgToNode(msg Msg, node Node) error {
 	}
 	conn.writerLock.Lock()
 	disconnect := func(err error) error {
+		log.Println(err)
 		m.disconnection(node.Address(m.addressIndex))
 		conn.writerLock.Unlock()
 		return err
@@ -176,48 +178,51 @@ func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg
 	msg.Done()
 }
 
-func (m *TCPMsgRing) handleOne(conn *ringConn) bool {
+func (m *TCPMsgRing) handleOne(conn *ringConn) error {
 	var msgType uint64 = 0
 	conn.reader.Timeout = m.interMessageTimeout
 	b, err := conn.reader.ReadByte()
 	conn.reader.Timeout = m.intraMessageTimeout
 	if err != nil {
-		return false
+		return err
 	}
 	for i := 1; i < 8; i++ {
 		b, err = conn.reader.ReadByte()
 		if err != nil {
-			return false
+			return err
 		}
 		msgType <<= 8
 		msgType |= uint64(b)
 	}
-	handler, ok := m.msgHandlers[msgType]
-	if !ok {
-		return false
+	handler := m.msgHandlers[msgType]
+	if handler == nil {
+		return fmt.Errorf("no handler for MsgType %x", msgType)
 	}
 	var length uint64 = 0
 	for i := 0; i < 8; i++ {
 		b, err = conn.reader.ReadByte()
 		if err != nil {
-			return false
+			return err
 		}
 		length <<= 8
 		length |= uint64(b)
 	}
 	consumed, err := handler(conn.reader, length)
 	if consumed != length {
-		return false
+		if err == nil {
+			err = fmt.Errorf("did not read %d bytes; only read %d", length, consumed)
+		}
 	}
 	if err != nil {
-		return false
+		return err
 	}
-	return true
+	return nil
 }
 
 func (m *TCPMsgRing) handleForever(conn *ringConn) {
 	for {
-		if !m.handleOne(conn) {
+		if err := m.handleOne(conn); err != nil {
+			log.Println(err)
 			m.disconnection(conn.addr)
 			break
 		}
