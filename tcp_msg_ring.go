@@ -1,60 +1,54 @@
 package ring
 
 import (
-	"errors"
-	"log"
+	"encoding/binary"
+	"fmt"
 	"math"
 	"net"
 	"sync"
 	"time"
 )
 
-const _DEFAULT_CHUNK_SIZE int = 16 * 1024
-const _DEFAULT_TIMEOUT time.Duration = 2 * time.Second
-const _DEFAULT_TIMEOUT_NEXT time.Duration = 2 * time.Hour
-
 type ringConn struct {
-	Conn   net.Conn
-	Writer *timeoutWriter
-	sync.Mutex
-}
-
-func newRingConn(conn net.Conn, chunkSize int, timeout time.Duration) *ringConn {
-	return &ringConn{
-		Conn:   conn,
-		Writer: newTimeoutWriter(conn, chunkSize, timeout),
-	}
+	addr       string
+	conn       net.Conn
+	reader     *timeoutReader
+	writerLock sync.Mutex
+	writer     *timeoutWriter
 }
 
 type TCPMsgRing struct {
-	// AddressIndex is the index given to a Node's Address method to determine
+	lock sync.RWMutex
+	// addressIndex is the index given to a Node's Address method to determine
 	// the network address to connect to (see Node's Address method for more
 	// information).
-	AddressIndex int
-	// ChunkSize is the size of network reads and writes.
-	ChunkSize int
-	// Timeout is the duration before network reads and writes expire.
-	Timeout time.Duration
-	// TimeoutNext is the duration to wait for the next command
-	TimeoutNext time.Duration
-	ring        Ring
-	msgHandlers map[uint64]MsgUnmarshaller
-	conns       map[string]*ringConn
+	addressIndex        int
+	chunkSize           int
+	connectionTimeout   time.Duration
+	intraMessageTimeout time.Duration
+	interMessageTimeout time.Duration
+	ring                Ring
+	msgHandlers         map[uint64]MsgUnmarshaller
+	conns               map[string]*ringConn
 }
 
 func NewTCPMsgRing(r Ring) *TCPMsgRing {
 	return &TCPMsgRing{
-		ring:        r,
-		msgHandlers: make(map[uint64]MsgUnmarshaller),
-		conns:       make(map[string]*ringConn),
-		ChunkSize:   _DEFAULT_CHUNK_SIZE,
-		Timeout:     _DEFAULT_TIMEOUT,
-		TimeoutNext: _DEFAULT_TIMEOUT_NEXT,
+		ring:                r,
+		msgHandlers:         make(map[uint64]MsgUnmarshaller),
+		conns:               make(map[string]*ringConn),
+		chunkSize:           16 * 1024,
+		connectionTimeout:   60 * time.Second,
+		intraMessageTimeout: 2 * time.Second,
+		interMessageTimeout: 2 * time.Hour,
 	}
 }
 
 func (m *TCPMsgRing) Ring() Ring {
-	return m.ring
+	m.lock.RLock()
+	r := m.ring
+	m.lock.RUnlock()
+	return r
 }
 
 func (m *TCPMsgRing) MaxMsgLength() uint64 {
@@ -62,169 +56,177 @@ func (m *TCPMsgRing) MaxMsgLength() uint64 {
 }
 
 func (m *TCPMsgRing) SetMsgHandler(msgType uint64, handler MsgUnmarshaller) {
+	m.lock.Lock()
 	m.msgHandlers[uint64(msgType)] = handler
+	m.lock.Unlock()
 }
 
 func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) {
-	m.msgToNode(nodeID, msg)
+	for i := time.Second; i <= 4*time.Second; i *= 2 {
+		node := m.Ring().Node(nodeID)
+		if node != nil && m.msgToNode(msg, node) == nil {
+			break
+		}
+		time.Sleep(i)
+	}
 	msg.Done()
 }
 
-func (m *TCPMsgRing) msgToNode(nodeID uint64, msg Msg) {
-	// TODO: Add retry functionality
-	n := m.ring.Node(nodeID)
-	if n == nil {
-		return
-	}
-	// See if we have a connection already
-	conn, ok := m.conns[n.Address(m.AddressIndex)]
-	if !ok {
-		// We need to open a connection
-		// TODO: Handle connection timeouts
-		tcpconn, err := net.DialTimeout("tcp", n.Address(m.AddressIndex), m.Timeout)
-		if err != nil {
-			log.Println("ERR: Trying to connect to", n.Address(m.AddressIndex), err)
-			return
+func (m *TCPMsgRing) connection(addr string) (*ringConn, error) {
+	m.lock.RLock()
+	conn := m.conns[addr]
+	m.lock.RUnlock()
+	if conn == nil {
+		m.lock.Lock()
+		conn = m.conns[addr]
+		if conn == nil {
+			tcpconn, err := net.DialTimeout("tcp", addr, m.connectionTimeout)
+			if err != nil {
+				return nil, fmt.Errorf("connection error with %s: %s", addr, err)
+			}
+			conn = &ringConn{
+				addr:   addr,
+				conn:   tcpconn,
+				reader: newTimeoutReader(tcpconn, m.chunkSize, m.intraMessageTimeout),
+				writer: newTimeoutWriter(tcpconn, m.chunkSize, m.intraMessageTimeout),
+			}
+			m.conns[addr] = conn
+			go m.handleForever(conn)
 		}
-		conn = newRingConn(tcpconn, m.ChunkSize, m.Timeout)
-		m.conns[n.Address(m.AddressIndex)] = conn
+		m.lock.Unlock()
 	}
-	conn.Lock() // Make sure we only have one writer at a time
-	// TODO: Handle write timeouts
-	// write the msg type
-	msgType := msg.MsgType()
-	for i := uint(0); i <= 56; i += 8 {
-		_ = conn.Writer.WriteByte(byte(msgType >> i))
-	}
-	// Write the msg size
-	msgLength := msg.MsgLength()
-	for i := uint(0); i <= 56; i += 8 {
-		_ = conn.Writer.WriteByte(byte(msgLength >> i))
-	}
-	// Write the msg
-	length, err := msg.WriteContent(conn.Writer)
-	// Make sure we flush the data
-	conn.Writer.Flush()
-	conn.Unlock()
-	if err != nil {
-		log.Println("ERR: Sending content - ", err)
-		return
-	}
-	if length != msg.MsgLength() {
-		log.Println("ERR: Didn't send enough data", length, msg.MsgLength())
-		return
+	return conn, nil
+}
+
+func (m *TCPMsgRing) disconnection(addr string) {
+	m.lock.Lock()
+	conn := m.conns[addr]
+	delete(m.conns, addr)
+	m.lock.Unlock()
+	if conn != nil {
+		conn.conn.Close()
 	}
 }
 
-func (m *TCPMsgRing) msgToNodeChan(nodeID uint64, msg Msg, retchan chan struct{}) {
-	m.msgToNode(nodeID, msg)
+func (m *TCPMsgRing) msgToNode(msg Msg, node Node) error {
+	conn, err := m.connection(node.Address(m.addressIndex))
+	if err != nil {
+		return err
+	}
+	conn.writerLock.Lock()
+	disconnect := func(err error) error {
+		m.disconnection(node.Address(m.addressIndex))
+		conn.writerLock.Unlock()
+		return err
+	}
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, msg.MsgType())
+	_, err = conn.writer.Write(b)
+	if err != nil {
+		return disconnect(err)
+	}
+	binary.BigEndian.PutUint64(b, msg.MsgLength())
+	_, err = conn.writer.Write(b)
+	if err != nil {
+		return disconnect(err)
+	}
+	length, err := msg.WriteContent(conn.writer)
+	if err != nil {
+		return disconnect(err)
+	}
+	err = conn.writer.Flush()
+	if err != nil {
+		return disconnect(err)
+	}
+	if length != msg.MsgLength() {
+		return disconnect(fmt.Errorf("incorrect message length sent: %d != %d", length, msg.MsgLength()))
+	}
+	conn.writerLock.Unlock()
+	return nil
+}
+
+func (m *TCPMsgRing) msgToNodeChan(msg Msg, node Node, retchan chan struct{}) {
+	m.msgToNode(msg, node)
 	retchan <- struct{}{}
 }
 
 func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg) {
-	// TODO: Really need to change this up, possibly for this whole
-	// implementation. The ring itself is immutable, but the ring pointed to by
-	// TCPMsgRing.ring can and will be switched out on occasion for newer
-	// rings. This means these functions need to grab a pointer to the ring at
-	// the start of the function call and keep using that to the end of the
-	// call. Constantly referencing m.ring is going to be quite bad. To fix
-	// this, some internal functions will probably have to have the ring passed
-	// in to them. I've started this here, but it's not "right" yet; for
-	// examples, getting the m.ring should be an atomic read and the
-	// msgToNodeChan eventually calls msgToNode which starts using whatever is
-	// in m.ring at that time, which might not be what we established back
-	// here.
-	r := m.ring
+	r := m.Ring()
 	if ringVersion != r.Version() {
 		msg.Done()
 		return
 	}
 	nodes := r.ResponsibleNodes(partition)
-	retchan := make(chan struct{}, 2)
+	retchan := make(chan struct{}, len(nodes))
 	localNode := r.LocalNode()
 	var localID uint64
 	if localNode != nil {
 		localID = localNode.ID()
 	}
 	sent := 0
-	for n := range nodes {
-		if nodes[n].ID() != localID {
-			go m.msgToNodeChan(nodes[n].ID(), msg, retchan)
-			sent += 1
+	for _, node := range nodes {
+		if node.ID() != localID {
+			go m.msgToNodeChan(msg, node, retchan)
+			sent++
 		}
 	}
-	for i := 0; i < sent; i++ {
+	for ; sent > 0; sent-- {
 		<-retchan
 	}
 	msg.Done()
 }
 
-func (m *TCPMsgRing) handleOne(reader *timeoutReader, wait bool) error {
-	var length uint64 = 0
+func (m *TCPMsgRing) handleOne(conn *ringConn) bool {
 	var msgType uint64 = 0
-	// for v.00002 we will store this in the fist 8 bytes
-	for i := uint(0); i <= 56; i += 8 {
-		if i == 0 && wait {
-			// If this is the first read, and we are waiting, then
-			// change the timeout
-			reader.Timeout = m.TimeoutNext
-		}
-		b, err := reader.ReadByte()
-		if i == 0 && wait {
-			// Set the timeout back to normal
-			reader.Timeout = m.Timeout
-		}
-		if err != nil {
-			return err
-		}
-		msgType += uint64(b) << i
-	}
-	handle, ok := m.msgHandlers[msgType]
-	if !ok {
-		log.Println("ERR: Unknown message type", msgType)
-		// TODO: Handle errors better
-		return errors.New("Unknown message type")
-	}
-	// for v.00002 the msg length will be the next 8 bytes
-	for i := uint(0); i <= 56; i += 8 {
-		b, err := reader.ReadByte()
-		if err != nil {
-			return err
-		}
-		length += uint64(b) << i
-	}
-	// attempt to handle the message
-	consumed, err := handle(reader, length)
+	conn.reader.Timeout = m.interMessageTimeout
+	b, err := conn.reader.ReadByte()
+	conn.reader.Timeout = m.intraMessageTimeout
 	if err != nil {
-		log.Println("ERR: Error handling message", err)
-		// TODO: Handle errors better
-		return err
+		return false
 	}
+	for i := 1; i < 8; i++ {
+		b, err = conn.reader.ReadByte()
+		if err != nil {
+			return false
+		}
+		msgType <<= 8
+		msgType |= uint64(b)
+	}
+	handler, ok := m.msgHandlers[msgType]
+	if !ok {
+		return false
+	}
+	var length uint64 = 0
+	for i := 0; i < 8; i++ {
+		b, err = conn.reader.ReadByte()
+		if err != nil {
+			return false
+		}
+		length <<= 8
+		length |= uint64(b)
+	}
+	consumed, err := handler(conn.reader, length)
 	if consumed != length {
-		log.Println("ERR: Didn't consume whole message", length, consumed)
-		// TODO: Handle errors better
-		return errors.New("Didn't consume whole message")
+		return false
 	}
-	// If we get here, everything is ok
-	return nil
+	if err != nil {
+		return false
+	}
+	return true
 }
 
-func (m *TCPMsgRing) handle(conn net.Conn) error {
-	reader := newTimeoutReader(conn, m.ChunkSize, m.Timeout)
-	err := m.handleOne(reader, false)
+func (m *TCPMsgRing) handleForever(conn *ringConn) {
 	for {
-		if err != nil {
-			log.Println("Closing connection")
-			conn.Close()
-			return err
+		if !m.handleOne(conn) {
+			m.disconnection(conn.addr)
+			break
 		}
-		err = m.handleOne(reader, true)
 	}
 }
 
 func (m *TCPMsgRing) Listen() error {
 	node := m.ring.LocalNode()
-	tcpAddr, err := net.ResolveTCPAddr("tcp", node.Address(m.AddressIndex))
+	tcpAddr, err := net.ResolveTCPAddr("tcp", node.Address(m.addressIndex))
 	if err != nil {
 		return err
 	}
@@ -233,12 +235,24 @@ func (m *TCPMsgRing) Listen() error {
 		return err
 	}
 	for {
-		conn, err := server.AcceptTCP()
+		tcpconn, err := server.AcceptTCP()
 		if err != nil {
-			// TODO: Not sure what types of errors occur here
-			log.Println("Err accepting conn:", err)
-			continue
+			return err
 		}
-		go m.handle(conn)
+		addr := tcpconn.RemoteAddr().String()
+		conn := &ringConn{
+			addr:   addr,
+			conn:   tcpconn,
+			reader: newTimeoutReader(tcpconn, m.chunkSize, m.intraMessageTimeout),
+			writer: newTimeoutWriter(tcpconn, m.chunkSize, m.intraMessageTimeout),
+		}
+		m.lock.Lock()
+		c := m.conns[addr]
+		if c != nil {
+			c.conn.Close()
+		}
+		m.conns[addr] = conn
+		m.lock.Unlock()
+		go m.handleForever(conn)
 	}
 }
