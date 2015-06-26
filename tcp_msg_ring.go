@@ -186,6 +186,7 @@ func (m *TCPMsgRing) handleOne(conn *ringConn) error {
 	if err != nil {
 		return err
 	}
+	msgType = uint64(b)
 	for i := 1; i < 8; i++ {
 		b, err = conn.reader.ReadByte()
 		if err != nil {
