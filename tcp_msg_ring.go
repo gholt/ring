@@ -116,7 +116,7 @@ func (m *TCPMsgRing) msgToNode(msg Msg, node Node) error {
 	}
 	conn.writerLock.Lock()
 	disconnect := func(err error) error {
-		log.Println(err)
+		log.Println("msgToNode error:", err)
 		m.disconnection(node.Address(m.addressIndex))
 		conn.writerLock.Unlock()
 		return err
@@ -223,7 +223,7 @@ func (m *TCPMsgRing) handleOne(conn *ringConn) error {
 func (m *TCPMsgRing) handleForever(conn *ringConn) {
 	for {
 		if err := m.handleOne(conn); err != nil {
-			log.Println(err)
+			log.Println("handleForever error:", err)
 			m.disconnection(conn.addr)
 			break
 		}
@@ -243,6 +243,8 @@ func (m *TCPMsgRing) Listen() error {
 	for {
 		tcpconn, err := server.AcceptTCP()
 		if err != nil {
+			log.Println("Listen/AcceptTCP error:", err)
+			server.Close()
 			return err
 		}
 		addr := tcpconn.RemoteAddr().String()
