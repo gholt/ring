@@ -7,10 +7,19 @@ import (
 	"math"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
+const (
+	_STATE_UNKNOWN = iota
+	_STATE_CONNECTING
+	_STATE_CONNECTED
+	_STATE_DISCONNECTING
+)
+
 type ringConn struct {
+	state      int32
 	addr       string
 	conn       net.Conn
 	reader     *timeoutReader
@@ -73,7 +82,7 @@ func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) {
 	msg.Done()
 }
 
-func (m *TCPMsgRing) connection(addr string) (*ringConn, error) {
+func (m *TCPMsgRing) connection(addr string) *ringConn {
 	m.lock.RLock()
 	conn := m.conns[addr]
 	m.lock.RUnlock()
@@ -81,22 +90,42 @@ func (m *TCPMsgRing) connection(addr string) (*ringConn, error) {
 		m.lock.Lock()
 		conn = m.conns[addr]
 		if conn == nil {
-			tcpconn, err := net.DialTimeout("tcp", addr, m.connectionTimeout)
-			if err != nil {
-				return nil, fmt.Errorf("connection error with %s: %s", addr, err)
-			}
 			conn = &ringConn{
-				addr:   addr,
-				conn:   tcpconn,
-				reader: newTimeoutReader(tcpconn, m.chunkSize, m.intraMessageTimeout),
-				writer: newTimeoutWriter(tcpconn, m.chunkSize, m.intraMessageTimeout),
+				state: _STATE_CONNECTING,
+				addr:  addr,
 			}
 			m.conns[addr] = conn
-			go m.handleForever(conn)
+			m.lock.Unlock()
+			go func() {
+				tcpconn, err := net.DialTimeout("tcp", addr, m.connectionTimeout)
+				if err != nil {
+					m.lock.Lock()
+					delete(m.conns, addr)
+					m.lock.Unlock()
+					// TODO: log error
+					return
+				}
+				conn.conn = tcpconn
+				conn.reader = newTimeoutReader(tcpconn, m.chunkSize, m.intraMessageTimeout)
+				conn.writer = newTimeoutWriter(tcpconn, m.chunkSize, m.intraMessageTimeout)
+				err = m.handshake(conn)
+				if err != nil {
+					m.lock.Lock()
+					delete(m.conns, addr)
+					m.lock.Unlock()
+					// TODO: log error
+					return
+				}
+				go m.handleForever(conn)
+			}()
+		} else {
+			m.lock.Unlock()
 		}
-		m.lock.Unlock()
 	}
-	return conn, nil
+	if atomic.LoadInt32(&conn.state) != _STATE_CONNECTED {
+		return nil
+	}
+	return conn
 }
 
 func (m *TCPMsgRing) disconnection(addr string) {
@@ -109,10 +138,16 @@ func (m *TCPMsgRing) disconnection(addr string) {
 	}
 }
 
+func (m *TCPMsgRing) handshake(conn *ringConn) error {
+	// TODO: trade version numbers and local ids
+	atomic.StoreInt32(&conn.state, _STATE_CONNECTED)
+	return nil
+}
+
 func (m *TCPMsgRing) msgToNode(msg Msg, node Node) error {
-	conn, err := m.connection(node.Address(m.addressIndex))
-	if err != nil {
-		return err
+	conn := m.connection(node.Address(m.addressIndex))
+	if conn == nil {
+		return fmt.Errorf("no connection")
 	}
 	conn.writerLock.Lock()
 	disconnect := func(err error) error {
@@ -123,7 +158,7 @@ func (m *TCPMsgRing) msgToNode(msg Msg, node Node) error {
 	}
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint64(b, msg.MsgType())
-	_, err = conn.writer.Write(b)
+	_, err := conn.writer.Write(b)
 	if err != nil {
 		return disconnect(err)
 	}
@@ -249,6 +284,7 @@ func (m *TCPMsgRing) Listen() error {
 		}
 		addr := tcpconn.RemoteAddr().String()
 		conn := &ringConn{
+			state:  _STATE_CONNECTING,
 			addr:   addr,
 			conn:   tcpconn,
 			reader: newTimeoutReader(tcpconn, m.chunkSize, m.intraMessageTimeout),
@@ -261,6 +297,9 @@ func (m *TCPMsgRing) Listen() error {
 		}
 		m.conns[addr] = conn
 		m.lock.Unlock()
-		go m.handleForever(conn)
+		go func() {
+			m.handshake(conn)
+			go m.handleForever(conn)
+		}()
 	}
 }

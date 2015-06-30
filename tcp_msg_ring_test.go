@@ -14,6 +14,7 @@ import (
 
 func newRingConn(conn net.Conn) *ringConn {
 	return &ringConn{
+		state:  _STATE_CONNECTED,
 		conn:   conn,
 		reader: newTimeoutReader(conn, 16*1024, 2*time.Second),
 		writer: newTimeoutWriter(conn, 16*1024, 2*time.Second),
