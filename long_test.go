@@ -1,4 +1,5 @@
 // Will be run if environment long_test=true
+// Takes about 2 minutes on my MacBook Pro Retina 15".
 
 package ring
 
@@ -21,7 +22,7 @@ func init() {
 
 func TestNewRingBuilder(t *testing.T) {
 	if !RUN_LONG {
-		return
+		t.Skip("skipping unless env long_test=true")
 	}
 	f, err := os.Create("long_test.prof")
 	if err != nil {
