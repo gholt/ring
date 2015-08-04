@@ -57,9 +57,7 @@ type tierBase struct {
 
 type ring struct {
 	tierBase
-	version int64
-	// TODO: Need to be able to set this (ring gets transferred to another node
-	// and they need to re-local-node it).
+	version                       int64
 	localNodeIndex                int32
 	partitionBitCount             uint16
 	nodes                         []*node
