@@ -10,8 +10,14 @@ package ring
 import (
 	"compress/gzip"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
+	"math"
+)
+
+var (
+	ErrConfigTooLarge = errors.New("Config Object Too Large")
 )
 
 // Ring is the immutable snapshot of data assignments to nodes.
@@ -19,6 +25,10 @@ type Ring interface {
 	// Version is the time.Now().UnixNano() of when the Ring data was
 	// established.
 	Version() int64
+	// GlobalConf returns the raw encoded global configuration.
+	GlobalConf() []byte
+	// StoreGlobalConf stores the provided config bytes.
+	SetGlobalConf(conf []byte) error
 	// Node returns the node instance identified, if there is one.
 	Node(nodeID uint64) Node
 	// Nodes returns a NodeSlice of the nodes the Ring references.
@@ -58,6 +68,7 @@ type tierBase struct {
 type ring struct {
 	tierBase
 	version                       int64
+	globalconf                    []byte
 	localNodeIndex                int32
 	partitionBitCount             uint16
 	nodes                         []*node
@@ -85,6 +96,16 @@ func LoadRing(rd io.Reader) (Ring, error) {
 	}
 	r := &ring{}
 	err = binary.Read(gr, binary.BigEndian, &r.version)
+	if err != nil {
+		return nil, err
+	}
+	var confbytes int32
+	err = binary.Read(gr, binary.BigEndian, &confbytes)
+	if err != nil {
+		return nil, err
+	}
+	r.globalconf = make([]byte, confbytes)
+	err = binary.Read(gr, binary.BigEndian, &r.globalconf)
 	if err != nil {
 		return nil, err
 	}
@@ -218,6 +239,14 @@ func (r *ring) Persist(w io.Writer) error {
 	if err != nil {
 		return err
 	}
+	err = binary.Write(gw, binary.BigEndian, int32(len(r.globalconf)))
+	if err != nil {
+		return err
+	}
+	err = binary.Write(gw, binary.BigEndian, r.globalconf)
+	if err != nil {
+		return err
+	}
 	err = binary.Write(gw, binary.BigEndian, r.localNodeIndex)
 	if err != nil {
 		return err
@@ -328,6 +357,19 @@ func (r *ring) Persist(w io.Writer) error {
 // ignore those requests or try to obtain a newer ring version.
 func (r *ring) Version() int64 {
 	return r.version
+}
+
+// GlobalConf is the raw encoded bytes of the global config object.
+func (r *ring) GlobalConf() []byte {
+	return r.globalconf
+}
+
+func (r *ring) SetGlobalConf(conf []byte) error {
+	if len(conf) > math.MaxInt32 {
+		return ErrConfigTooLarge
+	}
+	r.globalconf = conf
+	return nil
 }
 
 // PartitionBitCount is the number of bits that can be used to determine a

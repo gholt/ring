@@ -2,6 +2,7 @@ package ring
 
 import (
 	"bytes"
+	"math"
 	"testing"
 )
 
@@ -10,6 +11,28 @@ func TestRingVersion(t *testing.T) {
 	if v != 1 {
 		t.Fatalf("Version() gave %d instead of 1", v)
 	}
+}
+
+func TestRingGlobalConf(t *testing.T) {
+	confbytes := []byte("three shall be the number thou shalt count")
+	v := (&ring{globalconf: confbytes}).GlobalConf()
+	if !bytes.Equal(v, confbytes) {
+		t.Fatalf("GlobalConf() gave %s instead of %s", v, confbytes)
+	}
+}
+
+func TestRingSetGlobalConf(t *testing.T) {
+	confbytes := []byte("three shall be the number thou shalt count")
+	err := (&ring{globalconf: []byte("")}).SetGlobalConf(confbytes)
+	if err != nil {
+		t.Fatalf("SetGlobalConf():", err)
+	}
+	toolarge := make([]byte, math.MaxInt32+1)
+	err = (&ring{globalconf: []byte("")}).SetGlobalConf(toolarge)
+	if err != ErrConfigTooLarge {
+		t.Fatalf("SetGlobalConf(): %+v", err)
+	}
+
 }
 
 func TestRingPartitionBitCount(t *testing.T) {
@@ -108,7 +131,12 @@ func TestRingPersistence(t *testing.T) {
 	b.AddNode(false, 0, []string{"server3", "zone1"}, []string{"1.2.3.6:56789"}, "Meta Three")
 	r := b.Ring().(*ring)
 	buf := bytes.NewBuffer(make([]byte, 0, 65536))
-	err := r.Persist(buf)
+	confbytes := []byte("three shall be the number thou shalt count")
+	err := r.SetGlobalConf(confbytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = r.Persist(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,6 +147,9 @@ func TestRingPersistence(t *testing.T) {
 	r2 := r2i.(*ring)
 	if r2.version != r.version {
 		t.Fatalf("%v != %v", r2.version, r.version)
+	}
+	if !bytes.Equal(r2.globalconf, r.globalconf) {
+		t.Fatalf("%v != %v", r2.globalconf, r.globalconf)
 	}
 	if len(r2.nodes) != len(r.nodes) {
 		t.Fatalf("%v != %v", len(r2.nodes), len(r.nodes))
