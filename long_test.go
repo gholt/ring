@@ -51,7 +51,7 @@ func helperTestNewRingBuilder(t *testing.T, zones int32) {
 		for server := int32(0); server < 50; server++ {
 			for device := int32(0); device < 2; device++ {
 				nodeID++
-				b.AddNode(true, capacity, []string{fmt.Sprintf("server%d", server), fmt.Sprintf("zone%d", zone)}, nil, "")
+				b.AddNode(true, capacity, []string{fmt.Sprintf("server%d", server), fmt.Sprintf("zone%d", zone)}, nil, "", []byte("Conf"))
 				//capacity++
 				//if capacity > 100 {
 				//	capacity = 1

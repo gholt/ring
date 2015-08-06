@@ -27,7 +27,7 @@ func mainEntry(args []string) error {
 	var r ring.Ring
 	var b *ring.Builder
 	var err error
-	if len(args) < 2 {
+	if len(args) < 2 || (len(args) > 1 && args[1] == "help") {
 		return helpCmd(args)
 	}
 	if len(args) > 2 && args[2] == "create" {
@@ -79,6 +79,8 @@ func mainEntry(args []string) error {
 			return err
 		}
 		return persist(r, b, args[1])
+	case "print-config":
+		return printConfigCmd(r, b)
 	}
 	return fmt.Errorf("unknown command: %#v", args[2])
 }
@@ -116,6 +118,9 @@ func helpCmd(args []string) error {
 %[1]s <file> tier
     Lists the tiers in the ring or builder file.
 
+%[1]s <file> print-config
+    Display's the current config in the provided ring or builder file.
+
 %[1]s <ring-file> partition <value>
     Lists information about the given partition's node assignments.
 
@@ -139,6 +144,9 @@ func helpCmd(args []string) error {
             the number of minutes to wait before reassigning a given replica of
             a partition. This is to give time for actual data to rebalance in
             the system before changing where it is assigned again.
+        configfile=<value>
+            The <value> is the path to a json config file that will be byte encoded
+            and stored as the global conf.
 
 %[1]s <builder-file> add [<name>=<value>] ...
     Adds a new node to the builder. Available attributes:
@@ -284,6 +292,7 @@ func nodeCmd(r ring.Ring, b *ring.Builder, args []string, full bool) (changed bo
 				[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
 				[]string{"Addresses:", strings.Join(n.Addresses(), "\n")},
 				[]string{"Meta:", n.Meta()},
+				[]string{"Conf:", string(n.Conf())},
 			}
 			fmt.Print(brimtext.Align(report, nil))
 		}
@@ -406,18 +415,29 @@ func createCmd(filename string, args []string) error {
 	pointsAllowed := 1
 	maxPartitionBitCount := 23
 	moveWait := 60
+	var conf []byte
 	var err error
 	for _, arg := range args {
-		switch arg {
+		sarg := strings.SplitN(arg, "=", 2)
+		if len(sarg) != 2 {
+			return fmt.Errorf(`invalid expression %#v; needs "="`, arg)
+		}
+		if sarg[0] == "" {
+			return fmt.Errorf(`invalid expression %#v; nothing was left of "="`, arg)
+		}
+		if sarg[1] == "" {
+			return fmt.Errorf(`invalid expression %#v; nothing was right of "="`, arg)
+		}
+		switch sarg[0] {
 		case "replicas":
-			if replicaCount, err = strconv.Atoi(arg); err != nil {
+			if replicaCount, err = strconv.Atoi(sarg[1]); err != nil {
 				return err
 			}
 			if replicaCount < 1 {
 				replicaCount = 1
 			}
 		case "points-allowed":
-			if pointsAllowed, err = strconv.Atoi(arg); err != nil {
+			if pointsAllowed, err = strconv.Atoi(sarg[1]); err != nil {
 				return err
 			}
 			if pointsAllowed < 0 {
@@ -426,7 +446,7 @@ func createCmd(filename string, args []string) error {
 				pointsAllowed = 255
 			}
 		case "max-partition-bits":
-			if maxPartitionBitCount, err = strconv.Atoi(arg); err != nil {
+			if maxPartitionBitCount, err = strconv.Atoi(sarg[1]); err != nil {
 				return err
 			}
 			if maxPartitionBitCount < 1 {
@@ -435,7 +455,7 @@ func createCmd(filename string, args []string) error {
 				maxPartitionBitCount = 64
 			}
 		case "move-wait":
-			if moveWait, err = strconv.Atoi(arg); err != nil {
+			if moveWait, err = strconv.Atoi(sarg[1]); err != nil {
 				return err
 			}
 			if moveWait < 0 {
@@ -443,6 +463,13 @@ func createCmd(filename string, args []string) error {
 			} else if moveWait > math.MaxUint16 {
 				moveWait = math.MaxUint16
 			}
+		case "configfile":
+			conf, err = ioutil.ReadFile(sarg[1])
+			if err != nil {
+				return fmt.Errorf("Error reading config file: %v", err)
+			}
+		default:
+			return fmt.Errorf("Invalid arg: '%s' in create cmd", arg)
 		}
 	}
 	if _, err = os.Stat(filename); err == nil {
@@ -456,6 +483,7 @@ func createCmd(filename string, args []string) error {
 		return err
 	}
 	b := ring.NewBuilder()
+	b.SetConf(conf)
 	b.SetReplicaCount(replicaCount)
 	b.SetPointsAllowed(byte(pointsAllowed))
 	b.SetMaxPartitionBitCount(uint16(maxPartitionBitCount))
@@ -477,6 +505,7 @@ func addOrSetCmd(r ring.Ring, b *ring.Builder, args []string, n ring.BuilderNode
 	capacity := uint32(1)
 	var tiers []string
 	var addresses []string
+	var conf []byte
 	meta := ""
 	for _, arg := range args {
 		sarg := strings.SplitN(arg, "=", 2)
@@ -522,6 +551,12 @@ func addOrSetCmd(r ring.Ring, b *ring.Builder, args []string, n ring.BuilderNode
 			if n != nil {
 				n.SetMeta(meta)
 			}
+		case "configfile":
+			var err error
+			conf, err = ioutil.ReadFile(sarg[1])
+			if err != nil {
+				return fmt.Errorf("Error reading config file: %v", err)
+			}
 		default:
 			if strings.HasPrefix(sarg[0], "tier") {
 				level, err := strconv.Atoi(sarg[0][4:])
@@ -561,7 +596,7 @@ func addOrSetCmd(r ring.Ring, b *ring.Builder, args []string, n ring.BuilderNode
 		}
 	}
 	if n == nil {
-		n = b.AddNode(active, capacity, tiers, addresses, meta)
+		n = b.AddNode(active, capacity, tiers, addresses, meta, conf)
 		report := [][]string{
 			[]string{"ID:", fmt.Sprintf("%016x", n.ID())},
 			[]string{"Active:", fmt.Sprintf("%v", n.Active())},
@@ -569,6 +604,7 @@ func addOrSetCmd(r ring.Ring, b *ring.Builder, args []string, n ring.BuilderNode
 			[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
 			[]string{"Addresses:", strings.Join(n.Addresses(), "\n")},
 			[]string{"Meta:", n.Meta()},
+			[]string{"Conf:", fmt.Sprintf("%s", n.Conf())},
 		}
 		fmt.Print(brimtext.Align(report, nil))
 	}
@@ -619,6 +655,15 @@ func pretendElapsedCmd(r ring.Ring, b *ring.Builder, args []string) error {
 		return fmt.Errorf("cannot pretend to elapse more than %d minutes", math.MaxUint16)
 	}
 	b.PretendElapsed(uint16(m))
+	return nil
+}
+
+func printConfigCmd(r ring.Ring, b *ring.Builder) error {
+	if b == nil {
+		fmt.Printf(string(r.Conf()))
+		return nil
+	}
+	fmt.Printf(string(b.Conf()))
 	return nil
 }
 

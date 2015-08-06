@@ -1,6 +1,7 @@
 package ring
 
 import "testing"
+import "bytes"
 
 type testSource struct {
 	// The repeat part will cause an id == 0 when starting with repeat = false
@@ -158,6 +159,13 @@ func TestNodeSimply(t *testing.T) {
 	}
 	n.SetMeta("meta value")
 	if n.Meta() != "meta value" {
+		t.Fatal("")
+	}
+	if !bytes.Equal(n.Conf(), []byte("")) {
+		t.Fatal("")
+	}
+	n.SetConf([]byte("confobj"))
+	if !bytes.Equal(n.Conf(), []byte("confobj")) {
 		t.Fatal("")
 	}
 }

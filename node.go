@@ -43,6 +43,8 @@ type Node interface {
 	// Meta is additional information for the node; not defined or used by the
 	// builder or ring directly.
 	Meta() string
+	// Conf contains the raw config bytes for this node.
+	Conf() []byte
 }
 
 // BuilderNode extends Node to allow for updating attributes. A Ring needs
@@ -55,6 +57,7 @@ type BuilderNode interface {
 	SetTier(level int, value string)
 	SetAddress(index int, value string)
 	SetMeta(value string)
+	SetConf(conf []byte)
 }
 
 type node struct {
@@ -67,6 +70,7 @@ type node struct {
 	tierIndexes []int32
 	addresses   []string
 	meta        string
+	conf        []byte
 }
 
 func newNode(b *tierBase, others []*node) *node {
@@ -137,6 +141,10 @@ func (n *node) Meta() string {
 	return n.meta
 }
 
+func (n *node) Conf() []byte {
+	return n.conf
+}
+
 func (n *node) SetActive(value bool) {
 	n.inactive = !value
 }
@@ -185,6 +193,10 @@ func (n *node) SetAddress(index int, value string) {
 
 func (n *node) SetMeta(value string) {
 	n.meta = value
+}
+
+func (n *node) SetConf(conf []byte) {
+	n.conf = conf
 }
 
 type NodeSlice []Node
