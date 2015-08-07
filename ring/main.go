@@ -168,6 +168,9 @@ func helpCmd(args []string) error {
             The [value] can be any string and is not used directly by the
             builder or ring. It can be used for notes about the node if
             desired, such as the model or serial number.
+        configfile=<value>
+            The <value> is the path to a json config file that will be byte encoded
+            and stored in this nodes conf field.
 
 %[1]s <builder-file> remove id=<value>
     Removes the specified node from the builder. Often it's quicker to just set
@@ -557,6 +560,9 @@ func addOrSetCmd(r ring.Ring, b *ring.Builder, args []string, n ring.BuilderNode
 			if err != nil {
 				return fmt.Errorf("Error reading config file: %v", err)
 			}
+			if n != nil {
+				n.SetConf(conf)
+			}
 		default:
 			if strings.HasPrefix(sarg[0], "tier") {
 				level, err := strconv.Atoi(sarg[0][4:])
@@ -592,6 +598,8 @@ func addOrSetCmd(r ring.Ring, b *ring.Builder, args []string, n ring.BuilderNode
 				if n != nil {
 					n.SetAddress(index, addresses[index])
 				}
+			} else {
+				return fmt.Errorf("Invalid arg '%s' in set.", sarg[0])
 			}
 		}
 	}
