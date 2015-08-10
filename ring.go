@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 )
 
 // Ring is the immutable snapshot of data assignments to nodes.
@@ -22,7 +23,7 @@ type Ring interface {
 	// Conf returns the raw encoded global configuration.
 	Conf() []byte
 	// SetConf stores the provided config bytes.
-	SetConf(conf []byte) error
+	SetConf(conf []byte)
 	// Node returns the node instance identified, if there is one.
 	Node(nodeID uint64) Node
 	// Nodes returns a NodeSlice of the nodes the Ring references.
@@ -93,7 +94,7 @@ func LoadRing(rd io.Reader) (Ring, error) {
 	if err != nil {
 		return nil, err
 	}
-	var confbytes int64
+	var confbytes int32
 	err = binary.Read(gr, binary.BigEndian, &confbytes)
 	if err != nil {
 		return nil, err
@@ -201,7 +202,7 @@ func LoadRing(rd io.Reader) (Ring, error) {
 			return nil, err
 		}
 		r.nodes[i].meta = string(byts)
-		var cbytes int64
+		var cbytes int32
 		err = binary.Read(gr, binary.BigEndian, &cbytes)
 		if err != nil {
 			return nil, err
@@ -243,7 +244,10 @@ func (r *ring) Persist(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	err = binary.Write(gw, binary.BigEndian, int64(len(r.conf)))
+	if len(r.conf) > math.MaxInt32 {
+		return fmt.Errorf("%d conf bytes is too large; max is %d", len(r.conf), math.MaxInt32)
+	}
+	err = binary.Write(gw, binary.BigEndian, int32(len(r.conf)))
 	if err != nil {
 		return err
 	}
@@ -259,17 +263,26 @@ func (r *ring) Persist(w io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if len(r.tiers) > math.MaxInt32 {
+		return fmt.Errorf("%d number of tiers is too large; max is %d", len(r.tiers), math.MaxInt32)
+	}
 	err = binary.Write(gw, binary.BigEndian, int32(len(r.tiers)))
 	if err != nil {
 		return err
 	}
 	for _, tier := range r.tiers {
+		if len(tier) > math.MaxInt32 {
+			return fmt.Errorf("%d number of tier positions is too large; max is %d", len(tier), math.MaxInt32)
+		}
 		err = binary.Write(gw, binary.BigEndian, int32(len(tier)))
 		if err != nil {
 			return err
 		}
 		for _, name := range tier {
 			byts := []byte(name)
+			if len(byts) > math.MaxInt32 {
+				return fmt.Errorf("%d name length is too large; max is %d", len(byts), math.MaxInt32)
+			}
 			err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
 			if err != nil {
 				return err
@@ -279,6 +292,9 @@ func (r *ring) Persist(w io.Writer) error {
 				return err
 			}
 		}
+	}
+	if len(r.nodes) > math.MaxInt32 {
+		return fmt.Errorf("%d number of nodes is too large; max is %d", len(r.nodes), math.MaxInt32)
 	}
 	err = binary.Write(gw, binary.BigEndian, int32(len(r.nodes)))
 	if err != nil {
@@ -301,6 +317,9 @@ func (r *ring) Persist(w io.Writer) error {
 		if err != nil {
 			return err
 		}
+		if len(n.tierIndexes) > math.MaxInt32 {
+			return fmt.Errorf("%d tier positions is too large; max is %d", len(n.tierIndexes), math.MaxInt32)
+		}
 		err = binary.Write(gw, binary.BigEndian, int32(len(n.tierIndexes)))
 		if err != nil {
 			return err
@@ -311,12 +330,18 @@ func (r *ring) Persist(w io.Writer) error {
 				return err
 			}
 		}
+		if len(n.tierIndexes) > math.MaxInt32 {
+			return fmt.Errorf("%d addresses is too large; max is %d", len(n.tierIndexes), math.MaxInt32)
+		}
 		err = binary.Write(gw, binary.BigEndian, int32(len(n.addresses)))
 		if err != nil {
 			return err
 		}
 		for _, address := range n.addresses {
 			byts := []byte(address)
+			if len(byts) > math.MaxInt32 {
+				return fmt.Errorf("%d address length is too large; max is %d", len(byts), math.MaxInt32)
+			}
 			err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
 			if err != nil {
 				return err
@@ -327,6 +352,9 @@ func (r *ring) Persist(w io.Writer) error {
 			}
 		}
 		byts := []byte(n.meta)
+		if len(byts) > math.MaxInt32 {
+			return fmt.Errorf("%d meta length is too large; max is %d", len(byts), math.MaxInt32)
+		}
 		err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
 		if err != nil {
 			return err
@@ -335,7 +363,10 @@ func (r *ring) Persist(w io.Writer) error {
 		if err != nil {
 			return err
 		}
-		err = binary.Write(gw, binary.BigEndian, int64(len(n.conf)))
+		if len(n.conf) > math.MaxInt32 {
+			return fmt.Errorf("%d conf length is too large; max is %d", len(n.conf), math.MaxInt32)
+		}
+		err = binary.Write(gw, binary.BigEndian, int32(len(n.conf)))
 		if err != nil {
 			return err
 		}
@@ -345,11 +376,17 @@ func (r *ring) Persist(w io.Writer) error {
 		}
 
 	}
+	if len(r.replicaToPartitionToNodeIndex) > math.MaxInt32 {
+		return fmt.Errorf("%d replica count is too large; max is %d", len(r.replicaToPartitionToNodeIndex), math.MaxInt32)
+	}
 	err = binary.Write(gw, binary.BigEndian, int32(len(r.replicaToPartitionToNodeIndex)))
 	if err != nil {
 		return err
 	}
 	for _, partitionToNodeIndex := range r.replicaToPartitionToNodeIndex {
+		if len(partitionToNodeIndex) > math.MaxInt32 {
+			return fmt.Errorf("%d partition count is too large; max is %d", len(partitionToNodeIndex), math.MaxInt32)
+		}
 		err = binary.Write(gw, binary.BigEndian, int32(len(partitionToNodeIndex)))
 		if err != nil {
 			return err
@@ -377,9 +414,8 @@ func (r *ring) Conf() []byte {
 	return r.conf
 }
 
-func (r *ring) SetConf(conf []byte) error {
+func (r *ring) SetConf(conf []byte) {
 	r.conf = conf
-	return nil
 }
 
 // PartitionBitCount is the number of bits that can be used to determine a

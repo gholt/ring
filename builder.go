@@ -66,7 +66,7 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 	if err != nil {
 		return nil, err
 	}
-	var confbytes int64
+	var confbytes int32
 	err = binary.Read(gr, binary.BigEndian, &confbytes)
 	if err != nil {
 		return nil, err
@@ -166,7 +166,7 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 			return nil, err
 		}
 		b.nodes[i].meta = string(byts)
-		var cbytes int64
+		var cbytes int32
 		err = binary.Read(gr, binary.BigEndian, &cbytes)
 		if err != nil {
 			return nil, err
@@ -241,7 +241,10 @@ func (b *Builder) Persist(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	err = binary.Write(gw, binary.BigEndian, int64(len(b.conf)))
+	if len(b.conf) > math.MaxInt32 {
+		return fmt.Errorf("%d conf bytes is too large; max is %d", len(b.conf), math.MaxInt32)
+	}
+	err = binary.Write(gw, binary.BigEndian, int32(len(b.conf)))
 	if err != nil {
 		return err
 	}
@@ -249,17 +252,26 @@ func (b *Builder) Persist(w io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if len(b.tiers) > math.MaxInt32 {
+		return fmt.Errorf("%d number of tiers is too large; max is %d", len(b.tiers), math.MaxInt32)
+	}
 	err = binary.Write(gw, binary.BigEndian, int32(len(b.tiers)))
 	if err != nil {
 		return err
 	}
 	for _, tier := range b.tiers {
+		if len(tier) > math.MaxInt32 {
+			return fmt.Errorf("%d number of tier positions is too large; max is %d", len(tier), math.MaxInt32)
+		}
 		err = binary.Write(gw, binary.BigEndian, int32(len(tier)))
 		if err != nil {
 			return err
 		}
 		for _, name := range tier {
 			byts := []byte(name)
+			if len(byts) > math.MaxInt32 {
+				return fmt.Errorf("%d name length is too large; max is %d", len(byts), math.MaxInt32)
+			}
 			err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
 			if err != nil {
 				return err
@@ -269,6 +281,9 @@ func (b *Builder) Persist(w io.Writer) error {
 				return err
 			}
 		}
+	}
+	if len(b.nodes) > math.MaxInt32 {
+		return fmt.Errorf("%d number of nodes is too large; max is %d", len(b.nodes), math.MaxInt32)
 	}
 	err = binary.Write(gw, binary.BigEndian, int32(len(b.nodes)))
 	if err != nil {
@@ -291,6 +306,9 @@ func (b *Builder) Persist(w io.Writer) error {
 		if err != nil {
 			return err
 		}
+		if len(n.tierIndexes) > math.MaxInt32 {
+			return fmt.Errorf("%d tier positions is too large; max is %d", len(n.tierIndexes), math.MaxInt32)
+		}
 		err = binary.Write(gw, binary.BigEndian, int32(len(n.tierIndexes)))
 		if err != nil {
 			return err
@@ -301,12 +319,18 @@ func (b *Builder) Persist(w io.Writer) error {
 				return err
 			}
 		}
+		if len(n.tierIndexes) > math.MaxInt32 {
+			return fmt.Errorf("%d addresses is too large; max is %d", len(n.tierIndexes), math.MaxInt32)
+		}
 		err = binary.Write(gw, binary.BigEndian, int32(len(n.addresses)))
 		if err != nil {
 			return err
 		}
 		for _, address := range n.addresses {
 			byts := []byte(address)
+			if len(byts) > math.MaxInt32 {
+				return fmt.Errorf("%d address length is too large; max is %d", len(byts), math.MaxInt32)
+			}
 			err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
 			if err != nil {
 				return err
@@ -317,6 +341,9 @@ func (b *Builder) Persist(w io.Writer) error {
 			}
 		}
 		byts := []byte(n.meta)
+		if len(byts) > math.MaxInt32 {
+			return fmt.Errorf("%d meta length is too large; max is %d", len(byts), math.MaxInt32)
+		}
 		err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
 		if err != nil {
 			return err
@@ -325,7 +352,10 @@ func (b *Builder) Persist(w io.Writer) error {
 		if err != nil {
 			return err
 		}
-		err = binary.Write(gw, binary.BigEndian, int64(len(n.conf)))
+		if len(n.conf) > math.MaxInt32 {
+			return fmt.Errorf("%d conf length is too large; max is %d", len(n.conf), math.MaxInt32)
+		}
+		err = binary.Write(gw, binary.BigEndian, int32(len(n.conf)))
 		if err != nil {
 			return err
 		}
@@ -338,11 +368,17 @@ func (b *Builder) Persist(w io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if len(b.replicaToPartitionToNodeIndex) > math.MaxInt32 {
+		return fmt.Errorf("%d replica count is too large; max is %d", len(b.replicaToPartitionToNodeIndex), math.MaxInt32)
+	}
 	err = binary.Write(gw, binary.BigEndian, int32(len(b.replicaToPartitionToNodeIndex)))
 	if err != nil {
 		return err
 	}
 	for _, partitionToNodeIndex := range b.replicaToPartitionToNodeIndex {
+		if len(partitionToNodeIndex) > math.MaxInt32 {
+			return fmt.Errorf("%d partition count is too large; max is %d", len(partitionToNodeIndex), math.MaxInt32)
+		}
 		err = binary.Write(gw, binary.BigEndian, int32(len(partitionToNodeIndex)))
 		if err != nil {
 			return err
@@ -352,11 +388,17 @@ func (b *Builder) Persist(w io.Writer) error {
 			return err
 		}
 	}
+	if len(b.replicaToPartitionToLastMove) > math.MaxInt32 {
+		return fmt.Errorf("%d replica count is too large; max is %d", len(b.replicaToPartitionToLastMove), math.MaxInt32)
+	}
 	err = binary.Write(gw, binary.BigEndian, int32(len(b.replicaToPartitionToLastMove)))
 	if err != nil {
 		return err
 	}
 	for _, partitionToLastMove := range b.replicaToPartitionToLastMove {
+		if len(partitionToLastMove) > math.MaxInt32 {
+			return fmt.Errorf("%d partition count is too large; max is %d", len(partitionToLastMove), math.MaxInt32)
+		}
 		err = binary.Write(gw, binary.BigEndian, int32(len(partitionToLastMove)))
 		if err != nil {
 			return err
@@ -473,7 +515,7 @@ func (b *Builder) SetMoveWait(minutes uint16) {
 	b.moveWait = minutes
 }
 
-// Conf is the raw encoded global configuration
+// Conf is the raw encoded global configuration.
 func (b *Builder) Conf() []byte {
 	return b.conf
 }

@@ -22,9 +22,11 @@ func TestRingConf(t *testing.T) {
 
 func TestRingSetConf(t *testing.T) {
 	confbytes := []byte("three shall be the number thou shalt count")
-	err := (&ring{conf: []byte("")}).SetConf(confbytes)
-	if err != nil {
-		t.Fatal("SetConf():", err)
+	r := &ring{conf: []byte("")}
+	r.SetConf(confbytes)
+	v := r.Conf()
+	if !bytes.Equal(v, confbytes) {
+		t.Fatalf("Conf() gave %s instead of %s", v, confbytes)
 	}
 }
 
@@ -125,11 +127,8 @@ func TestRingPersistence(t *testing.T) {
 	r := b.Ring().(*ring)
 	buf := bytes.NewBuffer(make([]byte, 0, 65536))
 	confbytes := []byte("three shall be the number thou shalt count")
-	err := r.SetConf(confbytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = r.Persist(buf)
+	r.SetConf(confbytes)
+	err := r.Persist(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
