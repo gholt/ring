@@ -19,6 +19,10 @@ type Ring interface {
 	// Version is the time.Now().UnixNano() of when the Ring data was
 	// established.
 	Version() int64
+	// Conf returns the raw encoded global configuration.
+	Conf() []byte
+	// SetConf stores the provided config bytes.
+	SetConf(conf []byte) error
 	// Node returns the node instance identified, if there is one.
 	Node(nodeID uint64) Node
 	// Nodes returns a NodeSlice of the nodes the Ring references.
@@ -58,6 +62,7 @@ type tierBase struct {
 type ring struct {
 	tierBase
 	version                       int64
+	conf                          []byte
 	localNodeIndex                int32
 	partitionBitCount             uint16
 	nodes                         []*node
@@ -85,6 +90,16 @@ func LoadRing(rd io.Reader) (Ring, error) {
 	}
 	r := &ring{}
 	err = binary.Read(gr, binary.BigEndian, &r.version)
+	if err != nil {
+		return nil, err
+	}
+	var confbytes int64
+	err = binary.Read(gr, binary.BigEndian, &confbytes)
+	if err != nil {
+		return nil, err
+	}
+	r.conf = make([]byte, confbytes)
+	_, err = io.ReadFull(gr, r.conf)
 	if err != nil {
 		return nil, err
 	}
@@ -186,6 +201,16 @@ func LoadRing(rd io.Reader) (Ring, error) {
 			return nil, err
 		}
 		r.nodes[i].meta = string(byts)
+		var cbytes int64
+		err = binary.Read(gr, binary.BigEndian, &cbytes)
+		if err != nil {
+			return nil, err
+		}
+		r.nodes[i].conf = make([]byte, cbytes)
+		_, err = io.ReadFull(gr, r.nodes[i].conf)
+		if err != nil {
+			return nil, err
+		}
 	}
 	err = binary.Read(gr, binary.BigEndian, &vint32)
 	if err != nil {
@@ -215,6 +240,14 @@ func (r *ring) Persist(w io.Writer) error {
 		return err
 	}
 	err = binary.Write(gw, binary.BigEndian, r.version)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(gw, binary.BigEndian, int64(len(r.conf)))
+	if err != nil {
+		return err
+	}
+	_, err = gw.Write(r.conf)
 	if err != nil {
 		return err
 	}
@@ -302,6 +335,16 @@ func (r *ring) Persist(w io.Writer) error {
 		if err != nil {
 			return err
 		}
+		byts = []byte(n.conf)
+		err = binary.Write(gw, binary.BigEndian, int64(len(byts)))
+		if err != nil {
+			return err
+		}
+		_, err = gw.Write(byts)
+		if err != nil {
+			return err
+		}
+
 	}
 	err = binary.Write(gw, binary.BigEndian, int32(len(r.replicaToPartitionToNodeIndex)))
 	if err != nil {
@@ -328,6 +371,16 @@ func (r *ring) Persist(w io.Writer) error {
 // ignore those requests or try to obtain a newer ring version.
 func (r *ring) Version() int64 {
 	return r.version
+}
+
+// GlobalConf is the raw encoded bytes of the config object.
+func (r *ring) Conf() []byte {
+	return r.conf
+}
+
+func (r *ring) SetConf(conf []byte) error {
+	r.conf = conf
+	return nil
 }
 
 // PartitionBitCount is the number of bits that can be used to determine a

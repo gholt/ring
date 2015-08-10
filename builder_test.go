@@ -9,7 +9,7 @@ import (
 func TestNewBuilder(t *testing.T) {
 	b := NewBuilder()
 	b.SetReplicaCount(3)
-	b.AddNode(true, 1, nil, nil, "")
+	b.AddNode(true, 1, nil, nil, "", []byte("nodeconf"))
 	pa := b.PointsAllowed()
 	if pa != 1 {
 		t.Fatalf("NewBuilder's PointsAllowed was %d not 1", pa)
@@ -31,14 +31,24 @@ func TestNewBuilder(t *testing.T) {
 	if len(n) != 1 {
 		t.Fatalf("NewBuilder's Nodes count was %d not 1", len(n))
 	}
+	b.SetConf([]byte("testconf"))
+	c := b.Conf()
+	if !bytes.Equal(c, []byte("testconf")) {
+		t.Fatalf("NewBuilder's Conf %v was not %v", c, []byte("testconf"))
+	}
+	c = b.Ring().Nodes()[0].Conf()
+	if !bytes.Equal(c, []byte("nodeconf")) {
+		t.Fatalf("NewBuilder's Nodes Conf %v was not %v", c, []byte("nodeconf"))
+	}
 }
 
 func TestBuilderPersistence(t *testing.T) {
 	b := NewBuilder()
 	b.SetReplicaCount(3)
-	b.AddNode(true, 1, []string{"server1", "zone1"}, []string{"1.2.3.4:56789"}, "Meta One")
-	b.AddNode(true, 1, []string{"server2", "zone1"}, []string{"1.2.3.5:56789", "1.2.3.5:9876"}, "Meta Four")
-	b.AddNode(false, 0, []string{"server3", "zone1"}, []string{"1.2.3.6:56789"}, "Meta Three")
+	b.SetConf([]byte("testconf"))
+	b.AddNode(true, 1, []string{"server1", "zone1"}, []string{"1.2.3.4:56789"}, "Meta One", []byte("Conf"))
+	b.AddNode(true, 1, []string{"server2", "zone1"}, []string{"1.2.3.5:56789", "1.2.3.5:9876"}, "Meta Four", []byte("Conf"))
+	b.AddNode(false, 0, []string{"server3", "zone1"}, []string{"1.2.3.6:56789"}, "Meta Three", []byte("Conf"))
 	b.Ring()
 	buf := bytes.NewBuffer(make([]byte, 0, 65536))
 	err := b.Persist(buf)
@@ -51,6 +61,9 @@ func TestBuilderPersistence(t *testing.T) {
 	}
 	if b2.version != b.version {
 		t.Fatalf("%v != %v", b2.version, b.version)
+	}
+	if !bytes.Equal(b2.conf, b.conf) {
+		t.Fatalf("%v != %v", b2.conf, b.conf)
 	}
 	if len(b2.nodes) != len(b.nodes) {
 		t.Fatalf("%v != %v", len(b2.nodes), len(b.nodes))
@@ -80,6 +93,9 @@ func TestBuilderPersistence(t *testing.T) {
 		}
 		if b2.nodes[i].meta != b.nodes[i].meta {
 			t.Fatalf("%v != %v", b2.nodes[i].meta, b.nodes[i].meta)
+		}
+		if !bytes.Equal(b2.nodes[i].conf, b.nodes[i].conf) {
+			t.Fatalf("%v != %v", b2.nodes[i].conf, b.nodes[i].conf)
 		}
 	}
 	if b2.partitionBitCount != b.partitionBitCount {
@@ -138,8 +154,8 @@ func TestBuilderLoadGarbage(t *testing.T) {
 func TestBuilderAddRemoveNodes(t *testing.T) {
 	b := NewBuilder()
 	b.SetReplicaCount(3)
-	nA := b.AddNode(true, 1, nil, nil, "")
-	nB := b.AddNode(true, 1, nil, nil, "")
+	nA := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	nB := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()
 	n := r.Nodes()
 	if len(n) != 2 {
@@ -168,8 +184,8 @@ func TestBuilderAddRemoveNodes(t *testing.T) {
 func TestBuilderNodeLookup(t *testing.T) {
 	b := NewBuilder()
 	b.SetReplicaCount(3)
-	nA := b.AddNode(true, 1, nil, nil, "")
-	nB := b.AddNode(true, 1, nil, nil, "")
+	nA := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	nB := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	n := b.Node(nA.ID())
 	if n.ID() != nA.ID() {
 		t.Fatalf("Node lookup should've given id:1 but instead gave %#v", n)
@@ -187,8 +203,8 @@ func TestBuilderNodeLookup(t *testing.T) {
 func TestBuilderRing(t *testing.T) {
 	b := NewBuilder()
 	b.SetReplicaCount(3)
-	nA := b.AddNode(true, 1, nil, nil, "")
-	b.AddNode(true, 1, nil, nil, "")
+	nA := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()
 	n := r.LocalNode()
 	if n != nil {
@@ -204,7 +220,7 @@ func TestBuilderRing(t *testing.T) {
 		t.Fatalf("Ring's PartitionBitCount was %d and should've been 1", pbc)
 	}
 	// Make sure a new Ring call doesn't alter the previous Ring.
-	b.AddNode(true, 3, nil, nil, "")
+	b.AddNode(true, 3, nil, nil, "", []byte("Conf"))
 	r2 := b.Ring()
 	r2.SetLocalNode(nA.ID())
 	pbc = r2.PartitionBitCount()
@@ -228,14 +244,14 @@ func TestBuilderRing(t *testing.T) {
 func TestBuilderResizeIfNeeded(t *testing.T) {
 	b := NewBuilder()
 	b.SetReplicaCount(3)
-	b.AddNode(true, 1, nil, nil, "")
-	b.AddNode(true, 1, nil, nil, "")
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()
 	pbc := r.PartitionBitCount()
 	if pbc != 1 {
 		t.Fatalf("Ring's PartitionBitCount was %d and should've been 1", pbc)
 	}
-	nC := b.AddNode(false, 3, nil, nil, "")
+	nC := b.AddNode(false, 3, nil, nil, "", []byte("Conf"))
 	r = b.Ring()
 	pbc = r.PartitionBitCount()
 	if pbc != 1 {
@@ -265,7 +281,7 @@ func TestBuilderResizeIfNeeded(t *testing.T) {
 		t.Fatalf("Expected the max partition bit count to be saved as 6; instead it was %d", pbc)
 	}
 	for i := 4; i < 14; i++ {
-		b.AddNode(true, uint32(i), nil, nil, "")
+		b.AddNode(true, uint32(i), nil, nil, "", []byte("Conf"))
 	}
 	r = b.Ring()
 	pbc = r.PartitionBitCount()
@@ -273,7 +289,7 @@ func TestBuilderResizeIfNeeded(t *testing.T) {
 		t.Fatalf("Ring's PartitionBitCount was %d and should've been 6", pbc)
 	}
 	// Just exercises the "already at max" short-circuit.
-	b.AddNode(true, 14, nil, nil, "")
+	b.AddNode(true, 14, nil, nil, "", []byte("Conf"))
 	r = b.Ring()
 	pbc = r.PartitionBitCount()
 	if pbc != 6 {
@@ -283,8 +299,8 @@ func TestBuilderResizeIfNeeded(t *testing.T) {
 
 func TestBuilderMinimizeTiers(t *testing.T) {
 	b := NewBuilder()
-	n := b.AddNode(true, 1, []string{"one"}, nil, "")
-	b.AddNode(true, 1, []string{"two"}, nil, "")
+	n := b.AddNode(true, 1, []string{"one"}, nil, "", []byte("Conf"))
+	b.AddNode(true, 1, []string{"two"}, nil, "", []byte("Conf"))
 	b.minimizeTiers()
 	if len(b.tiers) != 1 {
 		t.Fatal("")
@@ -320,9 +336,9 @@ func TestBuilderMinimizeTiers(t *testing.T) {
 func TestBuilderLowerReplicaCount(t *testing.T) {
 	b := NewBuilder()
 	b.SetReplicaCount(3)
-	b.AddNode(true, 1, nil, nil, "")
-	b.AddNode(true, 1, nil, nil, "")
-	b.AddNode(true, 1, nil, nil, "")
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	b.Ring()
 	// ring ends up:
 	// 0 2

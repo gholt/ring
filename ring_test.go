@@ -12,6 +12,22 @@ func TestRingVersion(t *testing.T) {
 	}
 }
 
+func TestRingConf(t *testing.T) {
+	confbytes := []byte("three shall be the number thou shalt count")
+	v := (&ring{conf: confbytes}).Conf()
+	if !bytes.Equal(v, confbytes) {
+		t.Fatalf("Conf() gave %s instead of %s", v, confbytes)
+	}
+}
+
+func TestRingSetConf(t *testing.T) {
+	confbytes := []byte("three shall be the number thou shalt count")
+	err := (&ring{conf: []byte("")}).SetConf(confbytes)
+	if err != nil {
+		t.Fatalf("SetConf():", err)
+	}
+}
+
 func TestRingPartitionBitCount(t *testing.T) {
 	v := (&ring{partitionBitCount: 1}).PartitionBitCount()
 	if v != 1 {
@@ -103,12 +119,17 @@ func TestRingResponsibleIDs(t *testing.T) {
 func TestRingPersistence(t *testing.T) {
 	b := NewBuilder()
 	b.SetReplicaCount(3)
-	b.AddNode(true, 1, []string{"server1", "zone1"}, []string{"1.2.3.4:56789"}, "Meta One")
-	b.AddNode(true, 1, []string{"server2", "zone1"}, []string{"1.2.3.5:56789", "1.2.3.5:9876"}, "Meta Four")
-	b.AddNode(false, 0, []string{"server3", "zone1"}, []string{"1.2.3.6:56789"}, "Meta Three")
+	b.AddNode(true, 1, []string{"server1", "zone1"}, []string{"1.2.3.4:56789"}, "Meta One", []byte("Conf"))
+	b.AddNode(true, 1, []string{"server2", "zone1"}, []string{"1.2.3.5:56789", "1.2.3.5:9876"}, "Meta Four", []byte("Conf"))
+	b.AddNode(false, 0, []string{"server3", "zone1"}, []string{"1.2.3.6:56789"}, "Meta Three", []byte("Conf"))
 	r := b.Ring().(*ring)
 	buf := bytes.NewBuffer(make([]byte, 0, 65536))
-	err := r.Persist(buf)
+	confbytes := []byte("three shall be the number thou shalt count")
+	err := r.SetConf(confbytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = r.Persist(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,6 +140,9 @@ func TestRingPersistence(t *testing.T) {
 	r2 := r2i.(*ring)
 	if r2.version != r.version {
 		t.Fatalf("%v != %v", r2.version, r.version)
+	}
+	if !bytes.Equal(r2.conf, r.conf) {
+		t.Fatalf("%v != %v", r2.conf, r.conf)
 	}
 	if len(r2.nodes) != len(r.nodes) {
 		t.Fatalf("%v != %v", len(r2.nodes), len(r.nodes))
@@ -148,6 +172,9 @@ func TestRingPersistence(t *testing.T) {
 		}
 		if r2.nodes[i].meta != r.nodes[i].meta {
 			t.Fatalf("%v != %v", r2.nodes[i].meta, r.nodes[i].meta)
+		}
+		if !bytes.Equal(r2.nodes[i].conf, r.nodes[i].conf) {
+			t.Fatalf("%v != %v", r2.nodes[i].conf, r.nodes[i].conf)
 		}
 	}
 	if r2.partitionBitCount != r.partitionBitCount {

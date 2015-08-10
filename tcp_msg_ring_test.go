@@ -26,8 +26,8 @@ func newRingConn(conn net.Conn) *ringConn {
 func newTestRing() (Ring, Node, Node) {
 	b := NewBuilder()
 	b.SetReplicaCount(3)
-	nA := b.AddNode(true, 1, nil, []string{"127.0.0.1:9999"}, "")
-	nB := b.AddNode(true, 1, nil, []string{"127.0.0.1:8888"}, "")
+	nA := b.AddNode(true, 1, nil, []string{"127.0.0.1:9999"}, "", []byte("Conf"))
+	nB := b.AddNode(true, 1, nil, []string{"127.0.0.1:8888"}, "", []byte("Conf"))
 	r := b.Ring()
 	r.SetLocalNode(nA.ID())
 	return r, nA, nB

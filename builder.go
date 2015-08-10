@@ -22,6 +22,7 @@ type Builder struct {
 	maxPartitionBitCount          uint16
 	moveWait                      uint16
 	moveWaitBase                  int64
+	conf                          []byte
 }
 
 // NewBuilder creates an empty Builder with all default settings.
@@ -62,6 +63,16 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 	}
 	b := &Builder{}
 	err = binary.Read(gr, binary.BigEndian, &b.version)
+	if err != nil {
+		return nil, err
+	}
+	var confbytes int64
+	err = binary.Read(gr, binary.BigEndian, &confbytes)
+	if err != nil {
+		return nil, err
+	}
+	b.conf = make([]byte, confbytes)
+	_, err = io.ReadFull(gr, b.conf)
 	if err != nil {
 		return nil, err
 	}
@@ -155,6 +166,16 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 			return nil, err
 		}
 		b.nodes[i].meta = string(byts)
+		var cbytes int64
+		err = binary.Read(gr, binary.BigEndian, &cbytes)
+		if err != nil {
+			return nil, err
+		}
+		b.nodes[i].conf = make([]byte, cbytes)
+		_, err = io.ReadFull(gr, b.nodes[i].conf)
+		if err != nil {
+			return nil, err
+		}
 	}
 	err = binary.Read(gr, binary.BigEndian, &b.partitionBitCount)
 	if err != nil {
@@ -217,6 +238,14 @@ func (b *Builder) Persist(w io.Writer) error {
 		return err
 	}
 	err = binary.Write(gw, binary.BigEndian, b.version)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(gw, binary.BigEndian, int64(len(b.conf)))
+	if err != nil {
+		return err
+	}
+	_, err = gw.Write(b.conf)
 	if err != nil {
 		return err
 	}
@@ -289,6 +318,15 @@ func (b *Builder) Persist(w io.Writer) error {
 		}
 		byts := []byte(n.meta)
 		err = binary.Write(gw, binary.BigEndian, int32(len(byts)))
+		if err != nil {
+			return err
+		}
+		_, err = gw.Write(byts)
+		if err != nil {
+			return err
+		}
+		byts = []byte(n.conf)
+		err = binary.Write(gw, binary.BigEndian, int64(len(byts)))
 		if err != nil {
 			return err
 		}
@@ -436,6 +474,15 @@ func (b *Builder) SetMoveWait(minutes uint16) {
 	b.moveWait = minutes
 }
 
+// Conf is the raw encoded global configuration
+func (b *Builder) Conf() []byte {
+	return b.conf
+}
+
+func (b *Builder) SetConf(conf []byte) {
+	b.conf = conf
+}
+
 // PretendElapsed shifts the last movement records by the number of minutes
 // given. This can be useful in testing, as the ring algorithms will not
 // reassign replicas for a partition more often than once per MoveWait in order
@@ -465,7 +512,7 @@ func (b *Builder) Nodes() NodeSlice {
 // AddNode will add a new node to the builder for data assigment. Actual data
 // assignment won't ocurr until the Ring method is called, so you can add
 // multiple nodes or alter node values after creation if desired.
-func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresses []string, meta string) BuilderNode {
+func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresses []string, meta string, conf []byte) BuilderNode {
 	addressesCopy := make([]string, len(addresses))
 	copy(addressesCopy, addresses)
 	n := newNode(&b.tierBase, b.nodes)
@@ -473,6 +520,7 @@ func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresse
 	n.capacity = capacity
 	n.addresses = addressesCopy
 	n.meta = meta
+	n.conf = conf
 	for level, value := range tiers {
 		n.SetTier(level, value)
 	}
