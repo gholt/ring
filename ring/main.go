@@ -145,7 +145,7 @@ func helpCmd(args []string) error {
             a partition. This is to give time for actual data to rebalance in
             the system before changing where it is assigned again.
         configfile=<value>
-            The <value> is the path to a json config file that will be byte encoded
+            The <value> is the path to a config file that will be byte encoded
             and stored as the global conf.
 
 %[1]s <builder-file> add [<name>=<value>] ...
@@ -169,7 +169,7 @@ func helpCmd(args []string) error {
             builder or ring. It can be used for notes about the node if
             desired, such as the model or serial number.
         configfile=<value>
-            The <value> is the path to a json config file that will be byte encoded
+            The <value> is the path to a config file that will be byte encoded
             and stored in this nodes conf field.
 
 %[1]s <builder-file> remove id=<value>

@@ -24,7 +24,7 @@ func TestRingSetConf(t *testing.T) {
 	confbytes := []byte("three shall be the number thou shalt count")
 	err := (&ring{conf: []byte("")}).SetConf(confbytes)
 	if err != nil {
-		t.Fatalf("SetConf():", err)
+		t.Fatal("SetConf():", err)
 	}
 }
 

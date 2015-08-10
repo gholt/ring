@@ -325,12 +325,11 @@ func (b *Builder) Persist(w io.Writer) error {
 		if err != nil {
 			return err
 		}
-		byts = []byte(n.conf)
-		err = binary.Write(gw, binary.BigEndian, int64(len(byts)))
+		err = binary.Write(gw, binary.BigEndian, int64(len(n.conf)))
 		if err != nil {
 			return err
 		}
-		_, err = gw.Write(byts)
+		_, err = gw.Write(n.conf)
 		if err != nil {
 			return err
 		}

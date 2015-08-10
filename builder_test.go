@@ -43,10 +43,15 @@ func TestNewBuilder(t *testing.T) {
 }
 
 func TestBuilderPersistence(t *testing.T) {
+	helperTestBuilderPersistence(t, nil)
+	helperTestBuilderPersistence(t, []byte("Conf"))
+}
+
+func helperTestBuilderPersistence(t *testing.T, conf []byte) {
 	b := NewBuilder()
 	b.SetReplicaCount(3)
-	b.SetConf([]byte("testconf"))
-	b.AddNode(true, 1, []string{"server1", "zone1"}, []string{"1.2.3.4:56789"}, "Meta One", []byte("Conf"))
+	b.SetConf(conf)
+	b.AddNode(true, 1, []string{"server1", "zone1"}, []string{"1.2.3.4:56789"}, "Meta One", nil)
 	b.AddNode(true, 1, []string{"server2", "zone1"}, []string{"1.2.3.5:56789", "1.2.3.5:9876"}, "Meta Four", []byte("Conf"))
 	b.AddNode(false, 0, []string{"server3", "zone1"}, []string{"1.2.3.6:56789"}, "Meta Three", []byte("Conf"))
 	b.Ring()
