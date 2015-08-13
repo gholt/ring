@@ -1,9 +1,7 @@
 package main
 
 import (
-	"compress/gzip"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"math"
 	"os"
@@ -33,7 +31,7 @@ func mainEntry(args []string) error {
 	if len(args) > 2 && args[2] == "create" {
 		return createCmd(args[1], args[3:])
 	}
-	if r, b, err = ringOrBuilder(args[1]); err != nil {
+	if r, b, err = ring.RingOrBuilder(args[1]); err != nil {
 		return err
 	}
 	if len(args) < 3 {
@@ -46,7 +44,7 @@ func mainEntry(args []string) error {
 			return err
 		}
 		if changed {
-			return persist(r, b, args[1])
+			return ring.PersistRingOrBuilder(r, b, args[1])
 		}
 		return nil
 	case "fullnode", "fullnodes":
@@ -55,7 +53,7 @@ func mainEntry(args []string) error {
 			return err
 		}
 		if changed {
-			return persist(r, b, args[1])
+			return ring.PersistRingOrBuilder(r, b, args[1])
 		}
 		return nil
 	case "tier", "tiers":
@@ -66,19 +64,19 @@ func mainEntry(args []string) error {
 		if err = addOrSetCmd(r, b, args[3:], nil); err != nil {
 			return err
 		}
-		return persist(r, b, args[1])
+		return ring.PersistRingOrBuilder(r, b, args[1])
 	case "remove":
 		if err = removeCmd(r, b, args[3:]); err != nil {
 			return err
 		}
-		return persist(r, b, args[1])
+		return ring.PersistRingOrBuilder(r, b, args[1])
 	case "ring":
 		return ringCmd(r, b, args[1])
 	case "pretend-elapsed":
 		if err = pretendElapsedCmd(r, b, args[3:]); err != nil {
 			return err
 		}
-		return persist(r, b, args[1])
+		return ring.PersistRingOrBuilder(r, b, args[1])
 	case "print-config":
 		return printConfigCmd(r, b)
 	}
@@ -639,10 +637,10 @@ func ringCmd(r ring.Ring, b *ring.Builder, filename string) error {
 		return fmt.Errorf("only valid for builder files")
 	}
 	r = b.Ring()
-	if err := persist(nil, b, filename); err != nil {
+	if err := ring.PersistRingOrBuilder(nil, b, filename); err != nil {
 		return err
 	}
-	return persist(r, nil, strings.TrimSuffix(filename, ".builder")+".ring")
+	return ring.PersistRingOrBuilder(r, nil, strings.TrimSuffix(filename, ".builder")+".ring")
 }
 
 func pretendElapsedCmd(r ring.Ring, b *ring.Builder, args []string) error {
@@ -673,58 +671,4 @@ func printConfigCmd(r ring.Ring, b *ring.Builder) error {
 	}
 	fmt.Printf(string(b.Conf()))
 	return nil
-}
-
-func ringOrBuilder(fileName string) (r ring.Ring, b *ring.Builder, err error) {
-	var f *os.File
-	if f, err = os.Open(fileName); err != nil {
-		return
-	}
-	var gf *gzip.Reader
-	if gf, err = gzip.NewReader(f); err != nil {
-		return
-	}
-	header := make([]byte, 16)
-	if _, err = io.ReadFull(gf, header); err != nil {
-		return
-	}
-	if string(header[:5]) == "RINGv" {
-		gf.Close()
-		if _, err = f.Seek(0, 0); err != nil {
-			return
-		}
-		r, err = ring.LoadRing(f)
-	} else if string(header[:12]) == "RINGBUILDERv" {
-		gf.Close()
-		if _, err = f.Seek(0, 0); err != nil {
-			return
-		}
-		b, err = ring.LoadBuilder(f)
-	}
-	return
-}
-
-func persist(r ring.Ring, b *ring.Builder, filename string) error {
-	dir, name := path.Split(filename)
-	if dir == "" {
-		dir = "."
-	}
-	f, err := ioutil.TempFile(dir, name+".")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	if r != nil {
-		err = r.Persist(f)
-	} else {
-		err = b.Persist(f)
-	}
-	if err != nil {
-		f.Close()
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filename)
 }

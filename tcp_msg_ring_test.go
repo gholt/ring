@@ -33,8 +33,8 @@ func newTestRing() (Ring, Node, Node) {
 	return r, nA, nB
 }
 
-var testMsg []byte = []byte("Testing")
-var testStr string = "Testing"
+var testMsg = []byte("Testing")
+var testStr = "Testing"
 
 type TestMsg struct {
 }

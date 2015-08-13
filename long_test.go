@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-var RUN_LONG bool = false
+var RUN_LONG = false
 
 func init() {
 	if os.Getenv("long_test") == "true" {

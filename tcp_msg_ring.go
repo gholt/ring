@@ -214,7 +214,7 @@ func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg
 }
 
 func (m *TCPMsgRing) handleOne(conn *ringConn) error {
-	var msgType uint64 = 0
+	var msgType uint64
 	conn.reader.Timeout = m.interMessageTimeout
 	b, err := conn.reader.ReadByte()
 	conn.reader.Timeout = m.intraMessageTimeout
@@ -234,7 +234,7 @@ func (m *TCPMsgRing) handleOne(conn *ringConn) error {
 	if handler == nil {
 		return fmt.Errorf("no handler for MsgType %x", msgType)
 	}
-	var length uint64 = 0
+	var length uint64
 	for i := 0; i < 8; i++ {
 		b, err = conn.reader.ReadByte()
 		if err != nil {
