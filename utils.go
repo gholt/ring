@@ -10,33 +10,36 @@ import (
 
 // RingOrBuilder attempts to determine whether a file is a Ring or Builder file
 // and then loads it accordingly.
-func RingOrBuilder(fileName string) (r Ring, b *Builder, err error) {
+func RingOrBuilder(fileName string) (Ring, *Builder, error) {
 	var f *os.File
+	var r Ring
+	var b *Builder
+	var err error
 	if f, err = os.Open(fileName); err != nil {
-		return
+		return r, b, err
 	}
 	var gf *gzip.Reader
 	if gf, err = gzip.NewReader(f); err != nil {
-		return
+		return r, b, err
 	}
 	header := make([]byte, 16)
 	if _, err = io.ReadFull(gf, header); err != nil {
-		return
+		return r, b, err
 	}
 	if string(header[:5]) == "RINGv" {
 		gf.Close()
 		if _, err = f.Seek(0, 0); err != nil {
-			return
+			return r, b, err
 		}
 		r, err = LoadRing(f)
 	} else if string(header[:12]) == "RINGBUILDERv" {
 		gf.Close()
 		if _, err = f.Seek(0, 0); err != nil {
-			return
+			return r, b, err
 		}
 		b, err = LoadBuilder(f)
 	}
-	return
+	return r, b, err
 }
 
 // PersistRingOrBuilder persists a given ring/builder to the provided filename
