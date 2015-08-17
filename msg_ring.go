@@ -5,6 +5,9 @@ import "io"
 // MsgRing will send and receive Msg instances to and from ring nodes. See
 // TCPMsgRing for a concrete implementation.
 type MsgRing interface {
+	// Ring returns the ring information used to determine messaging endpoints;
+	// note that this method may return nil if no ring information is yet
+	// available.
 	Ring() Ring
 	// MaxMsgLength indicates the maximum number of bytes the content of a
 	// message may contain to be handled by this MsgRing.
