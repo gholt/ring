@@ -407,3 +407,142 @@ func TestBuilderLowerReplicaCount(t *testing.T) {
 		t.Fatal(len(b.replicaToPartitionToNodeIndex[0]))
 	}
 }
+
+func TestVersionChangesWithNewActiveWeightedNode(t *testing.T) {
+	b := NewBuilder()
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	r := b.Ring()
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	r2 := b.Ring()
+	if r.Version() == r2.Version() {
+		t.Fatal("")
+	}
+}
+
+func TestVersionChangesWithNewActiveNoWeightNode(t *testing.T) {
+	b := NewBuilder()
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	r := b.Ring()
+	b.AddNode(true, 0, nil, nil, "", []byte("Conf"))
+	r2 := b.Ring()
+	if r.Version() == r2.Version() {
+		t.Fatal("")
+	}
+}
+
+func TestVersionChangesWithNewInactiveNode(t *testing.T) {
+	b := NewBuilder()
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	r := b.Ring()
+	b.AddNode(false, 0, nil, nil, "", []byte("Conf"))
+	r2 := b.Ring()
+	if r.Version() == r2.Version() {
+		t.Fatal("")
+	}
+}
+
+func TestVersionChangesWithNodeRemoval(t *testing.T) {
+	b := NewBuilder()
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	r := b.Ring()
+	b.RemoveNode(n.ID())
+	r2 := b.Ring()
+	if r.Version() == r2.Version() {
+		t.Fatal("")
+	}
+}
+
+func TestVersionChangesWithConfChange(t *testing.T) {
+	b := NewBuilder()
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	r := b.Ring()
+	b.SetConf([]byte("testing"))
+	r2 := b.Ring()
+	if r.Version() == r2.Version() {
+		t.Fatal("")
+	}
+}
+
+func TestVersionChangesWithReplicaCountChange(t *testing.T) {
+	b := NewBuilder()
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	r := b.Ring()
+	b.SetReplicaCount(3)
+	r2 := b.Ring()
+	if r.Version() == r2.Version() {
+		t.Fatal("")
+	}
+}
+
+func TestVersionChangesWithNodeActiveChange(t *testing.T) {
+	b := NewBuilder()
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	r := b.Ring()
+	n.SetActive(false)
+	r2 := b.Ring()
+	if r.Version() == r2.Version() {
+		t.Fatal("")
+	}
+}
+
+func TestVersionChangesWithNodeCapacityChange(t *testing.T) {
+	b := NewBuilder()
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	r := b.Ring()
+	n.SetCapacity(2)
+	r2 := b.Ring()
+	if r.Version() == r2.Version() {
+		t.Fatal("")
+	}
+}
+
+func TestVersionChangesWithNodeTierChange(t *testing.T) {
+	b := NewBuilder()
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	r := b.Ring()
+	n.SetTier(0, "testing")
+	r2 := b.Ring()
+	if r.Version() == r2.Version() {
+		t.Fatal("")
+	}
+}
+
+func TestVersionChangesWithNodeAddressChange(t *testing.T) {
+	b := NewBuilder()
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	r := b.Ring()
+	n.SetAddress(0, "1.2.3.4")
+	r2 := b.Ring()
+	if r.Version() == r2.Version() {
+		t.Fatal("")
+	}
+}
+
+func TestVersionChangesWithNodeMetaChange(t *testing.T) {
+	b := NewBuilder()
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	r := b.Ring()
+	n.SetMeta("testing")
+	r2 := b.Ring()
+	if r.Version() == r2.Version() {
+		t.Fatal("")
+	}
+}
+
+func TestVersionChangesWithNodeConfChange(t *testing.T) {
+	b := NewBuilder()
+	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	r := b.Ring()
+	n.SetConf([]byte("testing"))
+	r2 := b.Ring()
+	if r.Version() == r2.Version() {
+		t.Fatal("")
+	}
+}

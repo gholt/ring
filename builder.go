@@ -14,6 +14,7 @@ import (
 type Builder struct {
 	tierBase
 	version                       int64
+	dirty                         bool
 	nodes                         []*node
 	partitionBitCount             uint16
 	replicaToPartitionToNodeIndex [][]int32
@@ -28,6 +29,7 @@ type Builder struct {
 // NewBuilder creates an empty Builder with all default settings.
 func NewBuilder() *Builder {
 	b := &Builder{
+		dirty:                         true,
 		partitionBitCount:             1,
 		replicaToPartitionToNodeIndex: make([][]int32, 1),
 		replicaToPartitionToLastMove:  make([][]uint16, 1),
@@ -109,7 +111,7 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 	}
 	b.nodes = make([]*node, vint32)
 	for i := int32(0); i < vint32; i++ {
-		b.nodes[i] = &node{tierBase: &b.tierBase}
+		b.nodes[i] = &node{builder: b, tierBase: &b.tierBase}
 		err = binary.Read(gr, binary.BigEndian, &b.nodes[i].id)
 		if err != nil {
 			return nil, err
@@ -466,9 +468,11 @@ func (b *Builder) SetReplicaCount(count int) {
 		count = 1
 	}
 	if count < len(b.replicaToPartitionToNodeIndex) {
+		b.dirty = true
 		b.replicaToPartitionToNodeIndex = b.replicaToPartitionToNodeIndex[:count]
 		b.replicaToPartitionToLastMove = b.replicaToPartitionToLastMove[:count]
 	} else if count > len(b.replicaToPartitionToNodeIndex) {
+		b.dirty = true
 		partitionCount := len(b.replicaToPartitionToNodeIndex[0])
 		for count > len(b.replicaToPartitionToNodeIndex) {
 			newPartitionToNodeIndex := make([]int32, partitionCount)
@@ -521,6 +525,7 @@ func (b *Builder) Conf() []byte {
 }
 
 func (b *Builder) SetConf(conf []byte) {
+	b.dirty = true
 	b.conf = conf
 }
 
@@ -554,9 +559,10 @@ func (b *Builder) Nodes() NodeSlice {
 // assignment won't ocurr until the Ring method is called, so you can add
 // multiple nodes or alter node values after creation if desired.
 func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresses []string, meta string, conf []byte) BuilderNode {
+	b.dirty = true
 	addressesCopy := make([]string, len(addresses))
 	copy(addressesCopy, addresses)
-	n := newNode(&b.tierBase, b.nodes)
+	n := newNode(b, &b.tierBase, b.nodes)
 	n.inactive = !active
 	n.capacity = capacity
 	n.addresses = addressesCopy
@@ -579,6 +585,7 @@ func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresse
 func (b *Builder) RemoveNode(nodeID uint64) {
 	for i, n := range b.nodes {
 		if n.id == nodeID {
+			b.dirty = true
 			copy(b.nodes[i:], b.nodes[i+1:])
 			b.nodes = b.nodes[:len(b.nodes)-1]
 			for _, partitionToNodeIndex := range b.replicaToPartitionToNodeIndex {
@@ -641,9 +648,13 @@ func (b *Builder) Ring() Ring {
 		b.moveWaitBase = newBase
 	}
 	if b.resizeIfNeeded() {
-		b.version = newBase
+		b.dirty = true
 	}
 	if newRebalancer(b).rebalance() {
+		b.dirty = true
+	}
+	if b.dirty {
+		b.dirty = false
 		b.version = newBase
 	}
 	tiers := make([][]string, len(b.tiers))

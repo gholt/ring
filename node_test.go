@@ -28,12 +28,12 @@ func (s *testSource) Seed(seed int64) {
 func TestNewNode(t *testing.T) {
 	b := &tierBase{}
 	var o []*node
-	n1 := newNodeWithSource(b, o, &testSource{})
+	n1 := newNodeWithSource(nil, b, o, &testSource{})
 	if n1.ID() == 0 {
 		t.Fatal("")
 	}
 	o = append(o, n1)
-	n2 := newNodeWithSource(b, o, &testSource{})
+	n2 := newNodeWithSource(nil, b, o, &testSource{})
 	if n2.ID() == 0 {
 		t.Fatal("")
 	}
@@ -44,7 +44,7 @@ func TestNewNode(t *testing.T) {
 
 func TestNodeSimply(t *testing.T) {
 	b := &tierBase{}
-	n := newNode(b, nil)
+	n := newNode(nil, b, nil)
 	if !n.Active() {
 		t.Fatal("")
 	}
@@ -172,8 +172,8 @@ func TestNodeSimply(t *testing.T) {
 
 func TestTierCoalescing(t *testing.T) {
 	b := &tierBase{}
-	n1 := newNode(b, nil)
-	n2 := newNode(b, []*node{n1})
+	n1 := newNode(nil, b, nil)
+	n2 := newNode(nil, b, []*node{n1})
 	n1.SetTier(0, "tierA")
 	n2.SetTier(0, "tierA")
 	n1.SetTier(1, "tierB")
@@ -251,7 +251,7 @@ func TestNodeFilterCommonErrors(t *testing.T) {
 
 func TestNodeFilterID(t *testing.T) {
 	b := &tierBase{}
-	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
+	ns := NodeSlice{newNode(nil, b, nil), newNode(nil, b, nil), newNode(nil, b, nil)}
 	ns[0].(*node).id = 0x0000000000001230
 	ns[1].(*node).id = 0x0000000000001231
 	ns[2].(*node).id = 0x0000000000009999
@@ -282,7 +282,7 @@ func TestNodeFilterID(t *testing.T) {
 
 func TestNodeFilterActive(t *testing.T) {
 	b := &tierBase{}
-	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
+	ns := NodeSlice{newNode(nil, b, nil), newNode(nil, b, nil), newNode(nil, b, nil)}
 	ns[0].(*node).SetActive(true)
 	ns[1].(*node).SetActive(false)
 	ns[2].(*node).SetActive(false)
@@ -313,7 +313,7 @@ func TestNodeFilterActive(t *testing.T) {
 
 func TestNodeFilterCapacity(t *testing.T) {
 	b := &tierBase{}
-	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
+	ns := NodeSlice{newNode(nil, b, nil), newNode(nil, b, nil), newNode(nil, b, nil)}
 	ns[0].(*node).SetCapacity(123)
 	ns[1].(*node).SetCapacity(321)
 	ns[2].(*node).SetCapacity(999)
@@ -344,7 +344,7 @@ func TestNodeFilterCapacity(t *testing.T) {
 
 func TestNodeFilterTier(t *testing.T) {
 	b := &tierBase{}
-	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
+	ns := NodeSlice{newNode(nil, b, nil), newNode(nil, b, nil), newNode(nil, b, nil)}
 	ns[0].(*node).SetTier(0, "server1")
 	ns[0].(*node).SetTier(1, "zone1")
 	ns[1].(*node).SetTier(0, "server9")
@@ -377,7 +377,7 @@ func TestNodeFilterTier(t *testing.T) {
 
 func TestNodeFilterAddress(t *testing.T) {
 	b := &tierBase{}
-	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
+	ns := NodeSlice{newNode(nil, b, nil), newNode(nil, b, nil), newNode(nil, b, nil)}
 	ns[0].(*node).SetAddress(0, "1.2.3.4:5678")
 	ns[0].(*node).SetAddress(1, "1.2.3.4:9876")
 	ns[1].(*node).SetAddress(0, "5.6.7.8:5678")
@@ -410,7 +410,7 @@ func TestNodeFilterAddress(t *testing.T) {
 
 func TestNodeFilterMeta(t *testing.T) {
 	b := &tierBase{}
-	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
+	ns := NodeSlice{newNode(nil, b, nil), newNode(nil, b, nil), newNode(nil, b, nil)}
 	ns[0].(*node).SetMeta("Sparkle Servers S8000, 128G RAM, 2x Northern Analog 2T PCIe SSD")
 	ns[1].(*node).SetMeta("Sparkle Servers S9000, 128G RAM, 2x Northern Analog 2T PCIe SSD")
 	ns[2].(*node).SetMeta("Sparkle Servers S10000, 128G RAM, 2x Northern Analog 3T PCIe SSD")
@@ -466,7 +466,7 @@ func TestNodeFilterMeta(t *testing.T) {
 
 func TestNodeFilterTierX(t *testing.T) {
 	b := &tierBase{}
-	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
+	ns := NodeSlice{newNode(nil, b, nil), newNode(nil, b, nil), newNode(nil, b, nil)}
 	ns[0].(*node).SetTier(0, "server1")
 	ns[0].(*node).SetTier(1, "zone1")
 	ns[1].(*node).SetTier(0, "server9")
@@ -527,7 +527,7 @@ func TestNodeFilterTierX(t *testing.T) {
 
 func TestNodeFilterAddressX(t *testing.T) {
 	b := &tierBase{}
-	ns := NodeSlice{newNode(b, nil), newNode(b, nil), newNode(b, nil)}
+	ns := NodeSlice{newNode(nil, b, nil), newNode(nil, b, nil), newNode(nil, b, nil)}
 	ns[0].(*node).SetAddress(0, "1.2.3.4:5678")
 	ns[0].(*node).SetAddress(1, "1.2.3.4:9876")
 	ns[1].(*node).SetAddress(0, "5.6.7.8:5678")

@@ -61,6 +61,7 @@ type BuilderNode interface {
 }
 
 type node struct {
+	builder  *Builder
 	tierBase *tierBase
 	id       uint64
 	inactive bool
@@ -73,11 +74,11 @@ type node struct {
 	conf        []byte
 }
 
-func newNode(b *tierBase, others []*node) *node {
-	return newNodeWithSource(b, others, rand.NewSource(time.Now().UnixNano()))
+func newNode(b *Builder, tb *tierBase, others []*node) *node {
+	return newNodeWithSource(b, tb, others, rand.NewSource(time.Now().UnixNano()))
 }
 
-func newNodeWithSource(b *tierBase, others []*node, idSource rand.Source) *node {
+func newNodeWithSource(b *Builder, tb *tierBase, others []*node, idSource rand.Source) *node {
 	// The ids should be unique, non-zero, and random so others don't base
 	// their node references on indexes.
 	var id uint64
@@ -90,7 +91,7 @@ func newNodeWithSource(b *tierBase, others []*node, idSource rand.Source) *node 
 			}
 		}
 	}
-	return &node{tierBase: b, id: id}
+	return &node{builder: b, tierBase: tb, id: id}
 }
 
 func (n *node) ID() uint64 {
@@ -146,14 +147,23 @@ func (n *node) Conf() []byte {
 }
 
 func (n *node) SetActive(value bool) {
+	if n.builder != nil {
+		n.builder.dirty = true
+	}
 	n.inactive = !value
 }
 
 func (n *node) SetCapacity(value uint32) {
+	if n.builder != nil {
+		n.builder.dirty = true
+	}
 	n.capacity = value
 }
 
 func (n *node) SetTier(level int, value string) {
+	if n.builder != nil {
+		n.builder.dirty = true
+	}
 	if len(n.tierBase.tiers) <= level {
 		tiers := make([][]string, level+1)
 		copy(tiers, n.tierBase.tiers)
@@ -183,6 +193,9 @@ func (n *node) SetTier(level int, value string) {
 }
 
 func (n *node) SetAddress(index int, value string) {
+	if n.builder != nil {
+		n.builder.dirty = true
+	}
 	if len(n.addresses) <= index {
 		addresses := make([]string, index+1)
 		copy(addresses, n.addresses)
@@ -192,10 +205,16 @@ func (n *node) SetAddress(index int, value string) {
 }
 
 func (n *node) SetMeta(value string) {
+	if n.builder != nil {
+		n.builder.dirty = true
+	}
 	n.meta = value
 }
 
 func (n *node) SetConf(conf []byte) {
+	if n.builder != nil {
+		n.builder.dirty = true
+	}
 	n.conf = conf
 }
 
