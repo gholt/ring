@@ -103,6 +103,29 @@ func TestRingResponsible(t *testing.T) {
 	}
 }
 
+func TestRingResponsibleReplica(t *testing.T) {
+	v := (&ring{localNodeIndex: -1}).ResponsibleReplica(123)
+	if v != -1 {
+		t.Fatalf("ResponsibleReplica(123) gave %d instead of -1\n", v)
+	}
+	d := make([][]int32, 3)
+	d[0] = []int32{0, 1, 2}
+	d[1] = []int32{3, 4, 5}
+	d[2] = []int32{6, 7, 0}
+	v = (&ring{localNodeIndex: 0, replicaToPartitionToNodeIndex: d}).ResponsibleReplica(0)
+	if v != 0 {
+		t.Fatalf("ResponsibleReplica(0) gave %d instead of 0\n", v)
+	}
+	v = (&ring{localNodeIndex: 0, replicaToPartitionToNodeIndex: d}).ResponsibleReplica(1)
+	if v != -1 {
+		t.Fatalf("ResponsibleReplica(1) gave %d instead of -1\n", v)
+	}
+	v = (&ring{localNodeIndex: 0, replicaToPartitionToNodeIndex: d}).ResponsibleReplica(2)
+	if v != 2 {
+		t.Fatalf("ResponsibleReplica(2) gave %d instead of 2\n", v)
+	}
+}
+
 func TestRingResponsibleIDs(t *testing.T) {
 	d := make([][]int32, 3)
 	d[0] = []int32{0, 1, 2}

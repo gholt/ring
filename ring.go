@@ -46,6 +46,10 @@ type Ring interface {
 	// Responsible will return true if LocalNode is set and one of the
 	// partition's replicas is assigned to that local node.
 	Responsible(partition uint32) bool
+	// ResponsibleReplica will return the replica index >= 0 if LocalNode is
+	// set and one of the partition's replicas is assigned to that local node;
+	// it will return -1 if LocalNode is not responsible for the partition.
+	ResponsibleReplica(partition uint32) int
 	// ResponsibleNodes will return the list of nodes that are responsible for
 	// the replicas of the partition.
 	ResponsibleNodes(partition uint32) NodeSlice
@@ -490,6 +494,21 @@ func (r *ring) Responsible(partition uint32) bool {
 		}
 	}
 	return false
+}
+
+// ResponsibleReplica will return the replica index >= 0 if LocalNode is set
+// and one of the partition's replicas is assigned to that local node; it will
+// return -1 if LocalNode is not responsible for the partition.
+func (r *ring) ResponsibleReplica(partition uint32) int {
+	if r.localNodeIndex == -1 {
+		return -1
+	}
+	for index, partitionToNodeIndex := range r.replicaToPartitionToNodeIndex {
+		if partitionToNodeIndex[partition] == r.localNodeIndex {
+			return index
+		}
+	}
+	return -1
 }
 
 // ResponsibleNodes will return a list of nodes for considered responsible for
