@@ -132,10 +132,16 @@ func (m *TCPMsgRing) disconnection(addr string) {
 	m.lock.Lock()
 	conn := m.conns[addr]
 	delete(m.conns, addr)
-	m.lock.Unlock()
 	if conn != nil {
-		conn.conn.Close()
+		if conn.conn != nil {
+			err := conn.conn.Close()
+			if err != nil {
+				log.Println("tcp msg ring disconnection close err:", err)
+			}
+		}
+
 	}
+	m.lock.Unlock()
 }
 
 func (m *TCPMsgRing) handshake(conn *ringConn) error {
