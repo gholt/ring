@@ -132,6 +132,7 @@ func (m *TCPMsgRing) disconnection(addr string) {
 	m.lock.Lock()
 	conn := m.conns[addr]
 	delete(m.conns, addr)
+	m.lock.Unlock()
 	if conn != nil {
 		if conn.conn != nil {
 			err := conn.conn.Close()
@@ -141,7 +142,6 @@ func (m *TCPMsgRing) disconnection(addr string) {
 		}
 
 	}
-	m.lock.Unlock()
 }
 
 func (m *TCPMsgRing) handshake(conn *ringConn) error {
