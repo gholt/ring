@@ -18,7 +18,16 @@ type ringConn struct {
 	writer     *timeoutWriter
 }
 
+// This is used as a placeholder in TCPMsgring.conns to indicate a goroutine is
+// currently working on a connection with that address.
 var _WORKING = &ringConn{}
+
+// These are constants for use with TCPMsgRing.state
+const (
+	_STOPPED = iota
+	_RUNNING
+	_STOPPING
+)
 
 type TCPMsgRing struct {
 	lock sync.RWMutex
@@ -33,9 +42,9 @@ type TCPMsgRing struct {
 	ring                Ring
 	msgHandlers         map[uint64]MsgUnmarshaller
 	conns               map[string]*ringConn
-	runningLock         sync.RWMutex
-	running             bool
-	startCompletedChan  chan struct{}
+	stateLock           sync.RWMutex
+	state               int
+	stateNowStoppedChan chan struct{}
 }
 
 func NewTCPMsgRing(r Ring) *TCPMsgRing {
@@ -47,7 +56,6 @@ func NewTCPMsgRing(r Ring) *TCPMsgRing {
 		connectionTimeout:   60 * time.Second,
 		intraMessageTimeout: 2 * time.Second,
 		interMessageTimeout: 2 * time.Hour,
-		startCompletedChan:  make(chan struct{}, 1),
 	}
 }
 
@@ -273,26 +281,55 @@ func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg
 	msg.Done()
 }
 
-func (m *TCPMsgRing) Start() error {
+// Start will launch a goroutine that will listen on the configured TCP port,
+// accepting new connections and processing messages from those connections.
+// The "chan error" that is returned may be read from to obtain any error the
+// goroutine encounters or nil if the goroutine exits with no error due to
+// Stop() being called. Note that if Stop() is never called and an error is
+// never encountered, reading from this returned "chan error" will never
+// return.
+func (m *TCPMsgRing) Start() chan error {
+	returnChan := make(chan error, 1)
+	m.stateLock.Lock()
+	switch m.state {
+	case _STOPPED:
+		m.state = _RUNNING
+		go m.listen(returnChan)
+	case _RUNNING:
+		returnChan <- fmt.Errorf("already running")
+	case _STOPPING:
+		returnChan <- fmt.Errorf("stopping in progress")
+	default:
+		returnChan <- fmt.Errorf("unexpected state value %d", m.state)
+	}
+	m.stateLock.Unlock()
+	return returnChan
+}
+
+func (m *TCPMsgRing) listen(returnChan chan error) {
 	node := m.Ring().LocalNode()
 	tcpAddr, err := net.ResolveTCPAddr("tcp", node.Address(m.addressIndex))
 	if err != nil {
-		return err
+		returnChan <- err
+		return
 	}
 	server, err := net.ListenTCP("tcp", tcpAddr)
 	if err != nil {
-		return err
+		returnChan <- err
+		return
 	}
+	var tcpconn net.Conn
 	for !m.Stopped() {
 		server.SetDeadline(time.Now().Add(time.Second))
-		tcpconn, err := server.AcceptTCP()
+		tcpconn, err = server.AcceptTCP()
 		if err != nil {
 			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+				err = nil
 				continue
 			}
 			log.Println("Listen/AcceptTCP error:", err)
 			server.Close()
-			return err
+			break
 		}
 		addr := tcpconn.RemoteAddr().String()
 		m.lock.Lock()
@@ -304,23 +341,39 @@ func (m *TCPMsgRing) Start() error {
 		m.lock.Unlock()
 		go m.handleTCPConnection(addr, tcpconn)
 	}
-	m.startCompletedChan <- struct{}{}
-	return nil
+	m.stateLock.Lock()
+	m.state = _STOPPED
+	if m.stateNowStoppedChan != nil {
+		m.stateNowStoppedChan <- struct{}{}
+		m.stateNowStoppedChan = nil
+	}
+	m.stateLock.Unlock()
+	returnChan <- err
 }
 
+// Stop will send a stop signal the goroutine launched by Start(). When this
+// method returns, the TCPMsgRing will not be listening for new incoming
+// connections. It is okay to call Stop() even if the TCPMsgRing is already
+// Stopped().
 func (m *TCPMsgRing) Stop() {
-	m.runningLock.Lock()
-	wasRunning := m.running
-	m.running = false
-	m.runningLock.Unlock()
-	if wasRunning {
-		<-m.startCompletedChan
+	var c chan struct{}
+	m.stateLock.Lock()
+	if m.state == _RUNNING {
+		m.state = _STOPPING
+		c = make(chan struct{}, 1)
+		m.stateNowStoppedChan = c
+	}
+	m.stateLock.Unlock()
+	if c != nil {
+		<-c
 	}
 }
 
+// Stopped will be true if the TCPMsgRing is not currently listening for new
+// connections.
 func (m *TCPMsgRing) Stopped() bool {
-	m.runningLock.RLock()
-	running := m.running
-	m.runningLock.RUnlock()
-	return running
+	m.stateLock.RLock()
+	s := m.state
+	m.stateLock.RUnlock()
+	return s == _STOPPED
 }

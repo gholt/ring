@@ -145,6 +145,7 @@ func Test_MsgToNode(t *testing.T) {
 	conn := new(testConn)
 	r, _, nB := newTestRing()
 	msgring := NewTCPMsgRing(r)
+	msgring.state = _RUNNING
 	msgring.conns[nB.Address(0)] = newRingConn(conn)
 	msg := TestMsg{}
 	msgring.MsgToNode(nB.ID(), &msg)
@@ -169,6 +170,7 @@ func Test_MsgToNodeChan(t *testing.T) {
 	conn := new(testConn)
 	r, _, nB := newTestRing()
 	msgring := NewTCPMsgRing(r)
+	msgring.state = _RUNNING
 	msgring.conns[nB.Address(0)] = newRingConn(conn)
 	msg := TestMsg{}
 	retch := make(chan struct{})
@@ -195,6 +197,7 @@ func Test_MsgToOtherReplicas(t *testing.T) {
 	conn := new(testConn)
 	r, _, nB := newTestRing()
 	msgring := NewTCPMsgRing(r)
+	msgring.state = _RUNNING
 	msgring.conns[nB.Address(0)] = newRingConn(conn)
 	msg := TestMsg{}
 	msgring.MsgToOtherReplicas(r.Version(), uint32(1), &msg)
