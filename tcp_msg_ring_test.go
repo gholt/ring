@@ -116,7 +116,7 @@ func Test_TCPMsgRingSetRing(t *testing.T) {
 	r2, _, _ := newTestRing()
 	msgring.SetRing(r2)
 
-	if msgring.Ring() != r {
+	if msgring.Ring() != r2 {
 		t.Error("Error setting TCPMsgRing Ring")
 	}
 }
