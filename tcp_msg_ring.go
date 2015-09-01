@@ -61,6 +61,12 @@ func (m *TCPMsgRing) Ring() Ring {
 	return r
 }
 
+func (m *TCPMsgRing) SetRing(ring Ring) {
+	m.lock.Lock()
+	m.ring = ring
+	m.lock.Unlock()
+}
+
 func (m *TCPMsgRing) MaxMsgLength() uint64 {
 	return math.MaxUint64
 }
@@ -272,7 +278,7 @@ func (m *TCPMsgRing) handleForever(conn *ringConn) {
 }
 
 func (m *TCPMsgRing) Listen() error {
-	node := m.ring.LocalNode()
+	node := m.Ring().LocalNode()
 	tcpAddr, err := net.ResolveTCPAddr("tcp", node.Address(m.addressIndex))
 	if err != nil {
 		return err
