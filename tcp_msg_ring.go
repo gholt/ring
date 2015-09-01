@@ -7,25 +7,18 @@ import (
 	"math"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
-const (
-	_STATE_UNKNOWN = iota
-	_STATE_CONNECTING
-	_STATE_CONNECTED
-	_STATE_DISCONNECTING
-)
-
 type ringConn struct {
-	state      int32
 	addr       string
 	conn       net.Conn
 	reader     *timeoutReader
 	writerLock sync.Mutex
 	writer     *timeoutWriter
 }
+
+var _WORKING = &ringConn{}
 
 type TCPMsgRing struct {
 	lock sync.RWMutex
@@ -40,6 +33,9 @@ type TCPMsgRing struct {
 	ring                Ring
 	msgHandlers         map[uint64]MsgUnmarshaller
 	conns               map[string]*ringConn
+	runningLock         sync.RWMutex
+	running             bool
+	startCompletedChan  chan struct{}
 }
 
 func NewTCPMsgRing(r Ring) *TCPMsgRing {
@@ -51,6 +47,7 @@ func NewTCPMsgRing(r Ring) *TCPMsgRing {
 		connectionTimeout:   60 * time.Second,
 		intraMessageTimeout: 2 * time.Second,
 		interMessageTimeout: 2 * time.Hour,
+		startCompletedChan:  make(chan struct{}, 1),
 	}
 }
 
@@ -78,7 +75,7 @@ func (m *TCPMsgRing) SetMsgHandler(msgType uint64, handler MsgUnmarshaller) {
 }
 
 func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) {
-	for i := time.Second; i <= 4*time.Second; i *= 2 {
+	for i := time.Second; i <= 4*time.Second && !m.Stopped(); i *= 2 {
 		node := m.Ring().Node(nodeID)
 		if node != nil && m.msgToNode(msg, node) == nil {
 			break
@@ -89,70 +86,121 @@ func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) {
 }
 
 func (m *TCPMsgRing) connection(addr string) *ringConn {
+	if m.Stopped() {
+		return nil
+	}
 	m.lock.RLock()
 	conn := m.conns[addr]
 	m.lock.RUnlock()
-	if conn == nil {
-		m.lock.Lock()
-		conn = m.conns[addr]
-		if conn == nil {
-			conn = &ringConn{
-				state: _STATE_CONNECTING,
-				addr:  addr,
-			}
-			m.conns[addr] = conn
-			m.lock.Unlock()
-			go func() {
-				tcpconn, err := net.DialTimeout("tcp", addr, m.connectionTimeout)
-				if err != nil {
-					m.lock.Lock()
-					delete(m.conns, addr)
-					m.lock.Unlock()
-					// TODO: log error
-					return
-				}
-				conn.conn = tcpconn
-				conn.reader = newTimeoutReader(tcpconn, m.chunkSize, m.intraMessageTimeout)
-				conn.writer = newTimeoutWriter(tcpconn, m.chunkSize, m.intraMessageTimeout)
-				err = m.handshake(conn)
-				if err != nil {
-					m.lock.Lock()
-					delete(m.conns, addr)
-					m.lock.Unlock()
-					// TODO: log error
-					return
-				}
-				go m.handleForever(conn)
-			}()
-		} else {
-			m.lock.Unlock()
-		}
+	if conn != nil && conn != _WORKING {
+		return conn
 	}
-	if atomic.LoadInt32(&conn.state) != _STATE_CONNECTED {
+	m.lock.Lock()
+	conn = m.conns[addr]
+	if conn != nil && conn != _WORKING {
+		m.lock.Unlock()
+		return conn
+	}
+	if m.Stopped() {
+		m.lock.Unlock()
 		return nil
 	}
-	return conn
+	m.conns[addr] = _WORKING
+	m.lock.Unlock()
+	go func() {
+		tcpconn, err := net.DialTimeout("tcp", addr, m.connectionTimeout)
+		if err != nil {
+			m.disconnect(addr)
+			// TODO: Log error.
+		} else {
+			go m.handleTCPConnection(addr, tcpconn)
+		}
+	}()
+	return nil
 }
 
-func (m *TCPMsgRing) disconnection(addr string) {
+func (m *TCPMsgRing) disconnect(addr string) {
 	m.lock.Lock()
 	conn := m.conns[addr]
+	m.conns[addr] = _WORKING
+	m.lock.Unlock()
+	if conn != nil && conn != _WORKING {
+		if err := conn.conn.Close(); err != nil {
+			log.Println("tcp msg ring disconnect close err:", err)
+		}
+	}
+	// TODO: Add a configurable sleep here to limit the quickness of reconnect
+	// tries.
+	m.lock.Lock()
 	delete(m.conns, addr)
 	m.lock.Unlock()
-	if conn != nil {
-		if conn.conn != nil {
-			err := conn.conn.Close()
-			if err != nil {
-				log.Println("tcp msg ring disconnection close err:", err)
-			}
-		}
+}
 
+// handleTCPConnection will not return until the connection is closed; so be
+// sure to run it in a background goroutine.
+func (m *TCPMsgRing) handleTCPConnection(addr string, tcpconn net.Conn) {
+	// TODO: trade version numbers and local ids
+	conn := &ringConn{
+		addr:   addr,
+		conn:   tcpconn,
+		reader: newTimeoutReader(tcpconn, m.chunkSize, m.intraMessageTimeout),
+		writer: newTimeoutWriter(tcpconn, m.chunkSize, m.intraMessageTimeout),
+	}
+	m.lock.Lock()
+	m.conns[addr] = conn
+	m.lock.Unlock()
+	m.handleConnection(conn)
+	m.disconnect(addr)
+}
+
+func (m *TCPMsgRing) handleConnection(conn *ringConn) {
+	for !m.Stopped() {
+		if err := m.handleOneMessage(conn); err != nil {
+			log.Println("handleOneMessage error:", err)
+			break
+		}
 	}
 }
 
-func (m *TCPMsgRing) handshake(conn *ringConn) error {
-	// TODO: trade version numbers and local ids
-	atomic.StoreInt32(&conn.state, _STATE_CONNECTED)
+func (m *TCPMsgRing) handleOneMessage(conn *ringConn) error {
+	var msgType uint64
+	conn.reader.Timeout = m.interMessageTimeout
+	b, err := conn.reader.ReadByte()
+	conn.reader.Timeout = m.intraMessageTimeout
+	if err != nil {
+		return err
+	}
+	msgType = uint64(b)
+	for i := 1; i < 8; i++ {
+		b, err = conn.reader.ReadByte()
+		if err != nil {
+			return err
+		}
+		msgType <<= 8
+		msgType |= uint64(b)
+	}
+	handler := m.msgHandlers[msgType]
+	if handler == nil {
+		return fmt.Errorf("no handler for MsgType %x", msgType)
+	}
+	var length uint64
+	for i := 0; i < 8; i++ {
+		b, err = conn.reader.ReadByte()
+		if err != nil {
+			return err
+		}
+		length <<= 8
+		length |= uint64(b)
+	}
+	consumed, err := handler(conn.reader, length)
+	if consumed != length {
+		if err == nil {
+			err = fmt.Errorf("did not read %d bytes; only read %d", length, consumed)
+		}
+	}
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -164,7 +212,7 @@ func (m *TCPMsgRing) msgToNode(msg Msg, node Node) error {
 	conn.writerLock.Lock()
 	disconnect := func(err error) error {
 		log.Println("msgToNode error:", err)
-		m.disconnection(node.Address(m.addressIndex))
+		m.disconnect(node.Address(m.addressIndex))
 		conn.writerLock.Unlock()
 		return err
 	}
@@ -225,59 +273,7 @@ func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg
 	msg.Done()
 }
 
-func (m *TCPMsgRing) handleOne(conn *ringConn) error {
-	var msgType uint64
-	conn.reader.Timeout = m.interMessageTimeout
-	b, err := conn.reader.ReadByte()
-	conn.reader.Timeout = m.intraMessageTimeout
-	if err != nil {
-		return err
-	}
-	msgType = uint64(b)
-	for i := 1; i < 8; i++ {
-		b, err = conn.reader.ReadByte()
-		if err != nil {
-			return err
-		}
-		msgType <<= 8
-		msgType |= uint64(b)
-	}
-	handler := m.msgHandlers[msgType]
-	if handler == nil {
-		return fmt.Errorf("no handler for MsgType %x", msgType)
-	}
-	var length uint64
-	for i := 0; i < 8; i++ {
-		b, err = conn.reader.ReadByte()
-		if err != nil {
-			return err
-		}
-		length <<= 8
-		length |= uint64(b)
-	}
-	consumed, err := handler(conn.reader, length)
-	if consumed != length {
-		if err == nil {
-			err = fmt.Errorf("did not read %d bytes; only read %d", length, consumed)
-		}
-	}
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *TCPMsgRing) handleForever(conn *ringConn) {
-	for {
-		if err := m.handleOne(conn); err != nil {
-			log.Println("handleForever error:", err)
-			m.disconnection(conn.addr)
-			break
-		}
-	}
-}
-
-func (m *TCPMsgRing) Listen() error {
+func (m *TCPMsgRing) Start() error {
 	node := m.Ring().LocalNode()
 	tcpAddr, err := net.ResolveTCPAddr("tcp", node.Address(m.addressIndex))
 	if err != nil {
@@ -287,31 +283,44 @@ func (m *TCPMsgRing) Listen() error {
 	if err != nil {
 		return err
 	}
-	for {
+	for !m.Stopped() {
+		server.SetDeadline(time.Now().Add(time.Second))
 		tcpconn, err := server.AcceptTCP()
 		if err != nil {
+			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+				continue
+			}
 			log.Println("Listen/AcceptTCP error:", err)
 			server.Close()
 			return err
 		}
 		addr := tcpconn.RemoteAddr().String()
-		conn := &ringConn{
-			state:  _STATE_CONNECTING,
-			addr:   addr,
-			conn:   tcpconn,
-			reader: newTimeoutReader(tcpconn, m.chunkSize, m.intraMessageTimeout),
-			writer: newTimeoutWriter(tcpconn, m.chunkSize, m.intraMessageTimeout),
-		}
 		m.lock.Lock()
 		c := m.conns[addr]
 		if c != nil {
 			c.conn.Close()
 		}
-		m.conns[addr] = conn
+		m.conns[addr] = _WORKING
 		m.lock.Unlock()
-		go func() {
-			m.handshake(conn)
-			go m.handleForever(conn)
-		}()
+		go m.handleTCPConnection(addr, tcpconn)
 	}
+	m.startCompletedChan <- struct{}{}
+	return nil
+}
+
+func (m *TCPMsgRing) Stop() {
+	m.runningLock.Lock()
+	wasRunning := m.running
+	m.running = false
+	m.runningLock.Unlock()
+	if wasRunning {
+		<-m.startCompletedChan
+	}
+}
+
+func (m *TCPMsgRing) Stopped() bool {
+	m.runningLock.RLock()
+	running := m.running
+	m.runningLock.RUnlock()
+	return running
 }

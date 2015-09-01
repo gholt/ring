@@ -14,7 +14,6 @@ import (
 
 func newRingConn(conn net.Conn) *ringConn {
 	return &ringConn{
-		state:  _STATE_CONNECTED,
 		conn:   conn,
 		reader: newTimeoutReader(conn, 16*1024, 2*time.Second),
 		writer: newTimeoutWriter(conn, 16*1024, 2*time.Second),
@@ -139,7 +138,7 @@ func Test_handle(t *testing.T) {
 	r, _, _ := newTestRing()
 	msgring := NewTCPMsgRing(r)
 	msgring.SetMsgHandler(1, test_stringmarshaller)
-	msgring.handleForever(newRingConn(conn))
+	msgring.handleConnection(newRingConn(conn))
 }
 
 func Test_MsgToNode(t *testing.T) {
