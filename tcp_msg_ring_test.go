@@ -109,6 +109,18 @@ func Test_NewTCPMsgRing(t *testing.T) {
 	}
 }
 
+func Test_TCPMsgRingSetRing(t *testing.T) {
+	r, _, _ := newTestRing()
+	msgring := NewTCPMsgRing(r)
+
+	r2, _, _ := newTestRing()
+	msgring.SetRing(r2)
+
+	if msgring.Ring() != r {
+		t.Error("Error setting TCPMsgRing Ring")
+	}
+}
+
 func test_stringmarshaller(reader io.Reader, size uint64) (uint64, error) {
 	buf := make([]byte, size)
 	c, err := reader.Read(buf)

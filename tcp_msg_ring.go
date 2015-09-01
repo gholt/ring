@@ -61,11 +61,10 @@ func (m *TCPMsgRing) Ring() Ring {
 	return r
 }
 
-func (m *TCPMsgRing) RingSet(ring Ring) Ring {
+func (m *TCPMsgRing) SetRing(ring Ring) {
 	m.lock.Lock()
 	m.ring = ring
 	m.lock.Unlock()
-	return r
 }
 
 func (m *TCPMsgRing) MaxMsgLength() uint64 {
