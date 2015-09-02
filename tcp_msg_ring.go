@@ -139,6 +139,7 @@ func (m *TCPMsgRing) disconnect(addr string) {
 	}
 	// TODO: Add a configurable sleep here to limit the quickness of reconnect
 	// tries.
+	time.Sleep(time.Second)
 	m.lock.Lock()
 	delete(m.conns, addr)
 	m.lock.Unlock()
@@ -164,6 +165,8 @@ func (m *TCPMsgRing) handleTCPConnection(addr string, tcpconn net.Conn) {
 func (m *TCPMsgRing) handleConnection(conn *ringConn) {
 	for !m.Stopped() {
 		if err := m.handleOneMessage(conn); err != nil {
+			// TODO: We need better log handling. Some places are just a todo
+			// and some places shoot stuff out the default logger, like here.
 			log.Println("handleOneMessage error:", err)
 			break
 		}
