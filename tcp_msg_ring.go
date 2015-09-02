@@ -82,17 +82,6 @@ func (m *TCPMsgRing) SetMsgHandler(msgType uint64, handler MsgUnmarshaller) {
 	m.lock.Unlock()
 }
 
-func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) {
-	for i := time.Second; i <= 4*time.Second && !m.Stopped(); i *= 2 {
-		node := m.Ring().Node(nodeID)
-		if node != nil && m.msgToNode(msg, node) == nil {
-			break
-		}
-		time.Sleep(i)
-	}
-	msg.Done()
-}
-
 func (m *TCPMsgRing) connection(addr string) *ringConn {
 	if m.Stopped() {
 		return nil
@@ -118,8 +107,13 @@ func (m *TCPMsgRing) connection(addr string) *ringConn {
 	go func() {
 		tcpconn, err := net.DialTimeout("tcp", addr, m.connectionTimeout)
 		if err != nil {
-			m.disconnect(addr)
 			// TODO: Log error.
+			// TODO: Add a configurable sleep here to limit the quickness of
+			// reconnect tries.
+			time.Sleep(time.Second)
+			m.lock.Lock()
+			delete(m.conns, addr)
+			m.lock.Unlock()
 		} else {
 			go m.handleTCPConnection(addr, tcpconn)
 		}
@@ -127,22 +121,25 @@ func (m *TCPMsgRing) connection(addr string) *ringConn {
 	return nil
 }
 
-func (m *TCPMsgRing) disconnect(addr string) {
+func (m *TCPMsgRing) disconnect(addr string, conn *ringConn) {
 	m.lock.Lock()
-	conn := m.conns[addr]
+	if m.conns[addr] != conn {
+		m.lock.Unlock()
+		return
+	}
 	m.conns[addr] = _WORKING
 	m.lock.Unlock()
-	if conn != nil && conn != _WORKING {
+	go func() {
 		if err := conn.conn.Close(); err != nil {
 			log.Println("tcp msg ring disconnect close err:", err)
 		}
-	}
-	// TODO: Add a configurable sleep here to limit the quickness of reconnect
-	// tries.
-	time.Sleep(time.Second)
-	m.lock.Lock()
-	delete(m.conns, addr)
-	m.lock.Unlock()
+		// TODO: Add a configurable sleep here to limit the quickness of
+		// reconnect tries.
+		time.Sleep(time.Second)
+		m.lock.Lock()
+		delete(m.conns, addr)
+		m.lock.Unlock()
+	}()
 }
 
 // handleTCPConnection will not return until the connection is closed; so be
@@ -159,7 +156,7 @@ func (m *TCPMsgRing) handleTCPConnection(addr string, tcpconn net.Conn) {
 	m.conns[addr] = conn
 	m.lock.Unlock()
 	m.handleConnection(conn)
-	m.disconnect(addr)
+	m.disconnect(addr, conn)
 }
 
 func (m *TCPMsgRing) handleConnection(conn *ringConn) {
@@ -203,6 +200,12 @@ func (m *TCPMsgRing) handleOneMessage(conn *ringConn) error {
 		length <<= 8
 		length |= uint64(b)
 	}
+	// NOTE: The conn.reader has a Timeout that would trigger on actual reads
+	// the handler does, but if the handler goes off to do some long running
+	// processing and does not attempt any reader operations for a while, the
+	// timeout would have no effect. However, using time.After for every
+	// message is overly expensive, so bad handler code is just an acceptable
+	// risk here.
 	consumed, err := handler(conn.reader, length)
 	if consumed != length {
 		if err == nil {
@@ -215,47 +218,62 @@ func (m *TCPMsgRing) handleOneMessage(conn *ringConn) error {
 	return nil
 }
 
-func (m *TCPMsgRing) msgToNode(msg Msg, node Node) error {
-	conn := m.connection(node.Address(m.addressIndex))
-	if conn == nil {
-		return fmt.Errorf("no connection")
+func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) {
+	node := m.Ring().Node(nodeID)
+	if node != nil {
+		m.msgToNode(msg, node)
 	}
+	msg.Done()
+}
+
+func (m *TCPMsgRing) msgToNode(msg Msg, node Node) {
+	addr := node.Address(m.addressIndex)
+	conn := m.connection(addr)
+	if conn == nil {
+		// TODO: Log, or count as a metric, or something.
+		return
+	}
+	// NOTE: If there are a lot of messages to be sent to a node, this lock
+	// wait could get significant. However, using a time.After is too
+	// expensive. Perhaps we can refactor to place messages on a buffered
+	// channel where we can more easily detect a full channel and immediately
+	// drop additional messages until the channel has space.
 	conn.writerLock.Lock()
-	disconnect := func(err error) error {
+	disconn := func(err error) {
+		// TODO: Whatever we end up doing for logging, metrics, etc. should be
+		// done very quickly or in the background.
 		log.Println("msgToNode error:", err)
-		m.disconnect(node.Address(m.addressIndex))
+		m.disconnect(addr, conn)
 		conn.writerLock.Unlock()
-		return err
 	}
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint64(b, msg.MsgType())
 	_, err := conn.writer.Write(b)
 	if err != nil {
-		return disconnect(err)
+		disconn(err)
+		return
 	}
 	binary.BigEndian.PutUint64(b, msg.MsgLength())
 	_, err = conn.writer.Write(b)
 	if err != nil {
-		return disconnect(err)
+		disconn(err)
+		return
 	}
 	length, err := msg.WriteContent(conn.writer)
 	if err != nil {
-		return disconnect(err)
+		disconn(err)
+		return
 	}
 	err = conn.writer.Flush()
 	if err != nil {
-		return disconnect(err)
+		disconn(err)
+		return
 	}
 	if length != msg.MsgLength() {
-		return disconnect(fmt.Errorf("incorrect message length sent: %d != %d", length, msg.MsgLength()))
+		disconn(fmt.Errorf("incorrect message length sent: %d != %d", length, msg.MsgLength()))
+		return
 	}
 	conn.writerLock.Unlock()
-	return nil
-}
-
-func (m *TCPMsgRing) msgToNodeChan(msg Msg, node Node, retchan chan struct{}) {
-	m.msgToNode(msg, node)
-	retchan <- struct{}{}
 }
 
 func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg) {
@@ -266,6 +284,10 @@ func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg
 	}
 	nodes := r.ResponsibleNodes(partition)
 	retchan := make(chan struct{}, len(nodes))
+	msgToNodeConc := func(n Node) {
+		m.msgToNode(msg, n)
+		retchan <- struct{}{}
+	}
 	localNode := r.LocalNode()
 	var localID uint64
 	if localNode != nil {
@@ -274,7 +296,7 @@ func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg
 	sent := 0
 	for _, node := range nodes {
 		if node.ID() != localID {
-			go m.msgToNodeChan(msg, node, retchan)
+			go msgToNodeConc(node)
 			sent++
 		}
 	}
