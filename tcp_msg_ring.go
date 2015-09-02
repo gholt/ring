@@ -400,5 +400,5 @@ func (m *TCPMsgRing) Stopped() bool {
 	m.stateLock.RLock()
 	s := m.state
 	m.stateLock.RUnlock()
-	return s == _STOPPED
+	return s == _STOPPED || s == _STOPPING
 }
