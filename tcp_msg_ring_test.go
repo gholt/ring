@@ -14,7 +14,6 @@ import (
 
 func newRingConn(conn net.Conn) *ringConn {
 	return &ringConn{
-		state:  _STATE_CONNECTED,
 		conn:   conn,
 		reader: newTimeoutReader(conn, 16*1024, 2*time.Second),
 		writer: newTimeoutWriter(conn, 16*1024, 2*time.Second),
@@ -139,42 +138,17 @@ func Test_handle(t *testing.T) {
 	r, _, _ := newTestRing()
 	msgring := NewTCPMsgRing(r)
 	msgring.SetMsgHandler(1, test_stringmarshaller)
-	msgring.handleForever(newRingConn(conn))
+	msgring.handleConnection(newRingConn(conn))
 }
 
 func Test_MsgToNode(t *testing.T) {
 	conn := new(testConn)
 	r, _, nB := newTestRing()
 	msgring := NewTCPMsgRing(r)
+	msgring.state = _RUNNING
 	msgring.conns[nB.Address(0)] = newRingConn(conn)
 	msg := TestMsg{}
 	msgring.MsgToNode(nB.ID(), &msg)
-	var msgtype uint64
-	binary.Read(&conn.writeBuf, binary.BigEndian, &msgtype)
-	if int(msgtype) != 1 {
-		t.Error("Message type not written correctly")
-	}
-	var msgsize uint64
-	binary.Read(&conn.writeBuf, binary.BigEndian, &msgsize)
-	if msgsize != 7 {
-		t.Error("Incorrect message size")
-	}
-	msgcontent := make([]byte, 7)
-	conn.writeBuf.Read(msgcontent)
-	if !bytes.Equal(msgcontent, testMsg) {
-		t.Error("Incorrect message contents")
-	}
-}
-
-func Test_MsgToNodeChan(t *testing.T) {
-	conn := new(testConn)
-	r, _, nB := newTestRing()
-	msgring := NewTCPMsgRing(r)
-	msgring.conns[nB.Address(0)] = newRingConn(conn)
-	msg := TestMsg{}
-	retch := make(chan struct{})
-	go msgring.msgToNodeChan(&msg, nB, retch)
-	<-retch
 	var msgtype uint64
 	binary.Read(&conn.writeBuf, binary.BigEndian, &msgtype)
 	if int(msgtype) != 1 {
@@ -196,6 +170,7 @@ func Test_MsgToOtherReplicas(t *testing.T) {
 	conn := new(testConn)
 	r, _, nB := newTestRing()
 	msgring := NewTCPMsgRing(r)
+	msgring.state = _RUNNING
 	msgring.conns[nB.Address(0)] = newRingConn(conn)
 	msg := TestMsg{}
 	msgring.MsgToOtherReplicas(r.Version(), uint32(1), &msg)

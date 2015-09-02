@@ -7,25 +7,27 @@ import (
 	"math"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
-const (
-	_STATE_UNKNOWN = iota
-	_STATE_CONNECTING
-	_STATE_CONNECTED
-	_STATE_DISCONNECTING
-)
-
 type ringConn struct {
-	state      int32
 	addr       string
 	conn       net.Conn
 	reader     *timeoutReader
 	writerLock sync.Mutex
 	writer     *timeoutWriter
 }
+
+// This is used as a placeholder in TCPMsgring.conns to indicate a goroutine is
+// currently working on a connection with that address.
+var _WORKING = &ringConn{}
+
+// These are constants for use with TCPMsgRing.state
+const (
+	_STOPPED = iota
+	_RUNNING
+	_STOPPING
+)
 
 type TCPMsgRing struct {
 	lock sync.RWMutex
@@ -40,6 +42,9 @@ type TCPMsgRing struct {
 	ring                Ring
 	msgHandlers         map[uint64]MsgUnmarshaller
 	conns               map[string]*ringConn
+	stateLock           sync.RWMutex
+	state               int
+	stateNowStoppedChan chan struct{}
 }
 
 func NewTCPMsgRing(r Ring) *TCPMsgRing {
@@ -77,155 +82,95 @@ func (m *TCPMsgRing) SetMsgHandler(msgType uint64, handler MsgUnmarshaller) {
 	m.lock.Unlock()
 }
 
-func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) {
-	for i := time.Second; i <= 4*time.Second; i *= 2 {
-		node := m.Ring().Node(nodeID)
-		if node != nil && m.msgToNode(msg, node) == nil {
-			break
-		}
-		time.Sleep(i)
-	}
-	msg.Done()
-}
-
 func (m *TCPMsgRing) connection(addr string) *ringConn {
+	if m.Stopped() {
+		return nil
+	}
 	m.lock.RLock()
 	conn := m.conns[addr]
 	m.lock.RUnlock()
-	if conn == nil {
-		m.lock.Lock()
-		conn = m.conns[addr]
-		if conn == nil {
-			conn = &ringConn{
-				state: _STATE_CONNECTING,
-				addr:  addr,
-			}
-			m.conns[addr] = conn
-			m.lock.Unlock()
-			go func() {
-				tcpconn, err := net.DialTimeout("tcp", addr, m.connectionTimeout)
-				if err != nil {
-					m.lock.Lock()
-					delete(m.conns, addr)
-					m.lock.Unlock()
-					// TODO: log error
-					return
-				}
-				conn.conn = tcpconn
-				conn.reader = newTimeoutReader(tcpconn, m.chunkSize, m.intraMessageTimeout)
-				conn.writer = newTimeoutWriter(tcpconn, m.chunkSize, m.intraMessageTimeout)
-				err = m.handshake(conn)
-				if err != nil {
-					m.lock.Lock()
-					delete(m.conns, addr)
-					m.lock.Unlock()
-					// TODO: log error
-					return
-				}
-				go m.handleForever(conn)
-			}()
-		} else {
-			m.lock.Unlock()
-		}
+	if conn != nil && conn != _WORKING {
+		return conn
 	}
-	if atomic.LoadInt32(&conn.state) != _STATE_CONNECTED {
+	m.lock.Lock()
+	conn = m.conns[addr]
+	if conn != nil && conn != _WORKING {
+		m.lock.Unlock()
+		return conn
+	}
+	if m.Stopped() {
+		m.lock.Unlock()
 		return nil
 	}
-	return conn
-}
-
-func (m *TCPMsgRing) disconnection(addr string) {
-	m.lock.Lock()
-	conn := m.conns[addr]
-	delete(m.conns, addr)
+	m.conns[addr] = _WORKING
 	m.lock.Unlock()
-	if conn != nil {
-		if conn.conn != nil {
-			err := conn.conn.Close()
-			if err != nil {
-				log.Println("tcp msg ring disconnection close err:", err)
-			}
+	go func() {
+		tcpconn, err := net.DialTimeout("tcp", addr, m.connectionTimeout)
+		if err != nil {
+			// TODO: Log error.
+			// TODO: Add a configurable sleep here to limit the quickness of
+			// reconnect tries.
+			time.Sleep(time.Second)
+			m.lock.Lock()
+			delete(m.conns, addr)
+			m.lock.Unlock()
+		} else {
+			go m.handleTCPConnection(addr, tcpconn)
 		}
-
-	}
-}
-
-func (m *TCPMsgRing) handshake(conn *ringConn) error {
-	// TODO: trade version numbers and local ids
-	atomic.StoreInt32(&conn.state, _STATE_CONNECTED)
+	}()
 	return nil
 }
 
-func (m *TCPMsgRing) msgToNode(msg Msg, node Node) error {
-	conn := m.connection(node.Address(m.addressIndex))
-	if conn == nil {
-		return fmt.Errorf("no connection")
-	}
-	conn.writerLock.Lock()
-	disconnect := func(err error) error {
-		log.Println("msgToNode error:", err)
-		m.disconnection(node.Address(m.addressIndex))
-		conn.writerLock.Unlock()
-		return err
-	}
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, msg.MsgType())
-	_, err := conn.writer.Write(b)
-	if err != nil {
-		return disconnect(err)
-	}
-	binary.BigEndian.PutUint64(b, msg.MsgLength())
-	_, err = conn.writer.Write(b)
-	if err != nil {
-		return disconnect(err)
-	}
-	length, err := msg.WriteContent(conn.writer)
-	if err != nil {
-		return disconnect(err)
-	}
-	err = conn.writer.Flush()
-	if err != nil {
-		return disconnect(err)
-	}
-	if length != msg.MsgLength() {
-		return disconnect(fmt.Errorf("incorrect message length sent: %d != %d", length, msg.MsgLength()))
-	}
-	conn.writerLock.Unlock()
-	return nil
-}
-
-func (m *TCPMsgRing) msgToNodeChan(msg Msg, node Node, retchan chan struct{}) {
-	m.msgToNode(msg, node)
-	retchan <- struct{}{}
-}
-
-func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg) {
-	r := m.Ring()
-	if ringVersion != r.Version() {
-		msg.Done()
+func (m *TCPMsgRing) disconnect(addr string, conn *ringConn) {
+	m.lock.Lock()
+	if m.conns[addr] != conn {
+		m.lock.Unlock()
 		return
 	}
-	nodes := r.ResponsibleNodes(partition)
-	retchan := make(chan struct{}, len(nodes))
-	localNode := r.LocalNode()
-	var localID uint64
-	if localNode != nil {
-		localID = localNode.ID()
-	}
-	sent := 0
-	for _, node := range nodes {
-		if node.ID() != localID {
-			go m.msgToNodeChan(msg, node, retchan)
-			sent++
+	m.conns[addr] = _WORKING
+	m.lock.Unlock()
+	go func() {
+		if err := conn.conn.Close(); err != nil {
+			log.Println("tcp msg ring disconnect close err:", err)
 		}
-	}
-	for ; sent > 0; sent-- {
-		<-retchan
-	}
-	msg.Done()
+		// TODO: Add a configurable sleep here to limit the quickness of
+		// reconnect tries.
+		time.Sleep(time.Second)
+		m.lock.Lock()
+		delete(m.conns, addr)
+		m.lock.Unlock()
+	}()
 }
 
-func (m *TCPMsgRing) handleOne(conn *ringConn) error {
+// handleTCPConnection will not return until the connection is closed; so be
+// sure to run it in a background goroutine.
+func (m *TCPMsgRing) handleTCPConnection(addr string, tcpconn net.Conn) {
+	// TODO: trade version numbers and local ids
+	conn := &ringConn{
+		addr:   addr,
+		conn:   tcpconn,
+		reader: newTimeoutReader(tcpconn, m.chunkSize, m.intraMessageTimeout),
+		writer: newTimeoutWriter(tcpconn, m.chunkSize, m.intraMessageTimeout),
+	}
+	m.lock.Lock()
+	m.conns[addr] = conn
+	m.lock.Unlock()
+	m.handleConnection(conn)
+	m.disconnect(addr, conn)
+}
+
+func (m *TCPMsgRing) handleConnection(conn *ringConn) {
+	for !m.Stopped() {
+		if err := m.handleOneMessage(conn); err != nil {
+			// TODO: We need better log handling. Some places are just a todo
+			// and some places shoot stuff out the default logger, like here.
+			log.Println("handleOneMessage error:", err)
+			break
+		}
+	}
+}
+
+func (m *TCPMsgRing) handleOneMessage(conn *ringConn) error {
 	var msgType uint64
 	conn.reader.Timeout = m.interMessageTimeout
 	b, err := conn.reader.ReadByte()
@@ -255,6 +200,12 @@ func (m *TCPMsgRing) handleOne(conn *ringConn) error {
 		length <<= 8
 		length |= uint64(b)
 	}
+	// NOTE: The conn.reader has a Timeout that would trigger on actual reads
+	// the handler does, but if the handler goes off to do some long running
+	// processing and does not attempt any reader operations for a while, the
+	// timeout would have no effect. However, using time.After for every
+	// message is overly expensive, so bad handler code is just an acceptable
+	// risk here.
 	consumed, err := handler(conn.reader, length)
 	if consumed != length {
 		if err == nil {
@@ -267,51 +218,187 @@ func (m *TCPMsgRing) handleOne(conn *ringConn) error {
 	return nil
 }
 
-func (m *TCPMsgRing) handleForever(conn *ringConn) {
-	for {
-		if err := m.handleOne(conn); err != nil {
-			log.Println("handleForever error:", err)
-			m.disconnection(conn.addr)
-			break
-		}
+func (m *TCPMsgRing) MsgToNode(nodeID uint64, msg Msg) {
+	node := m.Ring().Node(nodeID)
+	if node != nil {
+		m.msgToNode(msg, node)
 	}
+	msg.Done()
 }
 
-func (m *TCPMsgRing) Listen() error {
+func (m *TCPMsgRing) msgToNode(msg Msg, node Node) {
+	addr := node.Address(m.addressIndex)
+	conn := m.connection(addr)
+	if conn == nil {
+		// TODO: Log, or count as a metric, or something.
+		return
+	}
+	// NOTE: If there are a lot of messages to be sent to a node, this lock
+	// wait could get significant. However, using a time.After is too
+	// expensive. Perhaps we can refactor to place messages on a buffered
+	// channel where we can more easily detect a full channel and immediately
+	// drop additional messages until the channel has space.
+	conn.writerLock.Lock()
+	disconn := func(err error) {
+		// TODO: Whatever we end up doing for logging, metrics, etc. should be
+		// done very quickly or in the background.
+		log.Println("msgToNode error:", err)
+		m.disconnect(addr, conn)
+		conn.writerLock.Unlock()
+	}
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, msg.MsgType())
+	_, err := conn.writer.Write(b)
+	if err != nil {
+		disconn(err)
+		return
+	}
+	binary.BigEndian.PutUint64(b, msg.MsgLength())
+	_, err = conn.writer.Write(b)
+	if err != nil {
+		disconn(err)
+		return
+	}
+	length, err := msg.WriteContent(conn.writer)
+	if err != nil {
+		disconn(err)
+		return
+	}
+	err = conn.writer.Flush()
+	if err != nil {
+		disconn(err)
+		return
+	}
+	if length != msg.MsgLength() {
+		disconn(fmt.Errorf("incorrect message length sent: %d != %d", length, msg.MsgLength()))
+		return
+	}
+	conn.writerLock.Unlock()
+}
+
+func (m *TCPMsgRing) MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg) {
+	r := m.Ring()
+	if ringVersion != r.Version() {
+		msg.Done()
+		return
+	}
+	nodes := r.ResponsibleNodes(partition)
+	retchan := make(chan struct{}, len(nodes))
+	msgToNodeConc := func(n Node) {
+		m.msgToNode(msg, n)
+		retchan <- struct{}{}
+	}
+	localNode := r.LocalNode()
+	var localID uint64
+	if localNode != nil {
+		localID = localNode.ID()
+	}
+	sent := 0
+	for _, node := range nodes {
+		if node.ID() != localID {
+			go msgToNodeConc(node)
+			sent++
+		}
+	}
+	for ; sent > 0; sent-- {
+		<-retchan
+	}
+	msg.Done()
+}
+
+// Start will launch a goroutine that will listen on the configured TCP port,
+// accepting new connections and processing messages from those connections.
+// The "chan error" that is returned may be read from to obtain any error the
+// goroutine encounters or nil if the goroutine exits with no error due to
+// Stop() being called. Note that if Stop() is never called and an error is
+// never encountered, reading from this returned "chan error" will never
+// return.
+func (m *TCPMsgRing) Start() chan error {
+	returnChan := make(chan error, 1)
+	m.stateLock.Lock()
+	switch m.state {
+	case _STOPPED:
+		m.state = _RUNNING
+		go m.listen(returnChan)
+	case _RUNNING:
+		returnChan <- fmt.Errorf("already running")
+	case _STOPPING:
+		returnChan <- fmt.Errorf("stopping in progress")
+	default:
+		returnChan <- fmt.Errorf("unexpected state value %d", m.state)
+	}
+	m.stateLock.Unlock()
+	return returnChan
+}
+
+func (m *TCPMsgRing) listen(returnChan chan error) {
 	node := m.Ring().LocalNode()
 	tcpAddr, err := net.ResolveTCPAddr("tcp", node.Address(m.addressIndex))
 	if err != nil {
-		return err
+		returnChan <- err
+		return
 	}
 	server, err := net.ListenTCP("tcp", tcpAddr)
 	if err != nil {
-		return err
+		returnChan <- err
+		return
 	}
-	for {
-		tcpconn, err := server.AcceptTCP()
+	var tcpconn net.Conn
+	for !m.Stopped() {
+		server.SetDeadline(time.Now().Add(time.Second))
+		tcpconn, err = server.AcceptTCP()
 		if err != nil {
+			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+				err = nil
+				continue
+			}
 			log.Println("Listen/AcceptTCP error:", err)
 			server.Close()
-			return err
+			break
 		}
 		addr := tcpconn.RemoteAddr().String()
-		conn := &ringConn{
-			state:  _STATE_CONNECTING,
-			addr:   addr,
-			conn:   tcpconn,
-			reader: newTimeoutReader(tcpconn, m.chunkSize, m.intraMessageTimeout),
-			writer: newTimeoutWriter(tcpconn, m.chunkSize, m.intraMessageTimeout),
-		}
 		m.lock.Lock()
 		c := m.conns[addr]
 		if c != nil {
 			c.conn.Close()
 		}
-		m.conns[addr] = conn
+		m.conns[addr] = _WORKING
 		m.lock.Unlock()
-		go func() {
-			m.handshake(conn)
-			go m.handleForever(conn)
-		}()
+		go m.handleTCPConnection(addr, tcpconn)
 	}
+	m.stateLock.Lock()
+	m.state = _STOPPED
+	if m.stateNowStoppedChan != nil {
+		m.stateNowStoppedChan <- struct{}{}
+		m.stateNowStoppedChan = nil
+	}
+	m.stateLock.Unlock()
+	returnChan <- err
+}
+
+// Stop will send a stop signal the goroutine launched by Start(). When this
+// method returns, the TCPMsgRing will not be listening for new incoming
+// connections. It is okay to call Stop() even if the TCPMsgRing is already
+// Stopped().
+func (m *TCPMsgRing) Stop() {
+	var c chan struct{}
+	m.stateLock.Lock()
+	if m.state == _RUNNING {
+		m.state = _STOPPING
+		c = make(chan struct{}, 1)
+		m.stateNowStoppedChan = c
+	}
+	m.stateLock.Unlock()
+	if c != nil {
+		<-c
+	}
+}
+
+// Stopped will be true if the TCPMsgRing is not currently listening for new
+// connections.
+func (m *TCPMsgRing) Stopped() bool {
+	m.stateLock.RLock()
+	s := m.state
+	m.stateLock.RUnlock()
+	return s == _STOPPED
 }

@@ -32,7 +32,7 @@ func noopmarshaller(reader io.Reader, size uint64) (uint64, error) {
 	return size, nil
 }
 
-func Benchmark_HandleOne(b *testing.B) {
+func Benchmark_HandleOneMessage(b *testing.B) {
 	r, _, _ := newTestRing()
 	msgring := NewTCPMsgRing(r)
 	msgring.SetMsgHandler(1, noopmarshaller)
@@ -47,7 +47,7 @@ func Benchmark_HandleOne(b *testing.B) {
 	log.SetOutput(ioutil.Discard)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := msgring.handleOne(conns[i]); err != nil {
+		if err := msgring.handleOneMessage(conns[i]); err != nil {
 			b.Error(err)
 		}
 	}
