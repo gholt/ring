@@ -30,7 +30,6 @@ const (
 )
 
 type TCPMsgRing struct {
-	lock sync.RWMutex
 	// addressIndex is the index given to a Node's Address method to determine
 	// the network address to connect to (see Node's Address method for more
 	// information).
@@ -39,8 +38,11 @@ type TCPMsgRing struct {
 	connectionTimeout   time.Duration
 	intraMessageTimeout time.Duration
 	interMessageTimeout time.Duration
+	ringLock            sync.RWMutex
 	ring                Ring
+	msgHandlersLock     sync.RWMutex
 	msgHandlers         map[uint64]MsgUnmarshaller
+	connsLock           sync.RWMutex
 	conns               map[string]*ringConn
 	stateLock           sync.RWMutex
 	state               int
@@ -60,16 +62,16 @@ func NewTCPMsgRing(r Ring) *TCPMsgRing {
 }
 
 func (m *TCPMsgRing) Ring() Ring {
-	m.lock.RLock()
+	m.ringLock.RLock()
 	r := m.ring
-	m.lock.RUnlock()
+	m.ringLock.RUnlock()
 	return r
 }
 
 func (m *TCPMsgRing) SetRing(ring Ring) {
-	m.lock.Lock()
+	m.ringLock.Lock()
 	m.ring = ring
-	m.lock.Unlock()
+	m.ringLock.Unlock()
 }
 
 func (m *TCPMsgRing) MaxMsgLength() uint64 {
@@ -77,33 +79,33 @@ func (m *TCPMsgRing) MaxMsgLength() uint64 {
 }
 
 func (m *TCPMsgRing) SetMsgHandler(msgType uint64, handler MsgUnmarshaller) {
-	m.lock.Lock()
+	m.msgHandlersLock.Lock()
 	m.msgHandlers[uint64(msgType)] = handler
-	m.lock.Unlock()
+	m.msgHandlersLock.Unlock()
 }
 
 func (m *TCPMsgRing) connection(addr string) *ringConn {
 	if m.Stopped() {
 		return nil
 	}
-	m.lock.RLock()
+	m.connsLock.RLock()
 	conn := m.conns[addr]
-	m.lock.RUnlock()
+	m.connsLock.RUnlock()
 	if conn != nil && conn != _WORKING {
 		return conn
 	}
-	m.lock.Lock()
+	m.connsLock.Lock()
 	conn = m.conns[addr]
 	if conn != nil && conn != _WORKING {
-		m.lock.Unlock()
+		m.connsLock.Unlock()
 		return conn
 	}
 	if m.Stopped() {
-		m.lock.Unlock()
+		m.connsLock.Unlock()
 		return nil
 	}
 	m.conns[addr] = _WORKING
-	m.lock.Unlock()
+	m.connsLock.Unlock()
 	go func() {
 		tcpconn, err := net.DialTimeout("tcp", addr, m.connectionTimeout)
 		if err != nil {
@@ -111,9 +113,9 @@ func (m *TCPMsgRing) connection(addr string) *ringConn {
 			// TODO: Add a configurable sleep here to limit the quickness of
 			// reconnect tries.
 			time.Sleep(time.Second)
-			m.lock.Lock()
+			m.connsLock.Lock()
 			delete(m.conns, addr)
-			m.lock.Unlock()
+			m.connsLock.Unlock()
 		} else {
 			go m.handleTCPConnection(addr, tcpconn)
 		}
@@ -122,13 +124,13 @@ func (m *TCPMsgRing) connection(addr string) *ringConn {
 }
 
 func (m *TCPMsgRing) disconnect(addr string, conn *ringConn) {
-	m.lock.Lock()
+	m.connsLock.Lock()
 	if m.conns[addr] != conn {
-		m.lock.Unlock()
+		m.connsLock.Unlock()
 		return
 	}
 	m.conns[addr] = _WORKING
-	m.lock.Unlock()
+	m.connsLock.Unlock()
 	go func() {
 		if err := conn.conn.Close(); err != nil {
 			log.Println("tcp msg ring disconnect close err:", err)
@@ -136,9 +138,9 @@ func (m *TCPMsgRing) disconnect(addr string, conn *ringConn) {
 		// TODO: Add a configurable sleep here to limit the quickness of
 		// reconnect tries.
 		time.Sleep(time.Second)
-		m.lock.Lock()
+		m.connsLock.Lock()
 		delete(m.conns, addr)
-		m.lock.Unlock()
+		m.connsLock.Unlock()
 	}()
 }
 
@@ -152,9 +154,9 @@ func (m *TCPMsgRing) handleTCPConnection(addr string, tcpconn net.Conn) {
 		reader: newTimeoutReader(tcpconn, m.chunkSize, m.intraMessageTimeout),
 		writer: newTimeoutWriter(tcpconn, m.chunkSize, m.intraMessageTimeout),
 	}
-	m.lock.Lock()
+	m.connsLock.Lock()
 	m.conns[addr] = conn
-	m.lock.Unlock()
+	m.connsLock.Unlock()
 	m.handleConnection(conn)
 	m.disconnect(addr, conn)
 }
@@ -187,8 +189,12 @@ func (m *TCPMsgRing) handleOneMessage(conn *ringConn) error {
 		msgType <<= 8
 		msgType |= uint64(b)
 	}
+	m.msgHandlersLock.Lock()
 	handler := m.msgHandlers[msgType]
+	m.msgHandlersLock.Unlock()
 	if handler == nil {
+		// TODO: This should read and discard the unknown message instead of
+		// causing a disconnection.
 		return fmt.Errorf("no handler for MsgType %x", msgType)
 	}
 	var length uint64
@@ -357,13 +363,13 @@ func (m *TCPMsgRing) listen(returnChan chan error) {
 			break
 		}
 		addr := tcpconn.RemoteAddr().String()
-		m.lock.Lock()
+		m.connsLock.Lock()
 		c := m.conns[addr]
 		if c != nil {
 			c.conn.Close()
 		}
 		m.conns[addr] = _WORKING
-		m.lock.Unlock()
+		m.connsLock.Unlock()
 		go m.handleTCPConnection(addr, tcpconn)
 	}
 	m.stateLock.Lock()
