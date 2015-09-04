@@ -19,12 +19,12 @@ func Benchmark_MsgToNode(b *testing.B) {
 	r, _, nB := newTestRing()
 	msgring := NewTCPMsgRing(r)
 	addr := nB.Address(0)
-	msgring.conns[addr] = newRingConn(conn)
-	msg := TestMsg{}
+	msgring.conns[addr] = newRingConn(msgring, addr, conn)
+	msg := newTestMsg()
 	msgId := uint64(1)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		msgring.MsgToNode(msgId, &msg)
+		msgring.MsgToNode(msgId, msg)
 	}
 }
 
@@ -42,12 +42,12 @@ func Benchmark_HandleOneMessage(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		conn := new(testConn)
 		conn.readBuf.Write(data[:])
-		conns[i] = newRingConn(conn)
+		conns[i] = newRingConn(msgring, "don'tcare", conn)
 	}
 	log.SetOutput(ioutil.Discard)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := msgring.handleOneMessage(conns[i]); err != nil {
+		if err := msgring.ringConnReaderOneMessage(conns[i]); err != nil {
 			b.Error(err)
 		}
 	}

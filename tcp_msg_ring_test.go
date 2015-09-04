@@ -5,19 +5,22 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"io/ioutil"
-	"log"
 	"net"
 	"testing"
 	"time"
 )
 
-func newRingConn(conn net.Conn) *ringConn {
-	return &ringConn{
-		conn:   conn,
-		reader: newTimeoutReader(conn, 16*1024, 2*time.Second),
-		writer: newTimeoutWriter(conn, 16*1024, 2*time.Second),
+func newRingConn(m *TCPMsgRing, addr string, netconn net.Conn) *ringConn {
+	conn := &ringConn{
+		addr:   addr,
+		conn:   netconn,
+		reader: newTimeoutReader(netconn, 16*1024, 2*time.Second),
+		writer: newTimeoutWriter(netconn, 16*1024, 2*time.Second),
+		done:   make(chan struct{}),
 	}
+	go m.ringConnReader(conn)
+	go m.ringConnWriter(conn)
+	return conn
 }
 
 // Mock up a bunch of stuff
@@ -36,6 +39,11 @@ var testMsg = []byte("Testing")
 var testStr = "Testing"
 
 type TestMsg struct {
+	done chan struct{}
+}
+
+func newTestMsg() *TestMsg {
+	return &TestMsg{done: make(chan struct{}, 1)}
 }
 
 func (m *TestMsg) MsgType() uint64 {
@@ -52,7 +60,7 @@ func (m *TestMsg) WriteContent(writer io.Writer) (uint64, error) {
 }
 
 func (m *TestMsg) Done() {
-	return
+	m.done <- struct{}{}
 }
 
 // Following mock stuff borrowed from golang.org/src/net/http/serve_test.go
@@ -89,6 +97,24 @@ func (c *testConn) Write(b []byte) (int, error) {
 }
 
 func (c *testConn) Close() error {
+	return nil
+}
+
+type testConnNoReads struct {
+	writeBuf bytes.Buffer
+	noopConn
+}
+
+func (c *testConnNoReads) Read(b []byte) (int, error) {
+	time.Sleep(60)
+	return 0, io.EOF
+}
+
+func (c *testConnNoReads) Write(b []byte) (int, error) {
+	return c.writeBuf.Write(b)
+}
+
+func (c *testConnNoReads) Close() error {
 	return nil
 }
 
@@ -129,6 +155,7 @@ func test_stringmarshaller(reader io.Reader, size uint64) (uint64, error) {
 	return uint64(c), err
 }
 
+/* TODO: Best I can tell, this wasn't really testing anything.
 func Test_handle(t *testing.T) {
 	log.SetOutput(ioutil.Discard)
 	conn := new(testConn)
@@ -140,15 +167,17 @@ func Test_handle(t *testing.T) {
 	msgring.SetMsgHandler(1, test_stringmarshaller)
 	msgring.handleConnection(newRingConn(conn))
 }
+*/
 
 func Test_MsgToNode(t *testing.T) {
-	conn := new(testConn)
+	conn := new(testConnNoReads)
 	r, _, nB := newTestRing()
 	msgring := NewTCPMsgRing(r)
 	msgring.state = _RUNNING
-	msgring.conns[nB.Address(0)] = newRingConn(conn)
-	msg := TestMsg{}
-	msgring.MsgToNode(nB.ID(), &msg)
+	msgring.conns[nB.Address(0)] = newRingConn(msgring, nB.Address(0), conn)
+	msg := newTestMsg()
+	msgring.MsgToNode(nB.ID(), msg)
+	<-msg.done
 	var msgtype uint64
 	binary.Read(&conn.writeBuf, binary.BigEndian, &msgtype)
 	if int(msgtype) != 1 {
@@ -167,13 +196,14 @@ func Test_MsgToNode(t *testing.T) {
 }
 
 func Test_MsgToOtherReplicas(t *testing.T) {
-	conn := new(testConn)
+	conn := new(testConnNoReads)
 	r, _, nB := newTestRing()
 	msgring := NewTCPMsgRing(r)
 	msgring.state = _RUNNING
-	msgring.conns[nB.Address(0)] = newRingConn(conn)
-	msg := TestMsg{}
-	msgring.MsgToOtherReplicas(r.Version(), uint32(1), &msg)
+	msgring.conns[nB.Address(0)] = newRingConn(msgring, nB.Address(0), conn)
+	msg := newTestMsg()
+	msgring.MsgToOtherReplicas(r.Version(), uint32(1), msg)
+	<-msg.done
 	var msgtype uint64
 	err := binary.Read(&conn.writeBuf, binary.BigEndian, &msgtype)
 	if err != nil {
