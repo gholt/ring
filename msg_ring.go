@@ -47,6 +47,10 @@ type MsgRing interface {
 	// is fine.
 	SetMsgHandler(msgType uint64, handler MsgUnmarshaller)
 	// MsgToNode attempts to the deliver the message to the indicated node.
+	//
+	// When this method returns, the msg will have been queued for sending.
+	// When the msg has actually been sent or has been discarded due to
+	// delivery errors or delays, msg.Done() will be called.
 	MsgToNode(nodeID uint64, msg Msg)
 	// MsgToNode attempts to the deliver the message to all other replicas of a
 	// partition. If the ring is not bound to a specific node (LocalNode()
@@ -54,6 +58,10 @@ type MsgRing interface {
 	// ring version is used to short circuit any messages based on a different
 	// ring version; if the ring version does not match Version(), the message
 	// will simply be discarded.
+	//
+	// When this method returns, the msg will have been queued for sending.
+	// When the msg has actually been sent or has been discarded due to
+	// delivery errors or delays, msg.Done() will be called.
 	MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg)
 }
 
@@ -76,8 +84,9 @@ type Msg interface {
 	// In other words, any significant processing to build the message content
 	// should be done before the Msg is given to the MsgRing for delivery.
 	WriteContent(io.Writer) (uint64, error)
-	// Done will be called when the MsgRing is done processing the message and
-	// allows the message to free any resources it may have.
+	// Done will be called when the MsgRing no longer has any references to the
+	// message and allows the message to free any resources it may have, or be
+	// reused, etc.
 	Done()
 }
 
