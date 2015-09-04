@@ -189,9 +189,9 @@ func (m *TCPMsgRing) handleOneMessage(conn *ringConn) error {
 		msgType <<= 8
 		msgType |= uint64(b)
 	}
-	m.msgHandlersLock.Lock()
+	m.msgHandlersLock.RLock()
 	handler := m.msgHandlers[msgType]
-	m.msgHandlersLock.Unlock()
+	m.msgHandlersLock.RUnlock()
 	if handler == nil {
 		// TODO: This should read and discard the unknown message instead of
 		// causing a disconnection.
