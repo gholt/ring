@@ -416,8 +416,8 @@ OuterLoop:
 func (t *TCPMsgRing) readMsg(reader *timeoutReader) error {
 	var msgType uint64
 	timeout := reader.Timeout
-	// Wait forever for the first byte or closed/eof error.
-	reader.Timeout = math.MaxInt64
+	// Wait forever for the first byte or for closed/eof error.
+	reader.Timeout = 0
 	b, err := reader.ReadByte()
 	reader.Timeout = timeout
 	if err != nil {

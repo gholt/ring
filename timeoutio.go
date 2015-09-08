@@ -11,6 +11,7 @@ import (
 
 // timeoutReader is a bufio.Reader that reads in chunks and will return a
 // timeout error if the chunk is not read in the Timeout time.
+// Timeout can be zero to disable the timeout feature.
 // TODO: Add other bufio functions
 type timeoutReader struct {
 	Timeout time.Duration
@@ -28,7 +29,7 @@ func newTimeoutReader(conn net.Conn, chunkSize int, timeout time.Duration) *time
 
 func (r *timeoutReader) Read(p []byte) (n int, err error) {
 	deadline := false
-	if r.reader.Buffered() == 0 {
+	if r.Timeout != 0 && r.reader.Buffered() == 0 {
 		// Buffer is empty, so we will read from the network
 		timeout := time.Now().Add(r.Timeout)
 		r.conn.SetReadDeadline(timeout)
@@ -43,7 +44,7 @@ func (r *timeoutReader) Read(p []byte) (n int, err error) {
 
 func (r *timeoutReader) ReadByte() (c byte, err error) {
 	deadline := false
-	if r.reader.Buffered() == 0 {
+	if r.Timeout != 0 && r.reader.Buffered() == 0 {
 		// Buffer is empty, so we will read from the network
 		timeout := time.Now().Add(r.Timeout)
 		r.conn.SetReadDeadline(timeout)
@@ -74,7 +75,7 @@ func newTimeoutWriter(conn net.Conn, chunkSize int, timeout time.Duration) *time
 
 func (w *timeoutWriter) Write(p []byte) (n int, err error) {
 	deadline := false
-	if len(p) > w.writer.Available() {
+	if w.Timeout != 0 && len(p) > w.writer.Available() {
 		// Write will flush(), so make sure we wrap in a timeout
 		timeout := time.Now().Add(w.Timeout)
 		w.conn.SetWriteDeadline(timeout)
@@ -89,7 +90,7 @@ func (w *timeoutWriter) Write(p []byte) (n int, err error) {
 
 func (w *timeoutWriter) WriteByte(c byte) error {
 	deadline := false
-	if w.writer.Available() <= 0 {
+	if w.Timeout != 0 && w.writer.Available() <= 0 {
 		// Write will flush(), so make sure we wrap in a timeout
 		timeout := time.Now().Add(w.Timeout)
 		w.conn.SetReadDeadline(timeout)
@@ -103,10 +104,14 @@ func (w *timeoutWriter) WriteByte(c byte) error {
 }
 
 func (w *timeoutWriter) Flush() error {
-	timeout := time.Now().Add(w.Timeout)
-	w.conn.SetWriteDeadline(timeout)
+	if w.Timeout != 0 {
+		timeout := time.Now().Add(w.Timeout)
+		w.conn.SetWriteDeadline(timeout)
+	}
 	err := w.writer.Flush()
-	w.conn.SetWriteDeadline(time.Time{})
+	if w.Timeout != 0 {
+		w.conn.SetWriteDeadline(time.Time{})
+	}
 	return err
 
 }
