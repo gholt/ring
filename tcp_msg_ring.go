@@ -398,17 +398,16 @@ OuterLoop:
 }
 
 func (t *TCPMsgRing) readMsgs(readerControlChan chan struct{}, reader *timeoutReader) {
-	var err error
 OuterLoop:
 	for {
-		err = t.readMsg(reader)
 		select {
 		case <-readerControlChan:
 			break OuterLoop
 		default:
 		}
-		if err != nil {
+		if err := t.readMsg(reader); err != nil {
 			t.logError("readMsg: %s\n", err)
+			break
 		}
 	}
 }
