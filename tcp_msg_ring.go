@@ -150,6 +150,18 @@ func (t *TCPMsgRing) SetRing(ring Ring) {
 	t.ringLock.Lock()
 	t.ring = ring
 	t.ringLock.Unlock()
+	addrs := make(map[string]bool)
+	for _, n := range ring.Nodes() {
+		addrs[n.Address(t.addressIndex)] = true
+	}
+	t.msgChansLock.Lock()
+	for addr, msgChan := range t.msgChans {
+		if !addrs[addr] {
+			close(msgChan)
+			delete(t.msgChans, addr)
+		}
+	}
+	t.msgChansLock.Unlock()
 }
 
 // MaxMsgLength indicates the maximum number of bytes the content of a message
