@@ -1,6 +1,9 @@
 package ring
 
-import "io"
+import (
+	"io"
+	"time"
+)
 
 // MsgRing will send and receive Msg instances to and from ring nodes. See
 // TCPMsgRing for a concrete implementation.
@@ -46,23 +49,22 @@ type MsgRing interface {
 	// just need to be unique uint64 values; usually picking 64 bits of a UUID
 	// is fine.
 	SetMsgHandler(msgType uint64, handler MsgUnmarshaller)
-	// MsgToNode attempts to the deliver the message to the indicated node.
+	// MsgToNode queues the message for delivery to the indicated node; the
+	// timeout should be considered for queueing, not for actual delivery.
 	//
-	// When this method returns, the msg will have been queued for sending.
 	// When the msg has actually been sent or has been discarded due to
-	// delivery errors or delays, msg.Done() will be called.
-	MsgToNode(nodeID uint64, msg Msg)
-	// MsgToNode attempts to the deliver the message to all other replicas of a
-	// partition. If the ring is not bound to a specific node (LocalNode()
-	// returns nil) then the delivery attempts will be to all replicas. The
-	// ring version is used to short circuit any messages based on a different
-	// ring version; if the ring version does not match Version(), the message
-	// will simply be discarded.
+	// delivery errors or delays, msg.Free() will be called.
+	MsgToNode(msg Msg, nodeID uint64, timeout time.Duration)
+	// MsgToNode queues the message for delivery to all other replicas of a
+	// partition; the timeout should be considered for queueing, not for actual
+	// delivery.
 	//
-	// When this method returns, the msg will have been queued for sending.
+	// If the ring is not bound to a specific node (LocalNode() returns nil)
+	// then the delivery attempts will be to all replicas.
+	//
 	// When the msg has actually been sent or has been discarded due to
-	// delivery errors or delays, msg.Done() will be called.
-	MsgToOtherReplicas(ringVersion int64, partition uint32, msg Msg)
+	// delivery errors or delays, msg.Free() will be called.
+	MsgToOtherReplicas(msg Msg, partition uint32, timeout time.Duration)
 }
 
 // Msg is a single message to be sent to another node or nodes.
@@ -84,10 +86,10 @@ type Msg interface {
 	// In other words, any significant processing to build the message content
 	// should be done before the Msg is given to the MsgRing for delivery.
 	WriteContent(io.Writer) (uint64, error)
-	// Done will be called when the MsgRing no longer has any references to the
+	// Free will be called when the MsgRing no longer has any references to the
 	// message and allows the message to free any resources it may have, or be
 	// reused, etc.
-	Done()
+	Free()
 }
 
 // MsgUnmarshaller will attempt to read desiredBytesToRead from the reader and
