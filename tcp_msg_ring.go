@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -110,6 +111,29 @@ type TCPMsgRing struct {
 	reconnectInterval          time.Duration
 	chunkSize                  int
 	withinMessageTimeout       time.Duration
+
+	ringChanges               int32
+	ringChangeCloses          int32
+	msgToNodes                int32
+	msgToNodeNoRings          int32
+	msgToNodeNoNodes          int32
+	msgToOtherReplicas        int32
+	msgToOtherReplicasNoRings int32
+	listenErrors              int32
+	incomingConnections       int32
+	dials                     int32
+	dialErrors                int32
+	outgoingConnections       int32
+	msgChanCreations          int32
+	msgToAddrs                int32
+	msgToAddrQueues           int32
+	msgToAddrTimeoutDrops     int32
+	msgToAddrShutdownDrops    int32
+	msgReads                  int32
+	msgReadErrors             int32
+	msgWrites                 int32
+	msgWriteErrors            int32
+	statsLock                 sync.Mutex
 }
 
 // NewTCPMsgRing creates a new MsgRing that will use TCP to send and receive
@@ -147,6 +171,7 @@ func (t *TCPMsgRing) Ring() Ring {
 // SetRing sets the ring whose information used to determine messaging
 // endpoints.
 func (t *TCPMsgRing) SetRing(ring Ring) {
+	atomic.AddInt32(&t.ringChanges, 1)
 	t.ringLock.Lock()
 	t.ring = ring
 	t.ringLock.Unlock()
@@ -157,6 +182,7 @@ func (t *TCPMsgRing) SetRing(ring Ring) {
 	t.msgChansLock.Lock()
 	for addr, msgChan := range t.msgChans {
 		if !addrs[addr] {
+			atomic.AddInt32(&t.ringChangeCloses, 1)
 			close(msgChan)
 			delete(t.msgChans, addr)
 		}
@@ -194,13 +220,16 @@ func (t *TCPMsgRing) SetMsgHandler(msgType uint64, handler MsgUnmarshaller) {
 // When the msg has actually been sent or has been discarded due to delivery
 // errors or delays, msg.Free() will be called.
 func (t *TCPMsgRing) MsgToNode(msg Msg, nodeID uint64, timeout time.Duration) {
+	atomic.AddInt32(&t.msgToNodes, 1)
 	ring := t.Ring()
 	if ring == nil {
+		atomic.AddInt32(&t.msgToNodeNoRings, 1)
 		msg.Free()
 		return
 	}
 	node := ring.Node(nodeID)
 	if node == nil {
+		atomic.AddInt32(&t.msgToNodeNoNodes, 1)
 		msg.Free()
 		return
 	}
@@ -217,8 +246,10 @@ func (t *TCPMsgRing) MsgToNode(msg Msg, nodeID uint64, timeout time.Duration) {
 // When the msg has actually been sent or has been discarded due to delivery
 // errors or delays, msg.Free() will be called.
 func (t *TCPMsgRing) MsgToOtherReplicas(msg Msg, partition uint32, timeout time.Duration) {
+	atomic.AddInt32(&t.msgToOtherReplicas, 1)
 	ring := t.Ring()
 	if ring == nil {
+		atomic.AddInt32(&t.msgToOtherReplicasNoRings, 1)
 		msg.Free()
 		return
 	}
@@ -258,6 +289,7 @@ func (t *TCPMsgRing) Listen() {
 OuterLoop:
 	for {
 		if err != nil {
+			atomic.AddInt32(&t.listenErrors, 1)
 			t.logCritical("listen: %s\n", err)
 			time.Sleep(time.Second)
 		}
@@ -299,6 +331,7 @@ OuterLoop:
 				server.Close()
 				continue OuterLoop
 			}
+			atomic.AddInt32(&t.incomingConnections, 1)
 			addr := conn.RemoteAddr().String()
 			msgChan, created := t.msgChanForAddr(addr)
 			// NOTE: If created is true, it'll indicate to connection that
@@ -333,6 +366,7 @@ func (t *TCPMsgRing) msgChanForAddr(addr string) (chan Msg, bool) {
 		t.msgChansLock.Unlock()
 		return msgChan, false
 	}
+	atomic.AddInt32(&t.msgChanCreations, 1)
 	msgChan = make(chan Msg, t.bufferedMessagesPerAddress)
 	t.msgChans[addr] = msgChan
 	t.msgChansLock.Unlock()
@@ -340,6 +374,7 @@ func (t *TCPMsgRing) msgChanForAddr(addr string) (chan Msg, bool) {
 }
 
 func (t *TCPMsgRing) msgToAddr(msg Msg, addr string, timeout time.Duration) {
+	atomic.AddInt32(&t.msgToAddrs, 1)
 	msgChan, created := t.msgChanForAddr(addr)
 	if created {
 		go t.connection(addr, nil, msgChan, true)
@@ -347,11 +382,14 @@ func (t *TCPMsgRing) msgToAddr(msg Msg, addr string, timeout time.Duration) {
 	timer := time.NewTimer(timeout)
 	select {
 	case <-t.controlChan:
+		atomic.AddInt32(&t.msgToAddrShutdownDrops, 1)
 		timer.Stop()
 		msg.Free()
 	case msgChan <- msg:
+		atomic.AddInt32(&t.msgToAddrQueues, 1)
 		timer.Stop()
 	case <-timer.C:
+		atomic.AddInt32(&t.msgToAddrTimeoutDrops, 1)
 		msg.Free()
 	}
 	// TODO: Uncertain the code block above is better than that below.
@@ -379,13 +417,16 @@ OuterLoop:
 			if !dialOk {
 				break OuterLoop
 			}
+			atomic.AddInt32(&t.dials, 1)
 			netConn, err = net.DialTimeout("tcp", addr, t.connectTimeout)
 			if err != nil {
+				atomic.AddInt32(&t.dialErrors, 1)
 				netConn = nil
 				t.logError("connection: %s\n", err)
 				time.Sleep(t.reconnectInterval)
 				continue OuterLoop
 			}
+			atomic.AddInt32(&t.outgoingConnections, 1)
 		}
 		readerReturnChan := make(chan struct{}, 1)
 		readerControlChan := make(chan struct{})
@@ -418,9 +459,11 @@ OuterLoop:
 		default:
 		}
 		if err := t.readMsg(reader); err != nil {
+			atomic.AddInt32(&t.msgReadErrors, 1)
 			t.logError("readMsg: %s\n", err)
 			break
 		}
+		atomic.AddInt32(&t.msgReads, 1)
 	}
 }
 
@@ -479,9 +522,13 @@ func (t *TCPMsgRing) readMsg(reader *timeoutReader) error {
 func (t *TCPMsgRing) writeMsgs(writer *timeoutWriter, msgChan chan Msg) {
 	for msg := range msgChan {
 		if err := t.writeMsg(writer, msg); err != nil {
+			atomic.AddInt32(&t.msgWriteErrors, 1)
 			t.logError("writeMsg: %s\n", err)
+			msg.Free()
 			break
 		}
+		atomic.AddInt32(&t.msgWrites, 1)
+		msg.Free()
 	}
 }
 
@@ -531,4 +578,86 @@ func (m *multiMsg) freer(count int) {
 		<-m.freerChan
 	}
 	m.msg.Free()
+}
+
+type TCPMsgRingStats struct {
+	Shutdown                  bool
+	RingChanges               int32
+	RingChangeCloses          int32
+	MsgToNodes                int32
+	MsgToNodeNoRings          int32
+	MsgToNodeNoNodes          int32
+	MsgToOtherReplicas        int32
+	MsgToOtherReplicasNoRings int32
+	ListenErrors              int32
+	IncomingConnections       int32
+	Dials                     int32
+	DialErrors                int32
+	OutgoingConnections       int32
+	MsgChanCreations          int32
+	MsgToAddrs                int32
+	MsgToAddrQueues           int32
+	MsgToAddrTimeoutDrops     int32
+	MsgToAddrShutdownDrops    int32
+	MsgReads                  int32
+	MsgReadErrors             int32
+	MsgWrites                 int32
+	MsgWriteErrors            int32
+}
+
+func (t *TCPMsgRing) Stats() *TCPMsgRingStats {
+	shutdown := false
+	select {
+	case <-t.controlChan:
+		shutdown = true
+	default:
+	}
+	t.statsLock.Lock()
+	s := &TCPMsgRingStats{
+		Shutdown:                  shutdown,
+		RingChanges:               atomic.LoadInt32(&t.ringChanges),
+		RingChangeCloses:          atomic.LoadInt32(&t.ringChangeCloses),
+		MsgToNodes:                atomic.LoadInt32(&t.msgToNodes),
+		MsgToNodeNoRings:          atomic.LoadInt32(&t.msgToNodeNoRings),
+		MsgToNodeNoNodes:          atomic.LoadInt32(&t.msgToNodeNoNodes),
+		MsgToOtherReplicas:        atomic.LoadInt32(&t.msgToOtherReplicas),
+		MsgToOtherReplicasNoRings: atomic.LoadInt32(&t.msgToOtherReplicasNoRings),
+		ListenErrors:              atomic.LoadInt32(&t.listenErrors),
+		IncomingConnections:       atomic.LoadInt32(&t.incomingConnections),
+		Dials:                     atomic.LoadInt32(&t.dials),
+		DialErrors:                atomic.LoadInt32(&t.dialErrors),
+		OutgoingConnections:       atomic.LoadInt32(&t.outgoingConnections),
+		MsgChanCreations:          atomic.LoadInt32(&t.msgChanCreations),
+		MsgToAddrs:                atomic.LoadInt32(&t.msgToAddrs),
+		MsgToAddrQueues:           atomic.LoadInt32(&t.msgToAddrQueues),
+		MsgToAddrTimeoutDrops:     atomic.LoadInt32(&t.msgToAddrTimeoutDrops),
+		MsgToAddrShutdownDrops:    atomic.LoadInt32(&t.msgToAddrShutdownDrops),
+		MsgReads:                  atomic.LoadInt32(&t.msgReads),
+		MsgReadErrors:             atomic.LoadInt32(&t.msgReadErrors),
+		MsgWrites:                 atomic.LoadInt32(&t.msgWrites),
+		MsgWriteErrors:            atomic.LoadInt32(&t.msgWriteErrors),
+	}
+	atomic.AddInt32(&t.ringChanges, -s.RingChanges)
+	atomic.AddInt32(&t.ringChangeCloses, -s.RingChangeCloses)
+	atomic.AddInt32(&t.msgToNodes, -s.MsgToNodes)
+	atomic.AddInt32(&t.msgToNodeNoRings, -s.MsgToNodeNoRings)
+	atomic.AddInt32(&t.msgToNodeNoNodes, -s.MsgToNodeNoNodes)
+	atomic.AddInt32(&t.msgToOtherReplicas, -s.MsgToOtherReplicas)
+	atomic.AddInt32(&t.msgToOtherReplicasNoRings, -s.MsgToOtherReplicasNoRings)
+	atomic.AddInt32(&t.listenErrors, -s.ListenErrors)
+	atomic.AddInt32(&t.incomingConnections, -s.IncomingConnections)
+	atomic.AddInt32(&t.dials, -s.Dials)
+	atomic.AddInt32(&t.dialErrors, -s.DialErrors)
+	atomic.AddInt32(&t.outgoingConnections, -s.OutgoingConnections)
+	atomic.AddInt32(&t.msgChanCreations, -s.MsgChanCreations)
+	atomic.AddInt32(&t.msgToAddrs, -s.MsgToAddrs)
+	atomic.AddInt32(&t.msgToAddrQueues, -s.MsgToAddrQueues)
+	atomic.AddInt32(&t.msgToAddrTimeoutDrops, -s.MsgToAddrTimeoutDrops)
+	atomic.AddInt32(&t.msgToAddrShutdownDrops, -s.MsgToAddrShutdownDrops)
+	atomic.AddInt32(&t.msgReads, -s.MsgReads)
+	atomic.AddInt32(&t.msgReadErrors, -s.MsgReadErrors)
+	atomic.AddInt32(&t.msgWrites, -s.MsgWrites)
+	atomic.AddInt32(&t.msgWriteErrors, -s.MsgWriteErrors)
+	t.statsLock.Unlock()
+	return s
 }
