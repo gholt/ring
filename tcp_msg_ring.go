@@ -2,6 +2,7 @@ package ring
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -134,6 +135,11 @@ type TCPMsgRing struct {
 	msgWrites                 int32
 	msgWriteErrors            int32
 	statsLock                 sync.Mutex
+
+	chaosAddrOffsLock        sync.RWMutex
+	chaosAddrOffs            map[string]bool
+	chaosAddrDisconnectsLock sync.RWMutex
+	chaosAddrDisconnects     map[string]bool
 }
 
 // NewTCPMsgRing creates a new MsgRing that will use TCP to send and receive
@@ -155,6 +161,8 @@ func NewTCPMsgRing(c *TCPMsgRingConfig) *TCPMsgRing {
 		reconnectInterval:          time.Duration(cfg.ReconnectInterval) * time.Second,
 		chunkSize:                  cfg.ChunkSize,
 		withinMessageTimeout:       time.Duration(cfg.WithinMessageTimeout) * time.Second,
+		chaosAddrOffs:              make(map[string]bool),
+		chaosAddrDisconnects:       make(map[string]bool),
 	}
 }
 
@@ -322,8 +330,8 @@ OuterLoop:
 			}
 			// Deadline to force checking t.controlChan once a second.
 			server.SetDeadline(time.Now().Add(time.Second))
-			var conn net.Conn
-			conn, err = server.AcceptTCP()
+			var netConn net.Conn
+			netConn, err = server.AcceptTCP()
 			if err != nil {
 				if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 					continue
@@ -332,13 +340,29 @@ OuterLoop:
 				continue OuterLoop
 			}
 			atomic.AddInt32(&t.incomingConnections, 1)
-			addr := conn.RemoteAddr().String()
-			msgChan, created := t.msgChanForAddr(addr)
-			// NOTE: If created is true, it'll indicate to connection that
-			// redialing is okay. If created is false, once the connection has
-			// terminated it won't be reestablished since there is already
-			// another connection running that will redial.
-			go t.connection(addr, conn, msgChan, created)
+			go func(netConn net.Conn) {
+				addr := netConn.RemoteAddr().String()
+				t.chaosAddrOffsLock.RLock()
+				if t.chaosAddrOffs[addr] {
+					t.logError("listen: %s chaosAddrOff\n", addr)
+					netConn.Close()
+					t.chaosAddrOffsLock.RUnlock()
+					return
+				}
+				t.chaosAddrOffsLock.RUnlock()
+				if err := t.handshake(netConn); err != nil {
+					t.logError("listen: %s %s\n", addr, err)
+					netConn.Close()
+					return
+				}
+				msgChan, created := t.msgChanForAddr(addr)
+				// NOTE: If created is true, it'll indicate to connection
+				// that redialing is okay. If created is false, once the
+				// connection has terminated it won't be reestablished
+				// since there is already another connection running that
+				// will redial.
+				go t.connection(addr, netConn, msgChan, created)
+			}(netConn)
 		}
 	}
 }
@@ -404,6 +428,11 @@ func (t *TCPMsgRing) msgToAddr(msg Msg, addr string, timeout time.Duration) {
 	//	}
 }
 
+func (t *TCPMsgRing) handshake(netConn net.Conn) error {
+	// TODO: Exchange protocol version numbers and whatever else.
+	return nil
+}
+
 func (t *TCPMsgRing) connection(addr string, netConn net.Conn, msgChan chan Msg, dialOk bool) {
 OuterLoop:
 	for {
@@ -418,16 +447,38 @@ OuterLoop:
 				break OuterLoop
 			}
 			atomic.AddInt32(&t.dials, 1)
-			netConn, err = net.DialTimeout("tcp", addr, t.connectTimeout)
+			t.chaosAddrOffsLock.RLock()
+			if t.chaosAddrOffs[addr] {
+				t.chaosAddrOffsLock.RUnlock()
+				err = errors.New("chaosAddrOff")
+			} else {
+				t.chaosAddrOffsLock.RUnlock()
+				netConn, err = net.DialTimeout("tcp", addr, t.connectTimeout)
+				if err == nil {
+					err = t.handshake(netConn)
+				}
+			}
 			if err != nil {
 				atomic.AddInt32(&t.dialErrors, 1)
-				netConn = nil
-				t.logError("connection: %s\n", err)
+				if netConn != nil {
+					netConn.Close()
+					netConn = nil
+				}
+				t.logError("connection: %s %s\n", addr, err)
 				time.Sleep(t.reconnectInterval)
 				continue OuterLoop
 			}
 			atomic.AddInt32(&t.outgoingConnections, 1)
 		}
+		t.chaosAddrDisconnectsLock.RLock()
+		if t.chaosAddrDisconnects[addr] {
+			go func(netConn net.Conn) {
+				time.Sleep(time.Duration((atomic.LoadInt32(&t.msgToAddrs)%61)+10) * time.Second)
+				netConn.Close()
+				t.logError("chaosAddrDisconnect %s\n", netConn.RemoteAddr())
+			}(netConn)
+		}
+		t.chaosAddrDisconnectsLock.RUnlock()
 		readerReturnChan := make(chan struct{}, 1)
 		readerControlChan := make(chan struct{})
 		go func() {
@@ -605,6 +656,9 @@ type TCPMsgRingStats struct {
 	MsgWriteErrors            int32
 }
 
+// Stats returns the current stat counters and resets those counters. In other
+// words, if Stats().Dials gives the value 10 and no more dials occur before
+// Stats() is called again, that second Stats().Dials will have the value 0.
 func (t *TCPMsgRing) Stats() *TCPMsgRingStats {
 	shutdown := false
 	select {
@@ -660,4 +714,20 @@ func (t *TCPMsgRing) Stats() *TCPMsgRingStats {
 	atomic.AddInt32(&t.msgWriteErrors, -s.MsgWriteErrors)
 	t.statsLock.Unlock()
 	return s
+}
+
+// SetChaosAddrOff will disable all outgoing connections to addr and
+// immediately close any incoming connections from addr.
+func (t *TCPMsgRing) SetChaosAddrOff(addr string, off bool) {
+	t.chaosAddrOffsLock.Lock()
+	t.chaosAddrOffs[addr] = off
+	t.chaosAddrOffsLock.Unlock()
+}
+
+// SetChaosAddrDisconnect will allow connections to and from addr but, after
+// 10-70 seconds, it will abruptly close a connection.
+func (t *TCPMsgRing) SetChaosAddrDisconnect(addr string, disconnect bool) {
+	t.chaosAddrDisconnectsLock.Lock()
+	t.chaosAddrDisconnects[addr] = disconnect
+	t.chaosAddrDisconnectsLock.Unlock()
 }
