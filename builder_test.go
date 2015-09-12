@@ -456,11 +456,15 @@ func TestVersionChangesWithNodeRemoval(t *testing.T) {
 func TestVersionChangesWithConfChange(t *testing.T) {
 	b := NewBuilder()
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	b.SetConf([]byte("fresh conf"))
 	r := b.Ring()
-	b.SetConf([]byte("testing"))
+	b.SetConf([]byte("changed conf"))
 	r2 := b.Ring()
 	if r.Version() == r2.Version() {
 		t.Fatal("")
+	}
+	if !bytes.Equal(r2.Conf(), []byte("changed conf")) {
+		t.Fatal("Conf change did not persist after Ring()")
 	}
 }
 
