@@ -676,6 +676,7 @@ func (b *Builder) Ring() Ring {
 		partitionBitCount: b.partitionBitCount,
 		nodes:             nodes,
 		replicaToPartitionToNodeIndex: replicaToPartitionToNodeIndex,
+		conf: b.conf,
 	}
 }
 
