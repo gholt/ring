@@ -659,7 +659,11 @@ type TCPMsgRingStats struct {
 // Stats returns the current stat counters and resets those counters. In other
 // words, if Stats().Dials gives the value 10 and no more dials occur before
 // Stats() is called again, that second Stats().Dials will have the value 0.
-func (t *TCPMsgRing) Stats() *TCPMsgRingStats {
+//
+// If debug=true, additional information (left undocumented because it is
+// greatly subject to change) may be given when calling
+// TCPMsgRingStats.String().
+func (t *TCPMsgRing) Stats(debug bool) *TCPMsgRingStats {
 	shutdown := false
 	select {
 	case <-t.controlChan:
@@ -714,6 +718,10 @@ func (t *TCPMsgRing) Stats() *TCPMsgRingStats {
 	atomic.AddInt32(&t.msgWriteErrors, -s.MsgWriteErrors)
 	t.statsLock.Unlock()
 	return s
+}
+
+func (s *TCPMsgRingStats) String() string {
+	return fmt.Sprintf("%#v", s)
 }
 
 // SetChaosAddrOff will disable all outgoing connections to addr and
