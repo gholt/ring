@@ -142,7 +142,7 @@ func TestRingResponsibleIDs(t *testing.T) {
 }
 
 func TestRingPersistence(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(3)
 	b.AddNode(true, 1, []string{"server1", "zone1"}, []string{"1.2.3.4:56789"}, "Meta One", []byte("Conf"))
 	b.AddNode(true, 1, []string{"server2", "zone1"}, []string{"1.2.3.5:56789", "1.2.3.5:9876"}, "Meta Four", []byte("Conf"))

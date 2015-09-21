@@ -2,6 +2,7 @@ package ring
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"regexp"
 	"strconv"
@@ -79,11 +80,22 @@ func newNode(b *Builder, tb *tierBase, others []*node) *node {
 }
 
 func newNodeWithSource(b *Builder, tb *tierBase, others []*node, idSource rand.Source) *node {
+	mask := uint64(math.MaxUint64)
+	if b != nil {
+		mask = (uint64(1) << uint64(b.idBits)) - 1
+		if uint64(len(others)) >= mask {
+			panic(fmt.Sprintf("no more ID space; bits %d, nodes %d", b.idBits, len(others)))
+		}
+	}
 	// The ids should be unique, non-zero, and random so others don't base
 	// their node references on indexes.
 	var id uint64
 	for id == 0 {
-		id = (uint64(idSource.Int63()) << 63) | uint64(idSource.Int63())
+		if mask == math.MaxUint64 {
+			id = (uint64(idSource.Int63()) << 63) | uint64(idSource.Int63())
+		} else {
+			id = uint64(idSource.Int63()) & mask
+		}
 		for _, n := range others {
 			if n.id == id {
 				id = 0

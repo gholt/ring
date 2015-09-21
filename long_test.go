@@ -42,7 +42,7 @@ func TestNewRingBuilder(t *testing.T) {
 }
 
 func helperTestNewRingBuilder(t *testing.T, zones int32) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(3)
 	nodeID := uint64(0)
 	//capacity := uint32(1)

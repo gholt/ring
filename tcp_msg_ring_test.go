@@ -27,7 +27,7 @@ func newRingConn(m *TCPMsgRing, addr string, netconn net.Conn) *ringConn {
 // Mock up a bunch of stuff
 
 func newTestRing() (Ring, Node, Node) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(3)
 	nA := b.AddNode(true, 1, nil, []string{"127.0.0.1:9999"}, "", []byte("Conf"))
 	nB := b.AddNode(true, 1, nil, []string{"127.0.0.1:8888"}, "", []byte("Conf"))

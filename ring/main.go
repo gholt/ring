@@ -483,7 +483,8 @@ func createCmd(filename string, args []string) error {
 	if f, err = os.Create(filename); err != nil {
 		return err
 	}
-	b := ring.NewBuilder()
+	// TODO: Need to allow for setting IDBits on creation.
+	b := ring.NewBuilder(64)
 	b.SetConf(conf)
 	b.SetReplicaCount(replicaCount)
 	b.SetPointsAllowed(byte(pointsAllowed))

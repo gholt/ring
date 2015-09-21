@@ -1,7 +1,9 @@
 package ring
 
-import "testing"
-import "bytes"
+import (
+	"bytes"
+	"testing"
+)
 
 type testSource struct {
 	// The repeat part will cause an id == 0 when starting with repeat = false
@@ -40,6 +42,39 @@ func TestNewNode(t *testing.T) {
 	if n1.ID() == n2.ID() {
 		t.Fatal("")
 	}
+}
+
+func TestNewNodeBitLimits(t *testing.T) {
+	b := &Builder{idBits: 8}
+	var o []*node
+	for i := 0; i < 255; i++ {
+		n := newNodeWithSource(b, &b.tierBase, o, &testSource{})
+		if n.ID() < 0x01 || n.ID() > 0xff {
+			t.Fatal(n.ID())
+		}
+		o = append(o, n)
+	}
+}
+
+func TestNewNodeOutOfBits(t *testing.T) {
+	b := &Builder{idBits: 1}
+	var o []*node
+	n1 := newNodeWithSource(b, &b.tierBase, o, &testSource{})
+	if n1.ID() == 0 {
+		t.Fatal("")
+	}
+	o = append(o, n1)
+	if helperTestNewNodeOutOfBits(b, o) {
+		t.Fatal("")
+	}
+}
+
+func helperTestNewNodeOutOfBits(b *Builder, o []*node) bool {
+	defer func() {
+		recover()
+	}()
+	newNodeWithSource(b, &b.tierBase, o, &testSource{})
+	return true
 }
 
 func TestNodeSimply(t *testing.T) {

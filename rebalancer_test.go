@@ -8,7 +8,7 @@ import (
 func TestRebalancerBasic(t *testing.T) {
 	// 128 node, 3 replica ring should end up with 128 partitions and each node
 	// assigned 3 replicas.
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(3)
 	for i := 0; i < 128; i++ {
 		b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
@@ -33,7 +33,7 @@ func TestRebalancerTier0(t *testing.T) {
 	// 128 nodes with 16 evenly distributed tiers, 4 replicas should end up
 	// with 32 partitions, 8 assignments per tier, and 1 assignment per node.
 	// Also, no partition should have replicas in the same tier.
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(4)
 	for i := 0; i < 128; i++ {
 		b.AddNode(true, 1, []string{fmt.Sprintf("tier%d", i%16)}, nil, "", []byte("Conf"))
@@ -73,7 +73,7 @@ func TestRebalancerTier0(t *testing.T) {
 
 func TestRebalancerTier0b(t *testing.T) {
 	// Same as TestRebalancerTier0 but give tier0 one of tier15's nodes.
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(4)
 	for i := 0; i < 127; i++ {
 		b.AddNode(true, 1, []string{fmt.Sprintf("tier%d", i%16)}, nil, "", []byte("Conf"))
@@ -124,7 +124,7 @@ func TestRebalancerTier0c(t *testing.T) {
 	// A bit more extreme than TestRebalancerTier0b; giving tier0 a lot more
 	// nodes than all the others. Here, the per node balance will suffer but
 	// the tier distinctions should remain.
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(4)
 	for i := 0; i < 96; i++ {
 		b.AddNode(true, 1, []string{fmt.Sprintf("tier%d", i%16)}, nil, "", []byte("Conf"))
@@ -189,7 +189,7 @@ func TestRebalancerTier1(t *testing.T) {
 	// should end up with 32 partitions, 4 assignments per tier0, 8 assignments
 	// per tier1, and 1 assignment per node. Also, no partition should have
 	// replicas in the same tier.
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(4)
 	for i := 0; i < 128; i++ {
 		b.AddNode(true, 1, []string{fmt.Sprintf("tier0-%d", i%32), fmt.Sprintf("tier1-%d", i%16)}, nil, "", []byte("Conf"))
@@ -243,7 +243,7 @@ func TestRebalancerTier1(t *testing.T) {
 func TestRebalancerTier1b(t *testing.T) {
 	// Similar to TestRebalancerTier1 but give tier0-0,tier1-0 a lot more
 	// nodes. Assert that balancing suffers but tier distinctions are kept.
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(4)
 	for i := 0; i < 96; i++ {
 		b.AddNode(true, 1, []string{fmt.Sprintf("tier0-%d", i%32), fmt.Sprintf("tier1-%d", i%16)}, nil, "", []byte("Conf"))

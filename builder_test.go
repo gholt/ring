@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewBuilder(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(3)
 	b.AddNode(true, 1, nil, nil, "", []byte("nodeconf"))
 	pa := b.PointsAllowed()
@@ -48,7 +48,7 @@ func TestBuilderPersistence(t *testing.T) {
 }
 
 func helperTestBuilderPersistence(t *testing.T, conf []byte) {
-	b := NewBuilder()
+	b := NewBuilder(8)
 	b.SetReplicaCount(3)
 	b.SetConf(conf)
 	b.AddNode(true, 1, []string{"server1", "zone1"}, []string{"1.2.3.4:56789"}, "Meta One", nil)
@@ -69,6 +69,9 @@ func helperTestBuilderPersistence(t *testing.T, conf []byte) {
 	}
 	if !bytes.Equal(b2.conf, b.conf) {
 		t.Fatalf("%v != %v", b2.conf, b.conf)
+	}
+	if b2.idBits != b.idBits {
+		t.Fatalf("%d != %d", b2.idBits, b.idBits)
 	}
 	if len(b2.nodes) != len(b.nodes) {
 		t.Fatalf("%v != %v", len(b2.nodes), len(b.nodes))
@@ -157,7 +160,7 @@ func TestBuilderLoadGarbage(t *testing.T) {
 }
 
 func TestBuilderAddRemoveNodes(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(3)
 	nA := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	nB := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
@@ -187,7 +190,7 @@ func TestBuilderAddRemoveNodes(t *testing.T) {
 }
 
 func TestBuilderNodeLookup(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(3)
 	nA := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	nB := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
@@ -206,7 +209,7 @@ func TestBuilderNodeLookup(t *testing.T) {
 }
 
 func TestBuilderRing(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(3)
 	nA := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
@@ -247,7 +250,7 @@ func TestBuilderRing(t *testing.T) {
 }
 
 func TestBuilderResizeIfNeeded(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(3)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
@@ -303,7 +306,7 @@ func TestBuilderResizeIfNeeded(t *testing.T) {
 }
 
 func TestBuilderMinimizeTiers(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	n := b.AddNode(true, 1, []string{"one"}, nil, "", []byte("Conf"))
 	b.AddNode(true, 1, []string{"two"}, nil, "", []byte("Conf"))
 	b.minimizeTiers()
@@ -339,7 +342,7 @@ func TestBuilderMinimizeTiers(t *testing.T) {
 }
 
 func TestBuilderLowerReplicaCount(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.SetReplicaCount(3)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
@@ -409,7 +412,7 @@ func TestBuilderLowerReplicaCount(t *testing.T) {
 }
 
 func TestVersionChangesWithNewActiveWeightedNode(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
@@ -420,7 +423,7 @@ func TestVersionChangesWithNewActiveWeightedNode(t *testing.T) {
 }
 
 func TestVersionChangesWithNewActiveNoWeightNode(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()
 	b.AddNode(true, 0, nil, nil, "", []byte("Conf"))
@@ -431,7 +434,7 @@ func TestVersionChangesWithNewActiveNoWeightNode(t *testing.T) {
 }
 
 func TestVersionChangesWithNewInactiveNode(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()
 	b.AddNode(false, 0, nil, nil, "", []byte("Conf"))
@@ -442,7 +445,7 @@ func TestVersionChangesWithNewInactiveNode(t *testing.T) {
 }
 
 func TestVersionChangesWithNodeRemoval(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()
@@ -454,7 +457,7 @@ func TestVersionChangesWithNodeRemoval(t *testing.T) {
 }
 
 func TestVersionChangesWithConfChange(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	b.SetConf([]byte("fresh conf"))
 	r := b.Ring()
@@ -469,7 +472,7 @@ func TestVersionChangesWithConfChange(t *testing.T) {
 }
 
 func TestVersionChangesWithReplicaCountChange(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()
 	b.SetReplicaCount(3)
@@ -480,7 +483,7 @@ func TestVersionChangesWithReplicaCountChange(t *testing.T) {
 }
 
 func TestVersionChangesWithNodeActiveChange(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()
@@ -492,7 +495,7 @@ func TestVersionChangesWithNodeActiveChange(t *testing.T) {
 }
 
 func TestVersionChangesWithNodeCapacityChange(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()
@@ -504,7 +507,7 @@ func TestVersionChangesWithNodeCapacityChange(t *testing.T) {
 }
 
 func TestVersionChangesWithNodeTierChange(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()
@@ -516,7 +519,7 @@ func TestVersionChangesWithNodeTierChange(t *testing.T) {
 }
 
 func TestVersionChangesWithNodeAddressChange(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()
@@ -528,7 +531,7 @@ func TestVersionChangesWithNodeAddressChange(t *testing.T) {
 }
 
 func TestVersionChangesWithNodeMetaChange(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()
@@ -540,7 +543,7 @@ func TestVersionChangesWithNodeMetaChange(t *testing.T) {
 }
 
 func TestVersionChangesWithNodeConfChange(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder(64)
 	b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	n := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
 	r := b.Ring()

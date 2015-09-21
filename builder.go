@@ -24,10 +24,19 @@ type Builder struct {
 	moveWait                      uint16
 	moveWaitBase                  int64
 	conf                          []byte
+	idBits                        int
 }
 
 // NewBuilder creates an empty Builder with all default settings.
-func NewBuilder() *Builder {
+//
+// idBits indicates how many bits (1-64) may be used for node IDs; it must be
+// set at Builder creation and cannot change once created.
+func NewBuilder(idBits int) *Builder {
+	if idBits < 1 {
+		idBits = 1
+	} else if idBits > 64 {
+		idBits = 64
+	}
 	b := &Builder{
 		dirty:                         true,
 		partitionBitCount:             1,
@@ -38,6 +47,7 @@ func NewBuilder() *Builder {
 		// memory.
 		maxPartitionBitCount: 23,
 		moveWait:             60, // 1 hour default
+		idBits:               idBits,
 	}
 	b.replicaToPartitionToNodeIndex[0] = []int32{-1, -1}
 	b.replicaToPartitionToLastMove[0] = []uint16{math.MaxUint16, math.MaxUint16}
@@ -77,6 +87,17 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 	_, err = io.ReadFull(gr, b.conf)
 	if err != nil {
 		return nil, err
+	}
+	var vbyte byte
+	err = binary.Read(gr, binary.BigEndian, &vbyte)
+	if err != nil {
+		return nil, err
+	}
+	b.idBits = int(vbyte)
+	if b.idBits < 1 {
+		b.idBits = 1
+	} else if b.idBits > 64 {
+		b.idBits = 64
 	}
 	var vint32 int32
 	err = binary.Read(gr, binary.BigEndian, &vint32)
@@ -251,6 +272,10 @@ func (b *Builder) Persist(w io.Writer) error {
 		return err
 	}
 	_, err = gw.Write(b.conf)
+	if err != nil {
+		return err
+	}
+	err = binary.Write(gw, binary.BigEndian, byte(b.idBits))
 	if err != nil {
 		return err
 	}
@@ -529,6 +554,11 @@ func (b *Builder) SetConf(conf []byte) {
 	b.conf = conf
 }
 
+// IDBits is the number of bits in use for node IDs.
+func (b *Builder) IDBits() int {
+	return b.idBits
+}
+
 // PretendElapsed shifts the last movement records by the number of minutes
 // given. This can be useful in testing, as the ring algorithms will not
 // reassign replicas for a partition more often than once per MoveWait in order
@@ -558,6 +588,14 @@ func (b *Builder) Nodes() NodeSlice {
 // AddNode will add a new node to the builder for data assigment. Actual data
 // assignment won't ocurr until the Ring method is called, so you can add
 // multiple nodes or alter node values after creation if desired.
+//
+// NOTE: This could cause a panic if:
+//      len(b.Nodes()) == (uint64(1) << uint64(b.IDBits())) - 1
+// Meaning there are no unused IDs available for a new node (remember that ID 0
+// is unusable as it represents "no node").
+//
+// gholt: I'm going to refactor this next to return (BuilderNode, error) and
+// get rid of that panic possibility; but this will do for now.
 func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresses []string, meta string, conf []byte) BuilderNode {
 	b.dirty = true
 	addressesCopy := make([]string, len(addresses))
