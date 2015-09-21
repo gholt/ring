@@ -603,7 +603,11 @@ func addOrSetCmd(r ring.Ring, b *ring.Builder, args []string, n ring.BuilderNode
 		}
 	}
 	if n == nil {
-		n = b.AddNode(active, capacity, tiers, addresses, meta, conf)
+		var err error
+		n, err = b.AddNode(active, capacity, tiers, addresses, meta, conf)
+		if err != nil {
+			return err
+		}
 		report := [][]string{
 			[]string{"ID:", fmt.Sprintf("%016x", n.ID())},
 			[]string{"Active:", fmt.Sprintf("%v", n.Active())},

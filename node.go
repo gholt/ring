@@ -75,16 +75,16 @@ type node struct {
 	conf        []byte
 }
 
-func newNode(b *Builder, tb *tierBase, others []*node) *node {
+func newNode(b *Builder, tb *tierBase, others []*node) (*node, error) {
 	return newNodeWithSource(b, tb, others, rand.NewSource(time.Now().UnixNano()))
 }
 
-func newNodeWithSource(b *Builder, tb *tierBase, others []*node, idSource rand.Source) *node {
+func newNodeWithSource(b *Builder, tb *tierBase, others []*node, idSource rand.Source) (*node, error) {
 	mask := uint64(math.MaxUint64)
 	if b != nil {
 		mask = (uint64(1) << uint64(b.idBits)) - 1
 		if uint64(len(others)) >= mask {
-			panic(fmt.Sprintf("no more ID space; bits %d, nodes %d", b.idBits, len(others)))
+			return nil, fmt.Errorf("no more ID space; bits %d, nodes %d", b.idBits, len(others))
 		}
 	}
 	// The ids should be unique, non-zero, and random so others don't base
@@ -103,7 +103,7 @@ func newNodeWithSource(b *Builder, tb *tierBase, others []*node, idSource rand.S
 			}
 		}
 	}
-	return &node{builder: b, tierBase: tb, id: id}
+	return &node{builder: b, tierBase: tb, id: id}, nil
 }
 
 func (n *node) ID() uint64 {

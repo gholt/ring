@@ -26,14 +26,20 @@ func newRingConn(m *TCPMsgRing, addr string, netconn net.Conn) *ringConn {
 
 // Mock up a bunch of stuff
 
-func newTestRing() (Ring, Node, Node) {
+func newTestRing() (Ring, Node, Node, error) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(3)
-	nA := b.AddNode(true, 1, nil, []string{"127.0.0.1:9999"}, "", []byte("Conf"))
-	nB := b.AddNode(true, 1, nil, []string{"127.0.0.1:8888"}, "", []byte("Conf"))
+	nA, err := b.AddNode(true, 1, nil, []string{"127.0.0.1:9999"}, "", []byte("Conf"))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	nB, err := b.AddNode(true, 1, nil, []string{"127.0.0.1:8888"}, "", []byte("Conf"))
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	r := b.Ring()
 	r.SetLocalNode(nA.ID())
-	return r, nA, nB
+	return r, nA, nB, nil
 }
 
 var testMsg = []byte("Testing")
@@ -123,14 +129,20 @@ func (c *testConnNoReads) Close() error {
 
 func TestTCPMsgRingIsMsgRing(t *testing.T) {
 	tmr := NewTCPMsgRing(nil)
-	r, _, _ := newTestRing()
+	r, _, _, err := newTestRing()
+	if err != nil {
+		t.Fatal(err)
+	}
 	tmr.SetRing(r)
 	func(mr MsgRing) {}(tmr)
 }
 
 func Test_NewTCPMsgRing(t *testing.T) {
 	msgring := NewTCPMsgRing(nil)
-	r, _, _ := newTestRing()
+	r, _, _, err := newTestRing()
+	if err != nil {
+		t.Fatal(err)
+	}
 	msgring.SetRing(r)
 	if msgring.Ring().LocalNode().Address(0) != "127.0.0.1:9999" {
 		t.Error("Error initializing TCPMsgRing")
@@ -139,10 +151,16 @@ func Test_NewTCPMsgRing(t *testing.T) {
 
 func Test_TCPMsgRingSetRing(t *testing.T) {
 	msgring := NewTCPMsgRing(nil)
-	r, _, _ := newTestRing()
+	r, _, _, err := newTestRing()
+	if err != nil {
+		t.Fatal(err)
+	}
 	msgring.SetRing(r)
 
-	r2, _, _ := newTestRing()
+	r2, _, _, err := newTestRing()
+	if err != nil {
+		t.Fatal(err)
+	}
 	msgring.SetRing(r2)
 
 	if msgring.Ring() != r2 {

@@ -588,19 +588,14 @@ func (b *Builder) Nodes() NodeSlice {
 // AddNode will add a new node to the builder for data assigment. Actual data
 // assignment won't ocurr until the Ring method is called, so you can add
 // multiple nodes or alter node values after creation if desired.
-//
-// NOTE: This could cause a panic if:
-//      len(b.Nodes()) == (uint64(1) << uint64(b.IDBits())) - 1
-// Meaning there are no unused IDs available for a new node (remember that ID 0
-// is unusable as it represents "no node").
-//
-// gholt: I'm going to refactor this next to return (BuilderNode, error) and
-// get rid of that panic possibility; but this will do for now.
-func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresses []string, meta string, conf []byte) BuilderNode {
+func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresses []string, meta string, conf []byte) (BuilderNode, error) {
 	b.dirty = true
 	addressesCopy := make([]string, len(addresses))
 	copy(addressesCopy, addresses)
-	n := newNode(b, &b.tierBase, b.nodes)
+	n, err := newNode(b, &b.tierBase, b.nodes)
+	if err != nil {
+		return nil, err
+	}
 	n.inactive = !active
 	n.capacity = capacity
 	n.addresses = addressesCopy
@@ -610,7 +605,7 @@ func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresse
 		n.SetTier(level, value)
 	}
 	b.nodes = append(b.nodes, n)
-	return n
+	return n, nil
 }
 
 // RemoveNode will remove the node from the list of nodes for this
