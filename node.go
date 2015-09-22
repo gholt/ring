@@ -90,17 +90,28 @@ func newNodeWithSource(b *Builder, tb *tierBase, others []*node, idSource rand.S
 	// The ids should be unique, non-zero, and random so others don't base
 	// their node references on indexes.
 	var id uint64
-	for id == 0 {
-		if mask == math.MaxUint64 {
-			id = (uint64(idSource.Int63()) << 63) | uint64(idSource.Int63())
-		} else {
-			id = uint64(idSource.Int63()) & mask
-		}
-		for _, n := range others {
-			if n.id == id {
-				id = 0
-				break
+	if mask == math.MaxUint64 {
+		id = (uint64(idSource.Int63()) << 63) | uint64(idSource.Int63())
+	} else {
+		id = uint64(idSource.Int63()) & mask
+	}
+	if id == 0 {
+		id = 1
+	}
+	sid := id
+L:
+	for _, n := range others {
+		if n.id == id {
+			id++
+			if id == sid {
+				// This shouldn't happen because the top of the func should've
+				// caught that the ID space was used up; but, just in case.
+				return nil, fmt.Errorf("no more ID space; bits %d, nodes %d, wrapped scan", b.idBits, len(others))
 			}
+			if id > mask {
+				id = 1
+			}
+			goto L
 		}
 	}
 	return &node{builder: b, tierBase: tb, id: id}, nil
