@@ -10,6 +10,9 @@ import (
 )
 
 const (
+	// BUILDERVERSION is the builder file format version written to and checked
+	// for in the builder file header. If the on disk format of the builder changes
+	// this version should be incremented.
 	BUILDERVERSION = "RINGBUILDERv0001"
 )
 

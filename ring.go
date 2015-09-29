@@ -16,6 +16,9 @@ import (
 )
 
 const (
+	// RINGVERSION is the ring file format version written to and checked
+	// for in the ring file header. If the on disk format of the ring changes
+	// this version should be incremented.
 	RINGVERSION = "RINGv00000000001"
 )
 
