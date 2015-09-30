@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+const (
+	// BUILDERVERSION is the builder file format version written to and checked
+	// for in the builder file header. If the on disk format of the builder changes
+	// this version should be incremented.
+	BUILDERVERSION = "RINGBUILDERv0001"
+)
+
 // Builder is used to construct Rings over time. Rings are the immutable state
 // of a Builder's assignments at a given point in time.
 type Builder struct {
@@ -70,7 +77,7 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 	if err != nil {
 		return nil, err
 	}
-	if string(header) != "RINGBUILDERv0001" {
+	if string(header) != BUILDERVERSION {
 		return nil, fmt.Errorf("unknown header %s", string(header))
 	}
 	b := &Builder{}
@@ -256,7 +263,7 @@ func (b *Builder) Persist(w io.Writer) error {
 	// binary.Put* calls instead.
 	gw := gzip.NewWriter(w)
 	defer gw.Close() // does not close the underlying writer
-	_, err := gw.Write([]byte("RINGBUILDERv0001"))
+	_, err := gw.Write([]byte(BUILDERVERSION))
 	if err != nil {
 		return err
 	}

@@ -15,6 +15,13 @@ import (
 	"math"
 )
 
+const (
+	// RINGVERSION is the ring file format version written to and checked
+	// for in the ring file header. If the on disk format of the ring changes
+	// this version should be incremented.
+	RINGVERSION = "RINGv00000000001"
+)
+
 // Ring is the immutable snapshot of data assignments to nodes.
 type Ring interface {
 	// Version is the time.Now().UnixNano() of when the Ring data was
@@ -90,7 +97,7 @@ func LoadRing(rd io.Reader) (Ring, error) {
 	if err != nil {
 		return nil, err
 	}
-	if string(header) != "RINGv00000000001" {
+	if string(header) != RINGVERSION {
 		return nil, fmt.Errorf("unknown header %s", string(header))
 	}
 	r := &ring{}
@@ -240,7 +247,7 @@ func (r *ring) Persist(w io.Writer) error {
 	// binary.Put* calls instead.
 	gw := gzip.NewWriter(w)
 	defer gw.Close() // does not close the underlying writer
-	_, err := gw.Write([]byte("RINGv00000000001"))
+	_, err := gw.Write([]byte(RINGVERSION))
 	if err != nil {
 		return err
 	}

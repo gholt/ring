@@ -2,6 +2,7 @@ package ring
 
 import (
 	"compress/gzip"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -27,12 +28,18 @@ func RingOrBuilder(fileName string) (Ring, *Builder, error) {
 		return r, b, err
 	}
 	if string(header[:5]) == "RINGv" {
+		if string(header[:16]) != RINGVERSION {
+			return r, b, fmt.Errorf("Ring Version missmatch, expected %s found %s", RINGVERSION, header[:16])
+		}
 		gf.Close()
 		if _, err = f.Seek(0, 0); err != nil {
 			return r, b, err
 		}
 		r, err = LoadRing(f)
 	} else if string(header[:12]) == "RINGBUILDERv" {
+		if string(header[:16]) != BUILDERVERSION {
+			return r, b, fmt.Errorf("Builder Version missmatch, expected %s found %s", BUILDERVERSION, header[:16])
+		}
 		gf.Close()
 		if _, err = f.Seek(0, 0); err != nil {
 			return r, b, err
