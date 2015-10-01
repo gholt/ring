@@ -397,6 +397,15 @@ func (t *TCPMsgRing) msgChanForAddr(addr string) (chan Msg, bool) {
 	return msgChan, true
 }
 
+// lookupMsgChanForAddr returns the channel for the address or nil if there is
+// none.
+func (t *TCPMsgRing) lookupMsgChanForAddr(addr string) chan Msg {
+	t.msgChansLock.RLock()
+	msgChan := t.msgChans[addr]
+	t.msgChansLock.RUnlock()
+	return msgChan
+}
+
 func (t *TCPMsgRing) msgToAddr(msg Msg, addr string, timeout time.Duration) {
 	atomic.AddInt32(&t.msgToAddrs, 1)
 	msgChan, created := t.msgChanForAddr(addr)
@@ -440,6 +449,11 @@ OuterLoop:
 		case <-t.controlChan:
 			break OuterLoop
 		default:
+			if msgChan != t.lookupMsgChanForAddr(addr) {
+				// If the channel for this addr has changed or is no longer
+				// set, this connection routine is no longer needed.
+				break OuterLoop
+			}
 		}
 		var err error
 		if netConn == nil {
