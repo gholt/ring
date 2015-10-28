@@ -1,10 +1,13 @@
 package ring
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"math"
 	"net"
@@ -54,6 +57,33 @@ type TCPMsgRingConfig struct {
 	// WithinMessageTimeout indicates how many seconds before giving up on
 	// reading data within a message. Defaults to 5 seconds.
 	WithinMessageTimeout int
+	// UseTLS indicates whether or not tls connections are being used.
+	UseTLS          bool
+	ServerTLSConfig *tls.Config
+	ClientTLSConfig *tls.Config
+}
+
+// NewClientTLSFromFile constructs a TLS from the input certificate file for client.
+func NewClientTLSFromFile(certFile, serverName string, SkipVerify bool) (*tls.Config, error) {
+	b, err := ioutil.ReadFile(certFile)
+	if err != nil {
+		return &tls.Config{}, err
+	}
+	cp := x509.NewCertPool()
+	if !cp.AppendCertsFromPEM(b) {
+		return &tls.Config{}, fmt.Errorf("failed to append certificates for client ca store")
+	}
+	return &tls.Config{ServerName: serverName, RootCAs: cp, InsecureSkipVerify: SkipVerify}, nil
+}
+
+// NewServerTLSFromFile constructs a TLS from the input certificate file and key
+// file for server.
+func NewServerTLSFromFile(certFile, keyFile string, SkipVerify bool) (*tls.Config, error) {
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, err
+	}
+	return &tls.Config{Certificates: []tls.Certificate{cert}, InsecureSkipVerify: SkipVerify}, nil
 }
 
 func resolveTCPMsgRingConfig(c *TCPMsgRingConfig) *TCPMsgRingConfig {
@@ -140,6 +170,10 @@ type TCPMsgRing struct {
 	chaosAddrOffs            map[string]bool
 	chaosAddrDisconnectsLock sync.RWMutex
 	chaosAddrDisconnects     map[string]bool
+
+	useTLS          bool
+	serverTLSConfig *tls.Config
+	clientTLSConfig *tls.Config
 }
 
 // NewTCPMsgRing creates a new MsgRing that will use TCP to send and receive
@@ -331,7 +365,13 @@ OuterLoop:
 			// Deadline to force checking t.controlChan once a second.
 			server.SetDeadline(time.Now().Add(time.Second))
 			var netConn net.Conn
-			netConn, err = server.AcceptTCP()
+			if t.useTLS {
+				t.logInfo("Using tls")
+				l := tls.NewListener(server, t.serverTLSConfig)
+				netConn, err = l.Accept()
+			} else {
+				netConn, err = server.AcceptTCP()
+			}
 			if err != nil {
 				if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 					continue
@@ -469,7 +509,30 @@ OuterLoop:
 				t.chaosAddrOffsLock.RUnlock()
 				netConn, err = net.DialTimeout("tcp", addr, t.connectTimeout)
 				if err == nil {
-					err = t.handshake(netConn)
+					if t.useTLS {
+						c := t.clientTLSConfig
+						c.ServerName = addr
+						tlsConn := tls.Client(netConn, t.clientTLSConfig)
+						err = tlsConn.Handshake()
+						if err != nil {
+							err = t.handshake(tlsConn)
+						} else {
+							atomic.AddInt32(&t.dialErrors, 1)
+							if tlsConn != nil {
+								tlsConn.Close()
+								tlsConn = nil
+							}
+							t.logError("tls connection: %s %s\n", addr, err)
+							if netConn != nil {
+								netConn.Close()
+								netConn = nil
+							}
+							time.Sleep(t.reconnectInterval)
+							continue OuterLoop
+						}
+					} else {
+						err = t.handshake(netConn)
+					}
 				}
 			}
 			if err != nil {
