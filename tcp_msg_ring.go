@@ -57,14 +57,15 @@ type TCPMsgRingConfig struct {
 	// WithinMessageTimeout indicates how many seconds before giving up on
 	// reading data within a message. Defaults to 5 seconds.
 	WithinMessageTimeout int
-	// UseTLS indicates whether or not tls connections are being used.
-	UseTLS          bool
-	ServerTLSConfig *tls.Config
-	ClientTLSConfig *tls.Config
+	// UseTLS enables use of TLS for server and client comms
+	UseTLS     bool
+	CertFile   string
+	KeyFile    string
+	SkipVerify bool
 }
 
-// NewClientTLSFromFile constructs a TLS from the input certificate file for client.
-func NewClientTLSFromFile(certFile, serverName string, SkipVerify bool) (*tls.Config, error) {
+// newClientTLSFromFile constructs a TLS from the input certificate file for client.
+func newClientTLSFromFile(certFile, serverName string, SkipVerify bool) (*tls.Config, error) {
 	b, err := ioutil.ReadFile(certFile)
 	if err != nil {
 		return &tls.Config{}, err
@@ -76,9 +77,9 @@ func NewClientTLSFromFile(certFile, serverName string, SkipVerify bool) (*tls.Co
 	return &tls.Config{ServerName: serverName, RootCAs: cp, InsecureSkipVerify: SkipVerify}, nil
 }
 
-// NewServerTLSFromFile constructs a TLS from the input certificate file and key
+// newServerTLSFromFile constructs a TLS from the input certificate file and key
 // file for server.
-func NewServerTLSFromFile(certFile, keyFile string, SkipVerify bool) (*tls.Config, error) {
+func newServerTLSFromFile(certFile, keyFile string, SkipVerify bool) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, err
@@ -172,6 +173,9 @@ type TCPMsgRing struct {
 	chaosAddrDisconnects     map[string]bool
 
 	useTLS          bool
+	certFile        string
+	keyFile         string
+	skipVerify      bool
 	serverTLSConfig *tls.Config
 	clientTLSConfig *tls.Config
 }
@@ -197,6 +201,10 @@ func NewTCPMsgRing(c *TCPMsgRingConfig) *TCPMsgRing {
 		withinMessageTimeout:       time.Duration(cfg.WithinMessageTimeout) * time.Second,
 		chaosAddrOffs:              make(map[string]bool),
 		chaosAddrDisconnects:       make(map[string]bool),
+		useTLS:                     cfg.UseTLS,
+		certFile:                   cfg.CertFile,
+		keyFile:                    cfg.KeyFile,
+		skipVerify:                 cfg.SkipVerify,
 	}
 }
 
@@ -328,6 +336,16 @@ func (t *TCPMsgRing) MsgToOtherReplicas(msg Msg, partition uint32, timeout time.
 // t.Shutdown() is called.
 func (t *TCPMsgRing) Listen() {
 	var err error
+	if t.useTLS {
+		t.serverTLSConfig, err = newServerTLSFromFile(t.certFile, t.keyFile, t.skipVerify)
+		if err != nil {
+			t.logCritical("Unable to setup server tls config:", err)
+		}
+		t.clientTLSConfig, err = newServerTLSFromFile(t.certFile, t.keyFile, t.skipVerify)
+		if err != nil {
+			t.logCritical("Unable to setup client tls config:", err)
+		}
+	}
 OuterLoop:
 	for {
 		if err != nil {
@@ -366,7 +384,6 @@ OuterLoop:
 			server.SetDeadline(time.Now().Add(time.Second))
 			var netConn net.Conn
 			if t.useTLS {
-				t.logInfo("Using tls")
 				l := tls.NewListener(server, t.serverTLSConfig)
 				netConn, err = l.Accept()
 			} else {
