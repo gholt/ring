@@ -331,7 +331,7 @@ func TestBuilderResizeIfNeeded(t *testing.T) {
 		t.Fatalf("Expected the max partition bit count to be saved as 6; instead it was %d", pbc)
 	}
 	for i := 4; i < 14; i++ {
-		_, err := b.AddNode(true, uint32(i), nil, nil, "", []byte("Conf"))
+		_, err = b.AddNode(true, uint32(i), nil, nil, "", []byte("Conf"))
 		if err != nil {
 			t.Fatal(err)
 		}
