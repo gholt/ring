@@ -524,7 +524,7 @@ OuterLoop:
 				err = errors.New("chaosAddrOff")
 			} else {
 				t.chaosAddrOffsLock.RUnlock()
-				netConn, err = net.DialTimeout("tcp", addr, t.connectTimeout)
+				baseConn, err := net.DialTimeout("tcp", addr, t.connectTimeout)
 				if err == nil {
 					if t.useTLS {
 						c := t.clientTLSConfig
@@ -533,6 +533,7 @@ OuterLoop:
 						err = tlsConn.Handshake()
 						if err == nil {
 							_ = t.handshake(tlsConn)
+							netConn = tlsConn
 						} else {
 							atomic.AddInt32(&t.dialErrors, 1)
 							if tlsConn != nil {
@@ -548,6 +549,7 @@ OuterLoop:
 							continue OuterLoop
 						}
 					} else {
+						netConn = baseConn
 						err = t.handshake(netConn)
 					}
 				}
