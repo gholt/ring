@@ -531,8 +531,8 @@ OuterLoop:
 						c.ServerName = addr
 						tlsConn := tls.Client(netConn, t.clientTLSConfig)
 						err = tlsConn.Handshake()
-						if err != nil {
-							err = t.handshake(tlsConn)
+						if err == nil {
+							_ = t.handshake(tlsConn)
 						} else {
 							atomic.AddInt32(&t.dialErrors, 1)
 							if tlsConn != nil {
