@@ -524,34 +524,17 @@ OuterLoop:
 				err = errors.New("chaosAddrOff")
 			} else {
 				t.chaosAddrOffsLock.RUnlock()
-				baseConn, err := net.DialTimeout("tcp", addr, t.connectTimeout)
+				var baseConn net.Conn
+				baseConn, err = net.DialTimeout("tcp", addr, t.connectTimeout)
 				if err == nil {
 					if t.useTLS {
 						c := t.clientTLSConfig
 						c.ServerName = addr
-						tlsConn := tls.Client(netConn, t.clientTLSConfig)
-						err = tlsConn.Handshake()
-						if err == nil {
-							_ = t.handshake(tlsConn)
-							netConn = tlsConn
-						} else {
-							atomic.AddInt32(&t.dialErrors, 1)
-							if tlsConn != nil {
-								tlsConn.Close()
-								tlsConn = nil
-							}
-							t.logError("tls connection: %s %s\n", addr, err)
-							if netConn != nil {
-								netConn.Close()
-								netConn = nil
-							}
-							time.Sleep(t.reconnectInterval)
-							continue OuterLoop
-						}
+						netConn = tls.Client(baseConn, c)
 					} else {
 						netConn = baseConn
-						err = t.handshake(netConn)
 					}
+					err = t.handshake(netConn)
 				}
 			}
 			if err != nil {
