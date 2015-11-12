@@ -511,6 +511,7 @@ func (t *TCPMsgRing) handshake(netConn net.Conn) (string, error) {
 		buf := make([]byte, 8)
 		binary.BigEndian.PutUint64(buf, localID)
 		netConn.Write(buf)
+		netConn.SetWriteDeadline(time.Time{})
 		close(errchan)
 	}()
 	buf := make([]byte, len(TCP_MSG_RING_VERSION))
@@ -522,6 +523,7 @@ func (t *TCPMsgRing) handshake(netConn net.Conn) (string, error) {
 	buf = make([]byte, 8)
 	netConn.SetReadDeadline(time.Now().Add(t.withinMessageTimeout))
 	io.ReadFull(netConn, buf)
+	netConn.SetReadDeadline(time.Time{})
 	remoteID := binary.BigEndian.Uint64(buf)
 	remoteNode := t.Ring().Node(remoteID)
 	if remoteNode == nil {
