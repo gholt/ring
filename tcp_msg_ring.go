@@ -1,6 +1,7 @@
 package ring
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
@@ -398,27 +399,27 @@ OuterLoop:
 			}
 			atomic.AddInt32(&t.incomingConnections, 1)
 			go func(netConn net.Conn) {
-				addr := netConn.RemoteAddr().String()
-				t.chaosAddrOffsLock.RLock()
-				if t.chaosAddrOffs[addr] {
-					t.logError("listen: %s chaosAddrOff\n", addr)
-					netConn.Close()
-					t.chaosAddrOffsLock.RUnlock()
-					return
-				}
-				t.chaosAddrOffsLock.RUnlock()
-				if err := t.handshake(netConn); err != nil {
+				if addr, err := t.handshake(netConn); err != nil {
 					t.logError("listen: %s %s\n", addr, err)
 					netConn.Close()
 					return
+				} else {
+					t.chaosAddrOffsLock.RLock()
+					if t.chaosAddrOffs[addr] {
+						t.logError("listen: %s chaosAddrOff\n", addr)
+						netConn.Close()
+						t.chaosAddrOffsLock.RUnlock()
+						return
+					}
+					t.chaosAddrOffsLock.RUnlock()
+					msgChan, created := t.msgChanForAddr(addr)
+					// NOTE: If created is true, it'll indicate to connection
+					// that redialing is okay. If created is false, once the
+					// connection has terminated it won't be reestablished
+					// since there is already another connection running that
+					// will redial.
+					go t.connection(addr, netConn, msgChan, created)
 				}
-				msgChan, created := t.msgChanForAddr(addr)
-				// NOTE: If created is true, it'll indicate to connection
-				// that redialing is okay. If created is false, once the
-				// connection has terminated it won't be reestablished
-				// since there is already another connection running that
-				// will redial.
-				go t.connection(addr, netConn, msgChan, created)
 			}(netConn)
 		}
 	}
@@ -494,9 +495,46 @@ func (t *TCPMsgRing) msgToAddr(msg Msg, addr string, timeout time.Duration) {
 	//	}
 }
 
-func (t *TCPMsgRing) handshake(netConn net.Conn) error {
-	// TODO: Exchange protocol version numbers and whatever else.
-	return nil
+var TCP_MSG_RING_VERSION = []byte("TCPMSGRINGv00001")
+
+func (t *TCPMsgRing) handshake(netConn net.Conn) (string, error) {
+	errchan := make(chan error)
+	go func() {
+		var localID uint64
+		if localNode := t.Ring().LocalNode(); localNode != nil {
+			localID = localNode.ID()
+		}
+		netConn.SetWriteDeadline(time.Now().Add(t.withinMessageTimeout))
+		if _, err := netConn.Write(TCP_MSG_RING_VERSION); err != nil {
+			errchan <- err
+		}
+		buf := make([]byte, 8)
+		binary.BigEndian.PutUint64(buf, localID)
+		netConn.Write(buf)
+		close(errchan)
+	}()
+	buf := make([]byte, len(TCP_MSG_RING_VERSION))
+	netConn.SetReadDeadline(time.Now().Add(t.withinMessageTimeout))
+	io.ReadFull(netConn, buf)
+	if !bytes.Equal(buf, TCP_MSG_RING_VERSION) {
+		return "", fmt.Errorf("invalid remote protocol version: %s", string(buf))
+	}
+	buf = make([]byte, 8)
+	netConn.SetReadDeadline(time.Now().Add(t.withinMessageTimeout))
+	io.ReadFull(netConn, buf)
+	remoteID := binary.BigEndian.Uint64(buf)
+	remoteNode := t.Ring().Node(remoteID)
+	if remoteNode == nil {
+		return "", fmt.Errorf("unknown remote node id %d %x", remoteID, remoteID)
+	}
+	addr := remoteNode.Address(t.addressIndex)
+	if addr == "" {
+		return "", fmt.Errorf("unknown address %d for remote node id %d %x", t.addressIndex, remoteID, remoteID)
+	}
+	if err := <-errchan; err != nil {
+		return "", err
+	}
+	return addr, nil
 }
 
 func (t *TCPMsgRing) connection(addr string, netConn net.Conn, msgChan chan Msg, dialOk bool) {
@@ -534,7 +572,7 @@ OuterLoop:
 					} else {
 						netConn = baseConn
 					}
-					err = t.handshake(netConn)
+					_, err = t.handshake(netConn)
 				}
 			}
 			if err != nil {
