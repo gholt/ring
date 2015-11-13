@@ -498,40 +498,61 @@ func (t *TCPMsgRing) msgToAddr(msg Msg, addr string, timeout time.Duration) {
 var TCP_MSG_RING_VERSION = []byte("TCPMSGRINGv00001")
 
 func (t *TCPMsgRing) handshake(netConn net.Conn) (string, error) {
+	var localID uint64
+	if localNode := t.Ring().LocalNode(); localNode != nil {
+		localID = localNode.ID()
+	}
+	if localID == 0 {
+		return "", errors.New("no local ring id")
+	}
 	errchan := make(chan error)
 	go func() {
-		var localID uint64
-		if localNode := t.Ring().LocalNode(); localNode != nil {
-			localID = localNode.ID()
-		}
 		netConn.SetWriteDeadline(time.Now().Add(t.withinMessageTimeout))
-		if _, err := netConn.Write(TCP_MSG_RING_VERSION); err != nil {
+		_, err := netConn.Write(TCP_MSG_RING_VERSION)
+		netConn.SetWriteDeadline(time.Time{})
+		if err != nil {
 			errchan <- err
+			return
 		}
 		buf := make([]byte, 8)
 		binary.BigEndian.PutUint64(buf, localID)
-		netConn.Write(buf)
+		netConn.SetWriteDeadline(time.Now().Add(t.withinMessageTimeout))
+		_, err = netConn.Write(buf)
 		netConn.SetWriteDeadline(time.Time{})
+		if err != nil {
+			errchan <- err
+			return
+		}
 		close(errchan)
 	}()
 	buf := make([]byte, len(TCP_MSG_RING_VERSION))
 	netConn.SetReadDeadline(time.Now().Add(t.withinMessageTimeout))
-	io.ReadFull(netConn, buf)
+	_, err := io.ReadFull(netConn, buf)
+	netConn.SetReadDeadline(time.Time{})
+	if err != nil {
+		return "", err
+	}
 	if !bytes.Equal(buf, TCP_MSG_RING_VERSION) {
 		return "", fmt.Errorf("invalid remote protocol version: %s", string(buf))
 	}
 	buf = make([]byte, 8)
 	netConn.SetReadDeadline(time.Now().Add(t.withinMessageTimeout))
-	io.ReadFull(netConn, buf)
+	_, err = io.ReadFull(netConn, buf)
 	netConn.SetReadDeadline(time.Time{})
+	if err != nil {
+		return "", err
+	}
 	remoteID := binary.BigEndian.Uint64(buf)
+	if remoteID == 0 {
+		return "", fmt.Errorf("no remote ring id")
+	}
 	remoteNode := t.Ring().Node(remoteID)
 	if remoteNode == nil {
-		return "", fmt.Errorf("unknown remote node id %d %x", remoteID, remoteID)
+		return "", fmt.Errorf("unknown remote ring id %d %x", remoteID, remoteID)
 	}
 	addr := remoteNode.Address(t.addressIndex)
 	if addr == "" {
-		return "", fmt.Errorf("unknown address %d for remote node id %d %x", t.addressIndex, remoteID, remoteID)
+		return "", fmt.Errorf("unknown address %d for remote ring id %d %x", t.addressIndex, remoteID, remoteID)
 	}
 	if err := <-errchan; err != nil {
 		return "", err
