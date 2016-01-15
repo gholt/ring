@@ -498,12 +498,13 @@ func (t *TCPMsgRing) msgToAddr(msg Msg, addr string, timeout time.Duration) {
 var TCP_MSG_RING_VERSION = []byte("TCPMSGRINGv00001")
 
 func (t *TCPMsgRing) handshake(netConn net.Conn) (string, error) {
+	addr := netConn.RemoteAddr().String()
 	var localID uint64
 	if localNode := t.Ring().LocalNode(); localNode != nil {
 		localID = localNode.ID()
 	}
 	if localID == 0 {
-		return "", errors.New("no local ring id")
+		return addr, errors.New("no local ring id")
 	}
 	errchan := make(chan error)
 	go func() {
@@ -530,32 +531,33 @@ func (t *TCPMsgRing) handshake(netConn net.Conn) (string, error) {
 	_, err := io.ReadFull(netConn, buf)
 	netConn.SetReadDeadline(time.Time{})
 	if err != nil {
-		return "", err
+		return addr, err
 	}
 	if !bytes.Equal(buf, TCP_MSG_RING_VERSION) {
-		return "", fmt.Errorf("invalid remote protocol version: %s", string(buf))
+		return addr, fmt.Errorf("invalid remote protocol version: %s", string(buf))
 	}
 	buf = make([]byte, 8)
 	netConn.SetReadDeadline(time.Now().Add(t.withinMessageTimeout))
 	_, err = io.ReadFull(netConn, buf)
 	netConn.SetReadDeadline(time.Time{})
 	if err != nil {
-		return "", err
+		return addr, err
 	}
 	remoteID := binary.BigEndian.Uint64(buf)
 	if remoteID == 0 {
-		return "", fmt.Errorf("no remote ring id")
+		return addr, fmt.Errorf("no remote ring id")
 	}
 	remoteNode := t.Ring().Node(remoteID)
 	if remoteNode == nil {
-		return "", fmt.Errorf("unknown remote ring id %d %x", remoteID, remoteID)
+		return addr, fmt.Errorf("unknown remote ring id %d %x", remoteID, remoteID)
 	}
-	addr := remoteNode.Address(t.addressIndex)
-	if addr == "" {
-		return "", fmt.Errorf("unknown address %d for remote ring id %d %x", t.addressIndex, remoteID, remoteID)
+	if remoteNode.Address(t.addressIndex) == "" {
+		return addr, fmt.Errorf("unknown address %d for remote ring id %d %x", t.addressIndex, remoteID, remoteID)
+	} else {
+		addr = remoteNode.Address(t.addressIndex)
 	}
 	if err := <-errchan; err != nil {
-		return "", err
+		return addr, err
 	}
 	return addr, nil
 }
