@@ -169,9 +169,14 @@ func CLIHelp(args []string, output io.Writer) error {
             the number of minutes to wait before reassigning a given replica of
             a partition. This is to give time for actual data to rebalance in
             the system before changing where it is assigned again.
-        configfile=<value>
+        config-file=<value>
             The <value> is the path to a config file that will be byte encoded
             and stored as the global conf.
+        id-bits=<value>
+            The <value> is a number from 1 to 64 that defaults to 64 and
+            indicates the number of bits to use for node IDs in the ring.
+            Perhaps a strange setting, but limiting the bits may required or
+            useful in applications that store or transmit node IDs.
 
 %[1]s <builder-file> add [<name>=<value>] ...
     Adds a new node to the builder. Available attributes:
@@ -193,7 +198,7 @@ func CLIHelp(args []string, output io.Writer) error {
             The [value] can be any string and is not used directly by the
             builder or  It can be used for notes about the node if
             desired, such as the model or serial number.
-        configfile=<value>
+        config-file=<value>
             The <value> is the path to a config file that will be byte encoded
             and stored in this nodes conf field.
 
@@ -264,6 +269,7 @@ func CLIInfo(r Ring, b *Builder, output io.Writer) error {
 			[]string{brimtext.ThousandsSep(int64(b.PointsAllowed()), ","), "Points Allowed"},
 			[]string{brimtext.ThousandsSep(int64(b.MaxPartitionBitCount()), ","), "Max Partition Bits"},
 			[]string{brimtext.ThousandsSep(int64(b.MoveWait()), ","), "Move Wait"},
+			[]string{brimtext.ThousandsSep(int64(b.IDBits()), ","), "ID Bits"},
 		}
 		reportOpts := brimtext.NewDefaultAlignOptions()
 		reportOpts.Alignments = []brimtext.Alignment{brimtext.Right, brimtext.Left}
@@ -475,6 +481,7 @@ func CLICreate(filename string, args []string, output io.Writer) error {
 	pointsAllowed := 1
 	maxPartitionBitCount := 23
 	moveWait := 60
+	idBits := 64
 	var conf []byte
 	var err error
 	for _, arg := range args {
@@ -523,10 +530,17 @@ func CLICreate(filename string, args []string, output io.Writer) error {
 			} else if moveWait > math.MaxUint16 {
 				moveWait = math.MaxUint16
 			}
-		case "configfile":
+		case "config-file":
 			conf, err = ioutil.ReadFile(sarg[1])
 			if err != nil {
 				return fmt.Errorf("Error reading config file: %v", err)
+			}
+		case "id-bits":
+			if idBits, err = strconv.Atoi(sarg[1]); err != nil {
+				return err
+			}
+			if idBits < 1 || idBits > 64 {
+				return fmt.Errorf("id-bits must be in the range 1-64; %d was given", idBits)
 			}
 		default:
 			return fmt.Errorf("Invalid arg: '%s' in create cmd", arg)
@@ -542,8 +556,7 @@ func CLICreate(filename string, args []string, output io.Writer) error {
 	if f, err = os.Create(filename); err != nil {
 		return err
 	}
-	// TODO: Need to allow for setting IDBits on creation.
-	b := NewBuilder(64)
+	b := NewBuilder(idBits)
 	b.SetConf(conf)
 	b.SetReplicaCount(replicaCount)
 	b.SetPointsAllowed(byte(pointsAllowed))
@@ -614,7 +627,7 @@ func CLIAddOrSet(b *Builder, args []string, n BuilderNode, output io.Writer) err
 			if n != nil {
 				n.SetMeta(meta)
 			}
-		case "configfile":
+		case "config-file":
 			var err error
 			conf, err = ioutil.ReadFile(sarg[1])
 			if err != nil {
