@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/gholt/brimtext.v1"
 )
@@ -240,20 +241,20 @@ func CLIHelp(args []string, output io.Writer) error {
 func CLIInfo(r Ring, b *Builder, output io.Writer) error {
 	if r != nil {
 		// TODO:
-		//  Version Info (the value as well as the time translation)
-		//  Number of tier levels
-		//  Replica count
 		//  Indication of how risky the assignments are:
 		//      Replicas not in distinct tiers, nodes
 		s := r.Stats()
 		report := [][]string{
 			[]string{brimtext.ThousandsSep(int64(s.PartitionCount), ","), "Partitions"},
 			[]string{brimtext.ThousandsSep(int64(s.PartitionBitCount), ","), "Partition Bits"},
+			[]string{brimtext.ThousandsSep(int64(r.ReplicaCount()), ","), "Replicas"},
 			[]string{brimtext.ThousandsSep(int64(s.NodeCount), ","), "Nodes"},
 			[]string{brimtext.ThousandsSep(int64(s.InactiveNodeCount), ","), "Inactive Nodes"},
+			[]string{brimtext.ThousandsSep(int64(len(r.Tiers())), ","), "Tier Levels"},
 			[]string{brimtext.ThousandsSepU(s.TotalCapacity, ","), "Total Node Capacity"},
 			[]string{fmt.Sprintf("%.02f%%", s.MaxUnderNodePercentage), fmt.Sprintf("Worst Underweight Node (ID %016x)", s.MaxUnderNodeID)},
 			[]string{fmt.Sprintf("%.02f%%", s.MaxOverNodePercentage), fmt.Sprintf("Worst Overweight Node (ID %016x)", s.MaxOverNodeID)},
+			[]string{"Version", fmt.Sprintf("%d   %s", r.Version(), time.Unix(0, r.Version()).Format("2006-01-02 15:04:05.000"))},
 		}
 		reportOpts := brimtext.NewDefaultAlignOptions()
 		reportOpts.Alignments = []brimtext.Alignment{brimtext.Right, brimtext.Left}
@@ -266,6 +267,7 @@ func CLIInfo(r Ring, b *Builder, output io.Writer) error {
 		report := [][]string{
 			[]string{brimtext.ThousandsSep(int64(len(b.Nodes())), ","), "Nodes"},
 			[]string{brimtext.ThousandsSep(int64(b.ReplicaCount()), ","), "Replicas"},
+			[]string{brimtext.ThousandsSep(int64(len(b.Tiers())), ","), "Tier Levels"},
 			[]string{brimtext.ThousandsSep(int64(b.PointsAllowed()), ","), "Points Allowed"},
 			[]string{brimtext.ThousandsSep(int64(b.MaxPartitionBitCount()), ","), "Max Partition Bits"},
 			[]string{brimtext.ThousandsSep(int64(b.MoveWait()), ","), "Move Wait"},
