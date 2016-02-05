@@ -244,10 +244,11 @@ func (n *node) SetConf(conf []byte) {
 type NodeSlice []Node
 
 // Filter will return a new NodeSlice with just the nodes that match the
-// filters given. The basic filter syntax is that "attribute=value" will filter
-// to just nodes whose attribute exactly match the value and "attribute~=value"
-// will similarly filter but treat the value as a regular expression. The
-// available attributes to filter on are:
+// filters given; multiple filters are ANDed. The basic filter syntax is that
+// "attribute=value" will filter to just nodes whose attribute exactly match
+// the value and "attribute~=value" will similarly filter but treat the value
+// as a regular expression (per the http://golang.org/pkg/regexp/
+// implementation). The available attributes to filter on are:
 //
 //      id          A node's id (uint64 represented as %016x).
 //      active      Whether a node is active or not (use "true" or "false").

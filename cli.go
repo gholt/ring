@@ -124,8 +124,10 @@ func CLIHelp(args []string, output io.Writer) error {
     Lists the nodes contained within the <file>, with optional filtering.
     Filters are attribute=value for exact string matches or attribute~=value
     for regular expression matches (per the http://golang.org/pkg/regexp/
-    implementation). Of note, matches are case sensitive by default but you can
-    prefix them with "(?i)" to switch to case insensitive, such as:
+    implementation). Multiple filters will be ANDed together; meaning the
+    resulting list will match all the filters given. Of note, matches are case
+    sensitive by default but you can prefix them with "(?i)" to switch to case
+    insensitive, such as:
     
         meta~="(?i)model 50x"
 
