@@ -88,7 +88,7 @@ func resolveTCPMsgRingConfig(c *TCPMsgRingConfig) *TCPMsgRingConfig {
 		*cfg = *c
 	}
 	if cfg.LogCritical == nil {
-		cfg.LogCritical = log.New(os.Stderr, "TCPMsgRing ", log.LstdFlags).Printf
+		cfg.LogCritical = log.New(os.Stderr, "CRITICAL: TCPMsgRing ", log.LstdFlags).Printf
 	}
 	// LogDebug set as nil is fine and shortcircuits any debug code.
 	// AddressIndex defaulting to 0 is fine.
