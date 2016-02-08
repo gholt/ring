@@ -25,9 +25,9 @@ type LogFunc func(format string, v ...interface{})
 // no effect on existing TCPMsgRings; but deep changes (such as reconfiguring
 // an existing Logger) will.
 type TCPMsgRingConfig struct {
-	// LogCritical sets the func to use for critical messages; these are
-	// messages that render the message ring inoperative. Defaults logging
-	// to os.Stderr.
+    // LogCritical sets the func to use for critical messages; these are
+    // messages about issues that render the TCPMsgRing ring inoperative.
+    // Defaults logging to os.Stderr.
 	LogCritical LogFunc
 	// LogDebug sets the func to use for debug messages. Defaults not logging
 	// debug messages.
