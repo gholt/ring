@@ -25,18 +25,10 @@ type LogFunc func(format string, v ...interface{})
 // no effect on existing TCPMsgRings; but deep changes (such as reconfiguring
 // an existing Logger) will.
 type TCPMsgRingConfig struct {
-	// LogCritical sets the func to use for critical messages. Defaults logging
+	// LogCritical sets the func to use for critical messages; these are
+	// messages that render the message ring inoperative. Defaults logging
 	// to os.Stderr.
 	LogCritical LogFunc
-	// LogError sets the func to use for error messages. Defaults logging to
-	// os.Stderr.
-	LogError LogFunc
-	// LogWarning sets the func to use for warning messages. Defaults logging
-	// to os.Stderr.
-	LogWarning LogFunc
-	// LogInfo sets the func to use for info messages. Defaults logging to
-	// os.Stdout.
-	LogInfo LogFunc
 	// LogDebug sets the func to use for debug messages. Defaults not logging
 	// debug messages.
 	LogDebug LogFunc
@@ -96,15 +88,6 @@ func resolveTCPMsgRingConfig(c *TCPMsgRingConfig) *TCPMsgRingConfig {
 	if cfg.LogCritical == nil {
 		cfg.LogCritical = log.New(os.Stderr, "TCPMsgRing ", log.LstdFlags).Printf
 	}
-	if cfg.LogError == nil {
-		cfg.LogError = log.New(os.Stderr, "TCPMsgRing ", log.LstdFlags).Printf
-	}
-	if cfg.LogWarning == nil {
-		cfg.LogWarning = log.New(os.Stderr, "TCPMsgRing ", log.LstdFlags).Printf
-	}
-	if cfg.LogInfo == nil {
-		cfg.LogInfo = log.New(os.Stdout, "TCPMsgRing ", log.LstdFlags).Printf
-	}
 	// LogDebug set as nil is fine and shortcircuits any debug code.
 	// AddressIndex defaulting to 0 is fine.
 	if cfg.BufferedMessagesPerAddress < 1 {
@@ -127,10 +110,8 @@ func resolveTCPMsgRingConfig(c *TCPMsgRingConfig) *TCPMsgRingConfig {
 
 type TCPMsgRing struct {
 	logCritical                LogFunc
-	logError                   LogFunc
-	logWarning                 LogFunc
-	logInfo                    LogFunc
 	logDebug                   LogFunc
+	logDebugOn                 bool
 	controlChan                chan struct{}
 	ringLock                   sync.RWMutex
 	ring                       Ring
@@ -187,10 +168,8 @@ func NewTCPMsgRing(c *TCPMsgRingConfig) *TCPMsgRing {
 	cfg := resolveTCPMsgRingConfig(c)
 	return &TCPMsgRing{
 		logCritical:                cfg.LogCritical,
-		logError:                   cfg.LogError,
-		logWarning:                 cfg.LogWarning,
-		logInfo:                    cfg.LogInfo,
 		logDebug:                   cfg.LogDebug,
+		logDebugOn:                 cfg.LogDebug != nil,
 		controlChan:                make(chan struct{}),
 		addressIndex:               cfg.AddressIndex,
 		msgHandlers:                make(map[uint64]MsgUnmarshaller),
@@ -400,13 +379,13 @@ OuterLoop:
 			atomic.AddInt32(&t.incomingConnections, 1)
 			go func(netConn net.Conn) {
 				if addr, err := t.handshake(netConn); err != nil {
-					t.logError("listen: %s %s\n", addr, err)
+					t.logDebug("listen: %s %s\n", addr, err)
 					netConn.Close()
 					return
 				} else {
 					t.chaosAddrOffsLock.RLock()
 					if t.chaosAddrOffs[addr] {
-						t.logError("listen: %s chaosAddrOff\n", addr)
+						t.logDebug("listen: %s chaosAddrOff\n", addr)
 						netConn.Close()
 						t.chaosAddrOffsLock.RUnlock()
 						return
@@ -606,7 +585,7 @@ OuterLoop:
 					netConn.Close()
 					netConn = nil
 				}
-				t.logError("connection: %s %s\n", addr, err)
+				t.logDebug("connection: %s %s\n", addr, err)
 				time.Sleep(t.reconnectInterval)
 				continue OuterLoop
 			}
@@ -617,7 +596,7 @@ OuterLoop:
 			go func(netConn net.Conn) {
 				time.Sleep(time.Duration((atomic.LoadInt32(&t.msgToAddrs)%61)+10) * time.Second)
 				netConn.Close()
-				t.logError("chaosAddrDisconnect %s\n", netConn.RemoteAddr())
+				t.logDebug("chaosAddrDisconnect %s\n", netConn.RemoteAddr())
 			}(netConn)
 		}
 		t.chaosAddrDisconnectsLock.RUnlock()
@@ -653,7 +632,7 @@ OuterLoop:
 		}
 		if err := t.readMsg(reader); err != nil {
 			atomic.AddInt32(&t.msgReadErrors, 1)
-			t.logError("readMsg: %s\n", err)
+			t.logDebug("readMsg: %s\n", err)
 			break
 		}
 		atomic.AddInt32(&t.msgReads, 1)
@@ -716,7 +695,7 @@ func (t *TCPMsgRing) writeMsgs(writer *timeoutWriter, msgChan chan Msg) {
 	for msg := range msgChan {
 		if err := t.writeMsg(writer, msg); err != nil {
 			atomic.AddInt32(&t.msgWriteErrors, 1)
-			t.logError("writeMsg: %s\n", err)
+			t.logDebug("writeMsg: %s\n", err)
 			msg.Free()
 			break
 		}
