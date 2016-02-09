@@ -250,7 +250,7 @@ type NodeSlice []Node
 // as a regular expression (per the http://golang.org/pkg/regexp/
 // implementation). The available attributes to filter on are:
 //
-//      id          A node's id (uint64 represented as %016x).
+//      id          A node's id (uint64 represented as %d).
 //      active      Whether a node is active or not (use "true" or "false").
 //      capacity    A node's capacity.
 //      tier        Any tier of a node.
@@ -292,11 +292,11 @@ func (ns NodeSlice) Filter(filters []string) (NodeSlice, error) {
 		case "id":
 			if re == nil {
 				matcher = func(n Node) bool {
-					return sfilter[1] == fmt.Sprintf("%016x", n.ID())
+					return sfilter[1] == fmt.Sprintf("%d", n.ID())
 				}
 			} else {
 				matcher = func(n Node) bool {
-					return re.MatchString(fmt.Sprintf("%016x", n.ID()))
+					return re.MatchString(fmt.Sprintf("%d", n.ID()))
 				}
 			}
 		case "active":

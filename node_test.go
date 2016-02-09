@@ -319,17 +319,17 @@ func TestNodeFilterID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ns[0].(*node).id = 0x0000000000001230
-	ns[1].(*node).id = 0x0000000000001231
-	ns[2].(*node).id = 0x0000000000009999
-	fns, err := ns.Filter([]string{"id=0000000000001230"})
+	ns[0].(*node).id = 1230
+	ns[1].(*node).id = 1231
+	ns[2].(*node).id = 9999
+	fns, err := ns.Filter([]string{"id=1230"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(fns) != 1 {
 		t.Fatal("")
 	}
-	if fns[0].ID() != 0x0000000000001230 {
+	if fns[0].ID() != 1230 {
 		t.Fatal("")
 	}
 	fns, err = ns.Filter([]string{"id~=123"})
@@ -339,10 +339,17 @@ func TestNodeFilterID(t *testing.T) {
 	if len(fns) != 2 {
 		t.Fatal("")
 	}
-	if fns[0].ID() != 0x0000000000001230 {
+	if fns[0].ID() != 1230 {
 		t.Fatal("")
 	}
-	if fns[1].ID() != 0x0000000000001231 {
+	if fns[1].ID() != 1231 {
+		t.Fatal("")
+	}
+	fns, err = ns.Filter([]string{"id=123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fns) != 0 {
 		t.Fatal("")
 	}
 }

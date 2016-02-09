@@ -254,8 +254,8 @@ func CLIInfo(r Ring, b *Builder, output io.Writer) error {
 			[]string{brimtext.ThousandsSep(int64(s.InactiveNodeCount), ","), "Inactive Nodes"},
 			[]string{brimtext.ThousandsSep(int64(len(r.Tiers())), ","), "Tier Levels"},
 			[]string{brimtext.ThousandsSepU(s.TotalCapacity, ","), "Total Node Capacity"},
-			[]string{fmt.Sprintf("%.02f%%", s.MaxUnderNodePercentage), fmt.Sprintf("Worst Underweight Node (ID %016x)", s.MaxUnderNodeID)},
-			[]string{fmt.Sprintf("%.02f%%", s.MaxOverNodePercentage), fmt.Sprintf("Worst Overweight Node (ID %016x)", s.MaxOverNodeID)},
+			[]string{fmt.Sprintf("%.02f%%", s.MaxUnderNodePercentage), fmt.Sprintf("Worst Underweight Node (ID %d)", s.MaxUnderNodeID)},
+			[]string{fmt.Sprintf("%.02f%%", s.MaxOverNodePercentage), fmt.Sprintf("Worst Overweight Node (ID %d)", s.MaxOverNodeID)},
 			[]string{"Version", fmt.Sprintf("%d   %s", r.Version(), time.Unix(0, r.Version()).Format("2006-01-02 15:04:05.000"))},
 		}
 		reportOpts := brimtext.NewDefaultAlignOptions()
@@ -341,7 +341,7 @@ func CLINode(r Ring, b *Builder, args []string, full bool, output io.Writer) (ch
 				fmt.Fprintln(output)
 			}
 			report := [][]string{
-				[]string{"ID:", fmt.Sprintf("%016x", n.ID())},
+				[]string{"ID:", fmt.Sprintf("%d", n.ID())},
 				[]string{"Active:", fmt.Sprintf("%v", n.Active())},
 				[]string{"Capacity:", fmt.Sprintf("%d", n.Capacity())},
 				[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
@@ -371,7 +371,7 @@ func CLINode(r Ring, b *Builder, args []string, full bool, output io.Writer) (ch
 	}
 	reportLine := func(n Node) []string {
 		return []string{
-			fmt.Sprintf("%016x", n.ID()),
+			fmt.Sprintf("%d", n.ID()),
 			fmt.Sprintf("%v", n.Active()),
 			fmt.Sprintf("%d", n.Capacity()),
 			n.Address(0),
@@ -464,7 +464,7 @@ func CLIPartition(r Ring, b *Builder, args []string, output io.Writer) error {
 			fmt.Fprintln(output)
 		}
 		report := [][]string{
-			[]string{"ID:", fmt.Sprintf("%016x", n.ID())},
+			[]string{"ID:", fmt.Sprintf("%d", n.ID())},
 			[]string{"Capacity:", fmt.Sprintf("%d", n.Capacity())},
 			[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
 			[]string{"Addresses:", strings.Join(n.Addresses(), "\n")},
@@ -687,7 +687,7 @@ func CLIAddOrSet(b *Builder, args []string, n BuilderNode, output io.Writer) err
 			return err
 		}
 		report := [][]string{
-			[]string{"ID:", fmt.Sprintf("%016x", n.ID())},
+			[]string{"ID:", fmt.Sprintf("%d", n.ID())},
 			[]string{"Active:", fmt.Sprintf("%v", n.Active())},
 			[]string{"Capacity:", fmt.Sprintf("%d", n.Capacity())},
 			[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
