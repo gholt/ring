@@ -5,6 +5,51 @@
 //
 // It also contains tools for using a ring as a messaging hub, easing
 // communication between nodes in the ring.
+//
+// Here's a quick example of building a ring and discovering what items are
+// assigned to what nodes:
+//
+//  package main
+//
+//  import (
+//  	"fmt"
+//  	"hash/fnv"
+//
+//  	"github.com/gholt/ring"
+//  )
+//
+//  func main() {
+//      // Note that we're ignoring errors for the purpose of a shorter example.
+//      // The 64 indicates how many bits can be used in a uint64 for node IDs;
+//      // 64 is fine unless you have a specific use case.
+//      builder := ring.NewBuilder(64)
+//      // (active, capacity, no tiers, no addresses, meta, no conf)
+//      builder.AddNode(true, 1, nil, nil, "NodeA", nil)
+//      builder.AddNode(true, 1, nil, nil, "NodeB", nil)
+//      builder.AddNode(true, 1, nil, nil, "NodeC", nil)
+//      // This rebalances if necessary and provides a usable Ring instance.
+//  	ring := builder.Ring()
+//      // This value indicates how many bits are in use for determining ring
+//      // partitions.
+//      partitionBitCount := ring.PartitionBitCount()
+//      for _, item := range []string{"First", "Second", "Third"} {
+//          // We're using fnv hashing here, but you can use whatever you like.
+//          // We don't actually recommend fnv, but it's useful for this example.
+//  		hasher := fnv.New64a()
+//  		hasher.Write([]byte(item))
+//  		partition := uint32(hasher.Sum64() >> (64 - partitionBitCount))
+//          // We can just grab the first node since this example just uses one
+//          // replica. See Builder.SetReplicaCount for more information.
+//          node := ring.ResponsibleNodes(partition)[0]
+//          fmt.Printf("%s is handled by %v\n", item, node.Meta())
+//      }
+//  }
+//
+// The output would be:
+//
+// First is handled by NodeC
+// Second is handled by NodeB
+// Third is handled by NodeB
 package ring
 
 import (
