@@ -1,8 +1,8 @@
 # Ring
 ## Development Repository
 
-*Experimental: No stable version of this package yet exists; it is still in
-early development.*
+**Experimental: No stable version of this package yet exists; it is still in
+early development.**
 
 Package ring contains tools for building and using a consistent hashing ring
 with replicas, automatic partitioning (ring ranges), and keeping replicas of
