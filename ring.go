@@ -47,9 +47,9 @@
 //
 // The output would be:
 //
-// First is handled by NodeC
-// Second is handled by NodeB
-// Third is handled by NodeB
+//  First is handled by NodeC
+//  Second is handled by NodeB
+//  Third is handled by NodeB
 package ring
 
 import (
