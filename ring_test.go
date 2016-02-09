@@ -20,16 +20,6 @@ func TestRingConf(t *testing.T) {
 	}
 }
 
-func TestRingSetConf(t *testing.T) {
-	confbytes := []byte("three shall be the number thou shalt count")
-	r := &ring{conf: []byte("")}
-	r.SetConf(confbytes)
-	v := r.Conf()
-	if !bytes.Equal(v, confbytes) {
-		t.Fatalf("Conf() gave %s instead of %s", v, confbytes)
-	}
-}
-
 func TestRingPartitionBitCount(t *testing.T) {
 	v := (&ring{partitionBitCount: 1}).PartitionBitCount()
 	if v != 1 {
@@ -149,8 +139,6 @@ func TestRingPersistence(t *testing.T) {
 	b.AddNode(false, 0, []string{"server3", "zone1"}, []string{"1.2.3.6:56789"}, "Meta Three", []byte("Conf"))
 	r := b.Ring().(*ring)
 	buf := bytes.NewBuffer(make([]byte, 0, 65536))
-	confbytes := []byte("three shall be the number thou shalt count")
-	r.SetConf(confbytes)
 	err := r.Persist(buf)
 	if err != nil {
 		t.Fatal(err)

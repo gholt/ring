@@ -29,8 +29,6 @@ type Ring interface {
 	Version() int64
 	// Conf returns the raw encoded global configuration.
 	Conf() []byte
-	// SetConf stores the provided config bytes.
-	SetConf(conf []byte)
 	// Node returns the node instance identified, if there is one.
 	Node(nodeID uint64) Node
 	// Nodes returns a NodeSlice of the nodes the Ring references.
@@ -423,10 +421,6 @@ func (r *ring) Version() int64 {
 // GlobalConf is the raw encoded bytes of the config object.
 func (r *ring) Conf() []byte {
 	return r.conf
-}
-
-func (r *ring) SetConf(conf []byte) {
-	r.conf = conf
 }
 
 // PartitionBitCount is the number of bits that can be used to determine a
