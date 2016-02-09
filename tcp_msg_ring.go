@@ -20,6 +20,8 @@ import (
 
 type LogFunc func(format string, v ...interface{})
 
+func nilLogFunc(format string, v ...interface{}) {}
+
 // TCPMsgRingConfig represents the set of values for configuring a TCPMsgRing.
 // Note that changing the values (shallow changes) in this structure will have
 // no effect on existing TCPMsgRings; but deep changes (such as reconfiguring
@@ -86,7 +88,7 @@ func resolveTCPMsgRingConfig(c *TCPMsgRingConfig) *TCPMsgRingConfig {
 		*cfg = *c
 	}
 	if cfg.LogCritical == nil {
-		cfg.LogCritical = log.New(os.Stderr, "TCPMsgRing ", log.LstdFlags).Printf
+		cfg.LogCritical = log.New(os.Stderr, "CRITICAL: TCPMsgRing ", log.LstdFlags).Printf
 	}
 	// LogDebug set as nil is fine and shortcircuits any debug code.
 	// AddressIndex defaulting to 0 is fine.
@@ -166,7 +168,7 @@ type TCPMsgRing struct {
 // Msg instances.
 func NewTCPMsgRing(c *TCPMsgRingConfig) *TCPMsgRing {
 	cfg := resolveTCPMsgRingConfig(c)
-	return &TCPMsgRing{
+	t := &TCPMsgRing{
 		logCritical:                cfg.LogCritical,
 		logDebug:                   cfg.LogDebug,
 		logDebugOn:                 cfg.LogDebug != nil,
@@ -186,6 +188,13 @@ func NewTCPMsgRing(c *TCPMsgRingConfig) *TCPMsgRing {
 		keyFile:                    cfg.KeyFile,
 		skipVerify:                 cfg.SkipVerify,
 	}
+	if t.logCritical == nil {
+		t.logCritical = nilLogFunc
+	}
+	if t.logDebug == nil {
+		t.logDebug = nilLogFunc
+	}
+	return t
 }
 
 // Ring returns the ring information used to determine messaging endpoints;
