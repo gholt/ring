@@ -105,7 +105,7 @@ type Ring interface {
 	ResponsibleNodes(partition uint32) NodeSlice
 	// Stats gives information about the ring and its health; the MaxUnder and
 	// MaxOver values specifically indicate how balanced the ring is.
-	Stats() *RingStats
+	Stats() *Stats
 	// Persist saves the Ring state to the given Writer for later reloading via
 	// the LoadRing method.
 	Persist(w io.Writer) error
@@ -545,9 +545,9 @@ func (r *ring) ResponsibleNodes(partition uint32) NodeSlice {
 	return nodes
 }
 
-// RingStats gives an overview of the state and health of a Ring. It is
-// returned by the Ring.Stats() method.
-type RingStats struct {
+// Stats gives an overview of the state and health of a Ring. It is returned by
+// the Ring.Stats() method.
+type Stats struct {
 	ReplicaCount      int
 	NodeCount         int
 	InactiveNodeCount int
@@ -564,8 +564,8 @@ type RingStats struct {
 	MaxOverNodeID         uint64
 }
 
-func (r *ring) Stats() *RingStats {
-	stats := &RingStats{
+func (r *ring) Stats() *Stats {
+	stats := &Stats{
 		ReplicaCount:      r.ReplicaCount(),
 		NodeCount:         len(r.nodes),
 		PartitionBitCount: r.PartitionBitCount(),
