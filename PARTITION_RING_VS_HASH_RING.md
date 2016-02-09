@@ -1,4 +1,6 @@
-Partition Ring vs. Hash Ring
+# Partition Ring vs. Hash Ring
+
+> Copyright See AUTHORS. All rights reserved.  
 
 While not the perfect title, hopefully it conveys that *this* ring library
 isn't exactly like *that* ring library. Many consistent hashing rings use a
