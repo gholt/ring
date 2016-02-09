@@ -309,9 +309,9 @@ func (rb *rebalancer) changeDesire(nodeIndex int32, increment bool) {
 func (rb *rebalancer) rebalance() bool {
 	rb.assignUnassigned()
 	rb.reassignDeactivated()
-	rb.reassignedSameNodeDups()
-	rb.reassignedSameTierDups()
-	rb.reassignOverweighted()
+	rb.reassignSameNodeDups()
+	rb.reassignSameTierDups()
+	rb.reassignOverweight()
 	return rb.altered
 }
 
@@ -374,7 +374,7 @@ func (rb *rebalancer) reassignDeactivated() {
 // distinct replica node would be fixed before others. Another example, a
 // partition that has two duplicate nodes but one has more replicas than the
 // other, it would be fixed first.
-func (rb *rebalancer) reassignedSameNodeDups() {
+func (rb *rebalancer) reassignSameNodeDups() {
 DupLoopPartition:
 	for partition := rb.maxPartition; partition >= 0; partition-- {
 		if rb.partitionToMovementsLeft[partition] < 1 {
@@ -414,7 +414,7 @@ DupLoopPartition:
 	}
 }
 
-func (rb *rebalancer) reassignedSameTierDups() {
+func (rb *rebalancer) reassignSameTierDups() {
 	for tier := rb.maxTier; tier >= 0; tier-- {
 	DupTierLoopPartition:
 		for partition := rb.maxPartition; partition >= 0; partition-- {
@@ -464,7 +464,7 @@ func (rb *rebalancer) reassignedSameTierDups() {
 // steal replicas from.
 
 // Try to reassign replicas from overweight nodes to underweight ones.
-func (rb *rebalancer) reassignOverweighted() {
+func (rb *rebalancer) reassignOverweight() {
 	visited := make([]bool, len(rb.builder.nodes))
 OverweightLoop:
 	for i := len(rb.nodeIndexesByDesire) - 1; i >= 0; i-- {
