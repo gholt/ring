@@ -282,6 +282,66 @@ func TestBuilderRing(t *testing.T) {
 	}
 }
 
+func TestBuilderResizeKeepsAssignments(t *testing.T) {
+	// [a, b] should get resized to [a, a, b, b] so that keys fall to the same
+	// assignments.
+	//
+	// This is because partition = (key >> (keybits - partitionbits).
+	//
+	// In this case, the two element ring (1 bit ring) and a 2 bit key means
+	// that partition = (key >> (2 - 1)) or that the higher bit is used. So
+	// keys 0b00 and 0b01 get partition 0b0 and node a, and keys 0b10 and 0b11
+	// get partition 0b1 and node b.
+	//
+	// With the four element ring (2 bit ring) and the same 2 bit key, that
+	// means partition = (key >> (2 - 2)) or both bits of the key. So key 0b00
+	// gets partition 0b00 and node a, key 0b01 gets partition 0b01 and node a,
+	// key 0b10 gets partition 0b10 and node b, and key 0b11 gets partition
+	// 0b11 and node b.
+	//
+	// I'm documenting all this because I've confused myself with it already.
+	//
+	// The reason behind all this is that it's desired to have the highest bits
+	// of a key represent the ring partition the key falls on, therefore
+	// selecting the node, and the low bits can be used by the node itself to
+	// distribute data within its own confines (memory, disk, etc.).
+	b := NewBuilder(64)
+	b.SetReplicaCount(1)
+	_, err := b.AddNode(true, 1, nil, nil, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = b.AddNode(true, 1, nil, nil, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.Ring()
+	n0 := b.replicaToPartitionToNodeIndex[0][0]
+	n1 := b.replicaToPartitionToNodeIndex[0][1]
+	_, err = b.AddNode(true, 1, nil, nil, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = b.AddNode(true, 1, nil, nil, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !b.resizeIfNeeded() {
+		t.Fatal("")
+	}
+	for p, n := range b.replicaToPartitionToNodeIndex[0] {
+		if p&2 == 0 {
+			if n != n0 {
+				t.Fatal(p)
+			}
+		} else {
+			if n != n1 {
+				t.Fatal(p)
+			}
+		}
+	}
+}
+
 func TestBuilderResizeIfNeeded(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(3)
