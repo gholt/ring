@@ -282,6 +282,44 @@ func TestBuilderRing(t *testing.T) {
 	}
 }
 
+func TestBuilderResizeKeepsAssignments(t *testing.T) {
+	b := NewBuilder(64)
+	b.SetReplicaCount(1)
+	_, err := b.AddNode(true, 1, nil, nil, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = b.AddNode(true, 1, nil, nil, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.Ring()
+	n0 := b.replicaToPartitionToNodeIndex[0][0]
+	n1 := b.replicaToPartitionToNodeIndex[0][1]
+	_, err = b.AddNode(true, 1, nil, nil, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = b.AddNode(true, 1, nil, nil, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !b.resizeIfNeeded() {
+		t.Fatal("")
+	}
+	for p, n := range b.replicaToPartitionToNodeIndex[0] {
+		if p&1 == 0 {
+			if n != n0 {
+				t.Fatal(p)
+			}
+		} else {
+			if n != n1 {
+				t.Fatal(p)
+			}
+		}
+	}
+}
+
 func TestBuilderResizeIfNeeded(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(3)

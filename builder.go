@@ -735,7 +735,7 @@ func (b *Builder) resizeIfNeeded() bool {
 			totalCapacity += (uint64)(n.capacity)
 		}
 	}
-	partitionCount := len(b.replicaToPartitionToNodeIndex[0])
+	partitionCount := uint32(len(b.replicaToPartitionToNodeIndex[0]))
 	partitionBitCount := b.partitionBitCount
 	pointsAllowed := float64(b.pointsAllowed) * 0.01
 	for _, n := range b.nodes {
@@ -757,14 +757,14 @@ func (b *Builder) resizeIfNeeded() bool {
 		}
 	}
 	// Grow the partitionToNodeIndex slices if the partition count grew.
-	if partitionCount > len(b.replicaToPartitionToNodeIndex[0]) {
-		shift := partitionBitCount - b.partitionBitCount
+	if partitionCount > uint32(len(b.replicaToPartitionToNodeIndex[0])) {
+		mask := uint32(0xffffffff >> (32 - b.partitionBitCount))
 		for replica := 0; replica < replicaCount; replica++ {
 			partitionToNodeIndex := make([]int32, partitionCount)
 			partitionToLastMove := make([]uint16, partitionCount)
-			for partition := 0; partition < partitionCount; partition++ {
-				partitionToNodeIndex[partition] = b.replicaToPartitionToNodeIndex[replica][partition>>shift]
-				partitionToLastMove[partition] = b.replicaToPartitionToLastMove[replica][partition>>shift]
+			for partition := uint32(0); partition < partitionCount; partition++ {
+				partitionToNodeIndex[partition] = b.replicaToPartitionToNodeIndex[replica][partition&mask]
+				partitionToLastMove[partition] = b.replicaToPartitionToLastMove[replica][partition&mask]
 			}
 			b.replicaToPartitionToNodeIndex[replica] = partitionToNodeIndex
 			b.replicaToPartitionToLastMove[replica] = partitionToLastMove
