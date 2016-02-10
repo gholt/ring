@@ -196,6 +196,18 @@ func TestNodeSimply(t *testing.T) {
 			t.Fatal("")
 		}
 	}
+	replaceAddrs := []string{"addrzero", "addrone"}
+	n.ReplaceAddresses(replaceAddrs)
+	addresses = n.Addresses()
+	if len(addresses) != 2 {
+		t.Fatal("")
+	}
+	if addresses[0] != "addrzero" {
+		t.Fatal("")
+	}
+	if addresses[1] != "addrone" {
+		t.Fatal("")
+	}
 	if n.Meta() != "" {
 		t.Fatal("")
 	}

@@ -57,6 +57,7 @@ type BuilderNode interface {
 	SetCapacity(value uint32)
 	SetTier(level int, value string)
 	SetAddress(index int, value string)
+	ReplaceAddresses(addrs []string)
 	SetMeta(value string)
 	SetConf(conf []byte)
 }
@@ -225,6 +226,13 @@ func (n *node) SetAddress(index int, value string) {
 		n.addresses = addresses
 	}
 	n.addresses[index] = value
+}
+
+func (n *node) ReplaceAddresses(addrs []string) {
+	if n.builder != nil {
+		n.builder.dirty = true
+	}
+	n.addresses = addrs
 }
 
 func (n *node) SetMeta(value string) {
