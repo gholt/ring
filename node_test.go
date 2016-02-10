@@ -161,6 +161,18 @@ func TestNodeSimply(t *testing.T) {
 	if tiers[10] != "levelten" {
 		t.Fatal("")
 	}
+	replaceTiers := []string{"lvlzero", "lvlone"}
+	n.ReplaceTiers(replaceTiers)
+	tiers = n.Tiers()
+	if len(tiers) != 2 {
+		t.Fatal("")
+	}
+	if tiers[0] != "lvlzero" {
+		t.Fatal("")
+	}
+	if tiers[1] != "lvlone" {
+		t.Fatal("")
+	}
 	if len(n.Addresses()) != 0 {
 		t.Fatal("")
 	}
@@ -195,6 +207,18 @@ func TestNodeSimply(t *testing.T) {
 		if addresses[i] != "" {
 			t.Fatal("")
 		}
+	}
+	replaceAddrs := []string{"addrzero", "addrone"}
+	n.ReplaceAddresses(replaceAddrs)
+	addresses = n.Addresses()
+	if len(addresses) != 2 {
+		t.Fatal("")
+	}
+	if addresses[0] != "addrzero" {
+		t.Fatal("")
+	}
+	if addresses[1] != "addrone" {
+		t.Fatal("")
 	}
 	if n.Meta() != "" {
 		t.Fatal("")
