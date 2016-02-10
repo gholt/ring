@@ -56,6 +56,7 @@ type BuilderNode interface {
 	SetActive(value bool)
 	SetCapacity(value uint32)
 	SetTier(level int, value string)
+	ReplaceTiers(tiers []string)
 	SetAddress(index int, value string)
 	ReplaceAddresses(addrs []string)
 	SetMeta(value string)
@@ -214,6 +215,16 @@ func (n *node) SetTier(level int, value string) {
 		n.tierIndexes = tierIndexes
 	}
 	n.tierIndexes[level] = int32(index)
+}
+
+func (n *node) ReplaceTiers(tiers []string) {
+	if n.builder != nil {
+		n.builder.dirty = true
+	}
+	n.tierIndexes = []int32{}
+	for level, value := range tiers {
+		n.SetTier(level, value)
+	}
 }
 
 func (n *node) SetAddress(index int, value string) {
