@@ -26,7 +26,7 @@ import (
 //      	"os"
 //
 //      	"github.com/gholt/ring"
-//      	"gopkg.in/gholt/brimtext.v1"
+//      	"github.com/gholt/brimtext"
 //      )
 //
 //      func main() {
