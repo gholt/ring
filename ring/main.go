@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/gholt/brimtext"
 	"github.com/gholt/ring"
-	"gopkg.in/gholt/brimtext.v1"
 )
 
 func main() {
