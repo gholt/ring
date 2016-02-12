@@ -11,7 +11,7 @@ func TestRebalancerBasic(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(3)
 	for i := 0; i < 128; i++ {
-		b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+		b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	}
 	b.resizeIfNeeded()
 	rb := newRebalancer(b)
@@ -36,7 +36,7 @@ func TestRebalancerTier0(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(4)
 	for i := 0; i < 128; i++ {
-		b.AddNode(true, 1, []string{fmt.Sprintf("tier%d", i%16)}, nil, "", []byte("Conf"))
+		b.AddNode(true, 1, []string{fmt.Sprintf("tier%d", i%16)}, nil, "", []byte("Config"))
 	}
 	b.resizeIfNeeded()
 	rb := newRebalancer(b)
@@ -76,9 +76,9 @@ func TestRebalancerTier0b(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(4)
 	for i := 0; i < 127; i++ {
-		b.AddNode(true, 1, []string{fmt.Sprintf("tier%d", i%16)}, nil, "", []byte("Conf"))
+		b.AddNode(true, 1, []string{fmt.Sprintf("tier%d", i%16)}, nil, "", []byte("Config"))
 	}
-	b.AddNode(true, 1, []string{"tier0"}, nil, "", []byte("Conf"))
+	b.AddNode(true, 1, []string{"tier0"}, nil, "", []byte("Config"))
 	b.resizeIfNeeded()
 	rb := newRebalancer(b)
 	rb.rebalance()
@@ -127,10 +127,10 @@ func TestRebalancerTier0c(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(4)
 	for i := 0; i < 96; i++ {
-		b.AddNode(true, 1, []string{fmt.Sprintf("tier%d", i%16)}, nil, "", []byte("Conf"))
+		b.AddNode(true, 1, []string{fmt.Sprintf("tier%d", i%16)}, nil, "", []byte("Config"))
 	}
 	for i := 0; i < 32; i++ {
-		b.AddNode(true, 1, []string{"tier0"}, nil, "", []byte("Conf"))
+		b.AddNode(true, 1, []string{"tier0"}, nil, "", []byte("Config"))
 	}
 	b.resizeIfNeeded()
 	rb := newRebalancer(b)
@@ -192,7 +192,7 @@ func TestRebalancerTier1(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(4)
 	for i := 0; i < 128; i++ {
-		b.AddNode(true, 1, []string{fmt.Sprintf("tier0-%d", i%32), fmt.Sprintf("tier1-%d", i%16)}, nil, "", []byte("Conf"))
+		b.AddNode(true, 1, []string{fmt.Sprintf("tier0-%d", i%32), fmt.Sprintf("tier1-%d", i%16)}, nil, "", []byte("Config"))
 	}
 	b.resizeIfNeeded()
 	rb := newRebalancer(b)
@@ -246,10 +246,10 @@ func TestRebalancerTier1b(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(4)
 	for i := 0; i < 96; i++ {
-		b.AddNode(true, 1, []string{fmt.Sprintf("tier0-%d", i%32), fmt.Sprintf("tier1-%d", i%16)}, nil, "", []byte("Conf"))
+		b.AddNode(true, 1, []string{fmt.Sprintf("tier0-%d", i%32), fmt.Sprintf("tier1-%d", i%16)}, nil, "", []byte("Config"))
 	}
 	for i := 0; i < 32; i++ {
-		b.AddNode(true, 1, []string{"tier0-0", "tier1-0"}, nil, "", []byte("Conf"))
+		b.AddNode(true, 1, []string{"tier0-0", "tier1-0"}, nil, "", []byte("Config"))
 	}
 	b.resizeIfNeeded()
 	rb := newRebalancer(b)

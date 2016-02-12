@@ -107,8 +107,20 @@ func CLI(args []string, output io.Writer) error {
 			return err
 		}
 		return PersistRingOrBuilder(r, b, args[1])
-	case "print-config":
-		return CLIPrintConfig(r, b, output)
+	case "config":
+		if changed, err := CLIConfig(r, b, args[3:], output); err != nil {
+			return err
+		} else if changed {
+			return PersistRingOrBuilder(r, b, args[1])
+		}
+		return nil
+	case "config-file":
+		if changed, err := CLIConfigFile(r, b, args[3:], output); err != nil {
+			return err
+		} else if changed {
+			return PersistRingOrBuilder(r, b, args[1])
+		}
+		return nil
 	}
 	return fmt.Errorf("unknown command: %#v", args[2])
 }
@@ -172,9 +184,11 @@ func CLIHelp(args []string, output io.Writer) error {
             the number of minutes to wait before reassigning a given replica of
             a partition. This is to give time for actual data to rebalance in
             the system before changing where it is assigned again.
+        config=<value>
+            The <value> is the string to be stored as the global config value.
         config-file=<value>
-            The <value> is the path to a config file that will be byte encoded
-            and stored as the global conf.
+            The <value> is the path to a file that will be byte encoded and
+            stored as the global config value.
         id-bits=<value>
             The <value> is a number from 1 to 64 that defaults to 64 and
             indicates the number of bits to use for node IDs in the ring.
@@ -201,9 +215,11 @@ func CLIHelp(args []string, output io.Writer) error {
             The [value] can be any string and is not used directly by the
             builder or  It can be used for notes about the node if
             desired, such as the model or serial number.
+        config=<value>
+            The <value> is the string to be stored in the node's config field.
         config-file=<value>
-            The <value> is the path to a config file that will be byte encoded
-            and stored in this nodes conf field.
+            The <value> is the path to a file that will be byte encoded and
+            stored in the node's config field.
 
 %[1]s <builder-file> remove id=<value>
     Removes the specified node from the builder. Often it's quicker to just set
@@ -229,8 +245,13 @@ func CLIHelp(args []string, output io.Writer) error {
     want to work around the protections that restrict reassigning data quicker
     than the move-wait limit.
 
-%[1]s <file> print-config
-    Display's the current config in the provided ring or builder file.
+%[1]s <file> config [value]
+    Displays or sets the global config in the provided ring or builder file.
+
+%[1]s <file> config-file [path]
+    Displays or sets the global config in the provided ring or builder file.
+    This will output the raw bytes if no [path] is given, or it will set the
+    config based on the contents of the file at the [path] given.
 `, path.Base(args[0]))
 	return nil
 }
@@ -340,16 +361,7 @@ func CLINode(r Ring, b *Builder, args []string, full bool, output io.Writer) (ch
 			} else {
 				fmt.Fprintln(output)
 			}
-			report := [][]string{
-				[]string{"ID:", fmt.Sprintf("%d", n.ID())},
-				[]string{"Active:", fmt.Sprintf("%v", n.Active())},
-				[]string{"Capacity:", fmt.Sprintf("%d", n.Capacity())},
-				[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
-				[]string{"Addresses:", strings.Join(n.Addresses(), "\n")},
-				[]string{"Meta:", n.Meta()},
-				[]string{"Conf:", string(n.Conf())},
-			}
-			fmt.Fprint(output, brimtext.Align(report, nil))
+			output.Write([]byte(CLINodeReport(n)))
 		}
 		return
 	}
@@ -463,14 +475,7 @@ func CLIPartition(r Ring, b *Builder, args []string, output io.Writer) error {
 		} else {
 			fmt.Fprintln(output)
 		}
-		report := [][]string{
-			[]string{"ID:", fmt.Sprintf("%d", n.ID())},
-			[]string{"Capacity:", fmt.Sprintf("%d", n.Capacity())},
-			[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
-			[]string{"Addresses:", strings.Join(n.Addresses(), "\n")},
-			[]string{"Meta:", n.Meta()},
-		}
-		fmt.Fprint(output, brimtext.Align(report, nil))
+		output.Write([]byte(CLINodeReport(n)))
 	}
 	return nil
 }
@@ -486,7 +491,7 @@ func CLICreate(filename string, args []string, output io.Writer) error {
 	maxPartitionBitCount := 23
 	moveWait := 60
 	idBits := 64
-	var conf []byte
+	var config []byte
 	var err error
 	for _, arg := range args {
 		sarg := strings.SplitN(arg, "=", 2)
@@ -534,8 +539,14 @@ func CLICreate(filename string, args []string, output io.Writer) error {
 			} else if moveWait > math.MaxUint16 {
 				moveWait = math.MaxUint16
 			}
+		case "config":
+			if sarg[1] == "" {
+				config = nil
+			} else {
+				config = []byte(sarg[1])
+			}
 		case "config-file":
-			conf, err = ioutil.ReadFile(sarg[1])
+			config, err = ioutil.ReadFile(sarg[1])
 			if err != nil {
 				return fmt.Errorf("Error reading config file: %v", err)
 			}
@@ -547,7 +558,7 @@ func CLICreate(filename string, args []string, output io.Writer) error {
 				return fmt.Errorf("id-bits must be in the range 1-64; %d was given", idBits)
 			}
 		default:
-			return fmt.Errorf("Invalid arg: '%s' in create cmd", arg)
+			return fmt.Errorf("Invalid arg: %q in create cmd", arg)
 		}
 	}
 	if _, err = os.Stat(filename); err == nil {
@@ -561,7 +572,7 @@ func CLICreate(filename string, args []string, output io.Writer) error {
 		return err
 	}
 	b := NewBuilder(idBits)
-	b.SetConf(conf)
+	b.SetConfig(config)
 	b.SetReplicaCount(replicaCount)
 	b.SetPointsAllowed(byte(pointsAllowed))
 	b.SetMaxPartitionBitCount(uint16(maxPartitionBitCount))
@@ -585,7 +596,7 @@ func CLIAddOrSet(b *Builder, args []string, n BuilderNode, output io.Writer) err
 	capacity := uint32(1)
 	var tiers []string
 	var addresses []string
-	var conf []byte
+	var config []byte
 	meta := ""
 	for _, arg := range args {
 		sarg := strings.SplitN(arg, "=", 2)
@@ -631,14 +642,20 @@ func CLIAddOrSet(b *Builder, args []string, n BuilderNode, output io.Writer) err
 			if n != nil {
 				n.SetMeta(meta)
 			}
+		case "config":
+			if sarg[1] == "" {
+				config = nil
+			} else {
+				config = []byte(sarg[1])
+			}
 		case "config-file":
 			var err error
-			conf, err = ioutil.ReadFile(sarg[1])
+			config, err = ioutil.ReadFile(sarg[1])
 			if err != nil {
 				return fmt.Errorf("Error reading config file: %v", err)
 			}
 			if n != nil {
-				n.SetConf(conf)
+				n.SetConfig(config)
 			}
 		default:
 			if strings.HasPrefix(sarg[0], "tier") {
@@ -676,26 +693,17 @@ func CLIAddOrSet(b *Builder, args []string, n BuilderNode, output io.Writer) err
 					n.SetAddress(index, addresses[index])
 				}
 			} else {
-				return fmt.Errorf("Invalid arg '%s' in set.", sarg[0])
+				return fmt.Errorf("Invalid arg %q in set.", sarg[0])
 			}
 		}
 	}
 	if n == nil {
 		var err error
-		n, err = b.AddNode(active, capacity, tiers, addresses, meta, conf)
+		n, err = b.AddNode(active, capacity, tiers, addresses, meta, config)
 		if err != nil {
 			return err
 		}
-		report := [][]string{
-			[]string{"ID:", fmt.Sprintf("%d", n.ID())},
-			[]string{"Active:", fmt.Sprintf("%v", n.Active())},
-			[]string{"Capacity:", fmt.Sprintf("%d", n.Capacity())},
-			[]string{"Tiers:", strings.Join(n.Tiers(), "\n")},
-			[]string{"Addresses:", strings.Join(n.Addresses(), "\n")},
-			[]string{"Meta:", n.Meta()},
-			[]string{"Conf:", fmt.Sprintf("%s", n.Conf())},
-		}
-		fmt.Fprint(output, brimtext.Align(report, nil))
+		output.Write([]byte(CLINodeReport(n)))
 	}
 	return nil
 }
@@ -753,16 +761,73 @@ func CLIPretendElapsed(b *Builder, args []string, output io.Writer) error {
 	return nil
 }
 
-// CLIPrintConfig outputs the top-level config in the ring or builder; see the
-// output of CLIHelp for detailed information.
+// CLIConfig displays or sets the top-level config in the ring or builder; see
+// the output of CLIHelp for detailed information.
 //
 // Provide either the ring or the builder, but not both; set the other to nil.
 // Normally the results from RingOrBuilder.
-func CLIPrintConfig(r Ring, b *Builder, output io.Writer) error {
-	if b == nil {
-		fmt.Fprintf(output, string(r.Conf()))
-		return nil
+func CLIConfig(r Ring, b *Builder, args []string, output io.Writer) (changed bool, err error) {
+	v := strings.Join(args, " ")
+	if v != "" {
+		if b == nil {
+			return false, fmt.Errorf("cannot set config in a ring, only builder")
+		} else {
+			b.SetConfig([]byte(v))
+		}
+		return true, nil
 	}
-	fmt.Fprintf(output, string(b.Conf()))
-	return nil
+	if b == nil {
+		fmt.Fprintf(output, "%q\n", string(r.Config()))
+	} else {
+		fmt.Fprintf(output, "%q\n", string(b.Config()))
+	}
+	return false, nil
+}
+
+// CLIConfigFile displays or sets the top-level config in the ring or builder;
+// see the output of CLIHelp for detailed information.
+//
+// Provide either the ring or the builder, but not both; set the other to nil.
+// Normally the results from RingOrBuilder.
+func CLIConfigFile(r Ring, b *Builder, args []string, output io.Writer) (changed bool, err error) {
+	if len(args) == 0 {
+		if b == nil {
+			output.Write(r.Config())
+		} else {
+			output.Write(b.Config())
+		}
+		return false, nil
+	} else if len(args) == 1 {
+		if b == nil {
+			return false, fmt.Errorf("cannot set config in a ring, only builder")
+		}
+		config, err := ioutil.ReadFile(args[0])
+		if err != nil {
+			return false, fmt.Errorf("Error reading config file: %v", err)
+		}
+		b.SetConfig(config)
+		return true, nil
+	}
+	return false, fmt.Errorf("too many arguments %v; should just be the file name or nothing", qStrings)
+}
+
+func qStrings(strings []string) []string {
+	rv := make([]string, len(strings))
+	for i, s := range strings {
+		rv[i] = fmt.Sprintf("%q", s)
+	}
+	return rv
+}
+
+func CLINodeReport(n Node) string {
+	report := [][]string{
+		[]string{"ID:", fmt.Sprintf("%d", n.ID())},
+		[]string{"Active:", fmt.Sprintf("%v", n.Active())},
+		[]string{"Capacity:", fmt.Sprintf("%d", n.Capacity())},
+		[]string{"Tiers:", strings.Join(qStrings(n.Tiers()), "\n")},
+		[]string{"Addresses:", strings.Join(qStrings(n.Addresses()), "\n")},
+		[]string{"Meta:", fmt.Sprintf("%q", n.Meta())},
+		[]string{"Config:", fmt.Sprintf("%q", string(n.Config()))},
+	}
+	return brimtext.Align(report, nil)
 }

@@ -29,11 +29,11 @@ func newRingConn(m *TCPMsgRing, addr string, netconn net.Conn) *ringConn {
 func newTestRing() (Ring, Node, Node, error) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(3)
-	nA, err := b.AddNode(true, 1, nil, []string{"127.0.0.1:9999"}, "", []byte("Conf"))
+	nA, err := b.AddNode(true, 1, nil, []string{"127.0.0.1:9999"}, "", []byte("Config"))
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	nB, err := b.AddNode(true, 1, nil, []string{"127.0.0.1:8888"}, "", []byte("Conf"))
+	nB, err := b.AddNode(true, 1, nil, []string{"127.0.0.1:8888"}, "", []byte("Config"))
 	if err != nil {
 		return nil, nil, nil, err
 	}

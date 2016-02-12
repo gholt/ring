@@ -9,7 +9,7 @@ import (
 func TestNewBuilder(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(3)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("nodeconf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("nodeconfig"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,35 +34,35 @@ func TestNewBuilder(t *testing.T) {
 	if len(n) != 1 {
 		t.Fatalf("NewBuilder's Nodes count was %d not 1", len(n))
 	}
-	b.SetConf([]byte("testconf"))
-	c := b.Conf()
-	if !bytes.Equal(c, []byte("testconf")) {
-		t.Fatalf("NewBuilder's Conf %v was not %v", c, []byte("testconf"))
+	b.SetConfig([]byte("testconfig"))
+	c := b.Config()
+	if !bytes.Equal(c, []byte("testconfig")) {
+		t.Fatalf("NewBuilder's Config %v was not %v", c, []byte("testconfig"))
 	}
-	c = b.Ring().Nodes()[0].Conf()
-	if !bytes.Equal(c, []byte("nodeconf")) {
-		t.Fatalf("NewBuilder's Nodes Conf %v was not %v", c, []byte("nodeconf"))
+	c = b.Ring().Nodes()[0].Config()
+	if !bytes.Equal(c, []byte("nodeconfig")) {
+		t.Fatalf("NewBuilder's Nodes Config %v was not %v", c, []byte("nodeconfig"))
 	}
 }
 
 func TestBuilderPersistence(t *testing.T) {
 	helperTestBuilderPersistence(t, nil)
-	helperTestBuilderPersistence(t, []byte("Conf"))
+	helperTestBuilderPersistence(t, []byte("Config"))
 }
 
-func helperTestBuilderPersistence(t *testing.T, conf []byte) {
+func helperTestBuilderPersistence(t *testing.T, config []byte) {
 	b := NewBuilder(8)
 	b.SetReplicaCount(3)
-	b.SetConf(conf)
+	b.SetConfig(config)
 	_, err := b.AddNode(true, 1, []string{"server1", "zone1"}, []string{"1.2.3.4:56789"}, "Meta One", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = b.AddNode(true, 1, []string{"server2", "zone1"}, []string{"1.2.3.5:56789", "1.2.3.5:9876"}, "Meta Four", []byte("Conf"))
+	_, err = b.AddNode(true, 1, []string{"server2", "zone1"}, []string{"1.2.3.5:56789", "1.2.3.5:9876"}, "Meta Four", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = b.AddNode(false, 0, []string{"server3", "zone1"}, []string{"1.2.3.6:56789"}, "Meta Three", []byte("Conf"))
+	_, err = b.AddNode(false, 0, []string{"server3", "zone1"}, []string{"1.2.3.6:56789"}, "Meta Three", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,8 +79,8 @@ func helperTestBuilderPersistence(t *testing.T, conf []byte) {
 	if b2.version != b.version {
 		t.Fatalf("%v != %v", b2.version, b.version)
 	}
-	if !bytes.Equal(b2.conf, b.conf) {
-		t.Fatalf("%v != %v", b2.conf, b.conf)
+	if !bytes.Equal(b2.config, b.config) {
+		t.Fatalf("%v != %v", b2.config, b.config)
 	}
 	if b2.idBits != b.idBits {
 		t.Fatalf("%d != %d", b2.idBits, b.idBits)
@@ -114,8 +114,8 @@ func helperTestBuilderPersistence(t *testing.T, conf []byte) {
 		if b2.nodes[i].meta != b.nodes[i].meta {
 			t.Fatalf("%v != %v", b2.nodes[i].meta, b.nodes[i].meta)
 		}
-		if !bytes.Equal(b2.nodes[i].conf, b.nodes[i].conf) {
-			t.Fatalf("%v != %v", b2.nodes[i].conf, b.nodes[i].conf)
+		if !bytes.Equal(b2.nodes[i].config, b.nodes[i].config) {
+			t.Fatalf("%v != %v", b2.nodes[i].config, b.nodes[i].config)
 		}
 	}
 	if b2.partitionBitCount != b.partitionBitCount {
@@ -174,11 +174,11 @@ func TestBuilderLoadGarbage(t *testing.T) {
 func TestBuilderAddRemoveNodes(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(3)
-	nA, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	nA, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	nB, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	nB, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,11 +210,11 @@ func TestBuilderAddRemoveNodes(t *testing.T) {
 func TestBuilderNodeLookup(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(3)
-	nA, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	nA, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	nB, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	nB, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,11 +235,11 @@ func TestBuilderNodeLookup(t *testing.T) {
 func TestBuilderRing(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(3)
-	nA, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	nA, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err = b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestBuilderRing(t *testing.T) {
 		t.Fatalf("Ring's PartitionBitCount was %d and should've been 1", pbc)
 	}
 	// Make sure a new Ring call doesn't alter the previous Ring.
-	_, err = b.AddNode(true, 3, nil, nil, "", []byte("Conf"))
+	_, err = b.AddNode(true, 3, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,11 +345,11 @@ func TestBuilderResizeKeepsAssignments(t *testing.T) {
 func TestBuilderResizeIfNeeded(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(3)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err = b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +358,7 @@ func TestBuilderResizeIfNeeded(t *testing.T) {
 	if pbc != 1 {
 		t.Fatalf("Ring's PartitionBitCount was %d and should've been 1", pbc)
 	}
-	nC, err := b.AddNode(false, 3, nil, nil, "", []byte("Conf"))
+	nC, err := b.AddNode(false, 3, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +391,7 @@ func TestBuilderResizeIfNeeded(t *testing.T) {
 		t.Fatalf("Expected the max partition bit count to be saved as 6; instead it was %d", pbc)
 	}
 	for i := 4; i < 14; i++ {
-		_, err = b.AddNode(true, uint32(i), nil, nil, "", []byte("Conf"))
+		_, err = b.AddNode(true, uint32(i), nil, nil, "", []byte("Config"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -402,7 +402,7 @@ func TestBuilderResizeIfNeeded(t *testing.T) {
 		t.Fatalf("Ring's PartitionBitCount was %d and should've been 6", pbc)
 	}
 	// Just exercises the "already at max" short-circuit.
-	_, err = b.AddNode(true, 14, nil, nil, "", []byte("Conf"))
+	_, err = b.AddNode(true, 14, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,11 +415,11 @@ func TestBuilderResizeIfNeeded(t *testing.T) {
 
 func TestBuilderMinimizeTiers(t *testing.T) {
 	b := NewBuilder(64)
-	n, err := b.AddNode(true, 1, []string{"one"}, nil, "", []byte("Conf"))
+	n, err := b.AddNode(true, 1, []string{"one"}, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = b.AddNode(true, 1, []string{"two"}, nil, "", []byte("Conf"))
+	_, err = b.AddNode(true, 1, []string{"two"}, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,15 +458,15 @@ func TestBuilderMinimizeTiers(t *testing.T) {
 func TestBuilderLowerReplicaCount(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(3)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err = b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err = b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,12 +536,12 @@ func TestBuilderLowerReplicaCount(t *testing.T) {
 
 func TestVersionChangesWithNewActiveWeightedNode(t *testing.T) {
 	b := NewBuilder(64)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := b.Ring()
-	_, err = b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err = b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -553,12 +553,12 @@ func TestVersionChangesWithNewActiveWeightedNode(t *testing.T) {
 
 func TestVersionChangesWithNewActiveNoWeightNode(t *testing.T) {
 	b := NewBuilder(64)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := b.Ring()
-	_, err = b.AddNode(true, 0, nil, nil, "", []byte("Conf"))
+	_, err = b.AddNode(true, 0, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,12 +570,12 @@ func TestVersionChangesWithNewActiveNoWeightNode(t *testing.T) {
 
 func TestVersionChangesWithNewInactiveNode(t *testing.T) {
 	b := NewBuilder(64)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := b.Ring()
-	_, err = b.AddNode(false, 0, nil, nil, "", []byte("Conf"))
+	_, err = b.AddNode(false, 0, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -587,11 +587,11 @@ func TestVersionChangesWithNewInactiveNode(t *testing.T) {
 
 func TestVersionChangesWithNodeRemoval(t *testing.T) {
 	b := NewBuilder(64)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -603,27 +603,27 @@ func TestVersionChangesWithNodeRemoval(t *testing.T) {
 	}
 }
 
-func TestVersionChangesWithConfChange(t *testing.T) {
+func TestVersionChangesWithConfigChange(t *testing.T) {
 	b := NewBuilder(64)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.SetConf([]byte("fresh conf"))
+	b.SetConfig([]byte("fresh config"))
 	r := b.Ring()
-	b.SetConf([]byte("changed conf"))
+	b.SetConfig([]byte("changed config"))
 	r2 := b.Ring()
 	if r.Version() == r2.Version() {
 		t.Fatal("")
 	}
-	if !bytes.Equal(r2.Conf(), []byte("changed conf")) {
-		t.Fatal("Conf change did not persist after Ring()")
+	if !bytes.Equal(r2.Config(), []byte("changed config")) {
+		t.Fatal("Config change did not persist after Ring()")
 	}
 }
 
 func TestVersionChangesWithReplicaCountChange(t *testing.T) {
 	b := NewBuilder(64)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,11 +637,11 @@ func TestVersionChangesWithReplicaCountChange(t *testing.T) {
 
 func TestVersionChangesWithNodeActiveChange(t *testing.T) {
 	b := NewBuilder(64)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -655,11 +655,11 @@ func TestVersionChangesWithNodeActiveChange(t *testing.T) {
 
 func TestVersionChangesWithNodeCapacityChange(t *testing.T) {
 	b := NewBuilder(64)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -673,11 +673,11 @@ func TestVersionChangesWithNodeCapacityChange(t *testing.T) {
 
 func TestVersionChangesWithNodeTierChange(t *testing.T) {
 	b := NewBuilder(64)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,11 +691,11 @@ func TestVersionChangesWithNodeTierChange(t *testing.T) {
 
 func TestVersionChangesWithNodeAddressChange(t *testing.T) {
 	b := NewBuilder(64)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,11 +709,11 @@ func TestVersionChangesWithNodeAddressChange(t *testing.T) {
 
 func TestVersionChangesWithNodeMetaChange(t *testing.T) {
 	b := NewBuilder(64)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -725,18 +725,18 @@ func TestVersionChangesWithNodeMetaChange(t *testing.T) {
 	}
 }
 
-func TestVersionChangesWithNodeConfChange(t *testing.T) {
+func TestVersionChangesWithNodeConfigChange(t *testing.T) {
 	b := NewBuilder(64)
-	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	_, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Conf"))
+	n, err := b.AddNode(true, 1, nil, nil, "", []byte("Config"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := b.Ring()
-	n.SetConf([]byte("testing"))
+	n.SetConfig([]byte("testing"))
 	r2 := b.Ring()
 	if r.Version() == r2.Version() {
 		t.Fatal("")

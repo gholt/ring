@@ -227,11 +227,11 @@ func TestNodeSimply(t *testing.T) {
 	if n.Meta() != "meta value" {
 		t.Fatal("")
 	}
-	if !bytes.Equal(n.Conf(), []byte("")) {
+	if !bytes.Equal(n.Config(), []byte("")) {
 		t.Fatal("")
 	}
-	n.SetConf([]byte("confobj"))
-	if !bytes.Equal(n.Conf(), []byte("confobj")) {
+	n.SetConfig([]byte("configobj"))
+	if !bytes.Equal(n.Config(), []byte("configobj")) {
 		t.Fatal("")
 	}
 }

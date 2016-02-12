@@ -23,7 +23,7 @@
 //      // The 64 indicates how many bits can be used in a uint64 for node IDs;
 //      // 64 is fine unless you have a specific use case.
 //      builder := ring.NewBuilder(64)
-//      // (active, capacity, no tiers, no addresses, meta, no conf)
+//      // (active, capacity, no tiers, no addresses, meta, no config)
 //      builder.AddNode(true, 1, nil, nil, "NodeA", nil)
 //      builder.AddNode(true, 1, nil, nil, "NodeB", nil)
 //      builder.AddNode(true, 1, nil, nil, "NodeC", nil)
@@ -97,10 +97,10 @@ type Ring interface {
 	// data, it can ignore those requests or try to obtain a newer ring
 	// version.
 	Version() int64
-	// Conf returns the raw encoded global configuration. This configuration
+	// Config returns the raw encoded global configuration. This configuration
 	// data isn't used by the ring itself, but can be useful in storing
 	// configuration data for users of the ring.
-	Conf() []byte
+	Config() []byte
 	// Node returns the node instance identified, if there is one.
 	Node(nodeID uint64) Node
 	// Nodes returns a NodeSlice of the nodes the Ring references.
@@ -163,7 +163,7 @@ type tierBase struct {
 type ring struct {
 	tierBase
 	version                       int64
-	conf                          []byte
+	config                        []byte
 	localNodeIndex                int32
 	partitionBitCount             uint16
 	nodes                         []*node
@@ -194,13 +194,13 @@ func LoadRing(rd io.Reader) (Ring, error) {
 	if err != nil {
 		return nil, err
 	}
-	var confbytes int32
-	err = binary.Read(gr, binary.BigEndian, &confbytes)
+	var configBytes int32
+	err = binary.Read(gr, binary.BigEndian, &configBytes)
 	if err != nil {
 		return nil, err
 	}
-	r.conf = make([]byte, confbytes)
-	_, err = io.ReadFull(gr, r.conf)
+	r.config = make([]byte, configBytes)
+	_, err = io.ReadFull(gr, r.config)
 	if err != nil {
 		return nil, err
 	}
@@ -307,8 +307,8 @@ func LoadRing(rd io.Reader) (Ring, error) {
 		if err != nil {
 			return nil, err
 		}
-		r.nodes[i].conf = make([]byte, cbytes)
-		_, err = io.ReadFull(gr, r.nodes[i].conf)
+		r.nodes[i].config = make([]byte, cbytes)
+		_, err = io.ReadFull(gr, r.nodes[i].config)
 		if err != nil {
 			return nil, err
 		}
@@ -344,14 +344,14 @@ func (r *ring) Persist(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if len(r.conf) > math.MaxInt32 {
-		return fmt.Errorf("%d conf bytes is too large; max is %d", len(r.conf), math.MaxInt32)
+	if len(r.config) > math.MaxInt32 {
+		return fmt.Errorf("%d config bytes is too large; max is %d", len(r.config), math.MaxInt32)
 	}
-	err = binary.Write(gw, binary.BigEndian, int32(len(r.conf)))
+	err = binary.Write(gw, binary.BigEndian, int32(len(r.config)))
 	if err != nil {
 		return err
 	}
-	_, err = gw.Write(r.conf)
+	_, err = gw.Write(r.config)
 	if err != nil {
 		return err
 	}
@@ -463,14 +463,14 @@ func (r *ring) Persist(w io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if len(n.conf) > math.MaxInt32 {
-			return fmt.Errorf("%d conf length is too large; max is %d", len(n.conf), math.MaxInt32)
+		if len(n.config) > math.MaxInt32 {
+			return fmt.Errorf("%d config length is too large; max is %d", len(n.config), math.MaxInt32)
 		}
-		err = binary.Write(gw, binary.BigEndian, int32(len(n.conf)))
+		err = binary.Write(gw, binary.BigEndian, int32(len(n.config)))
 		if err != nil {
 			return err
 		}
-		_, err = gw.Write(n.conf)
+		_, err = gw.Write(n.config)
 		if err != nil {
 			return err
 		}
@@ -503,8 +503,8 @@ func (r *ring) Version() int64 {
 	return r.version
 }
 
-func (r *ring) Conf() []byte {
-	return r.conf
+func (r *ring) Config() []byte {
+	return r.config
 }
 
 func (r *ring) PartitionBitCount() uint16 {

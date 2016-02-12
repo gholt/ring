@@ -12,11 +12,11 @@ func TestRingVersion(t *testing.T) {
 	}
 }
 
-func TestRingConf(t *testing.T) {
-	confbytes := []byte("three shall be the number thou shalt count")
-	v := (&ring{conf: confbytes}).Conf()
-	if !bytes.Equal(v, confbytes) {
-		t.Fatalf("Conf() gave %s instead of %s", v, confbytes)
+func TestRingConfig(t *testing.T) {
+	configBytes := []byte("three shall be the number thou shalt count")
+	v := (&ring{config: configBytes}).Config()
+	if !bytes.Equal(v, configBytes) {
+		t.Fatalf("Config() gave %s instead of %s", v, configBytes)
 	}
 }
 
@@ -134,9 +134,9 @@ func TestRingResponsibleIDs(t *testing.T) {
 func TestRingPersistence(t *testing.T) {
 	b := NewBuilder(64)
 	b.SetReplicaCount(3)
-	b.AddNode(true, 1, []string{"server1", "zone1"}, []string{"1.2.3.4:56789"}, "Meta One", []byte("Conf"))
-	b.AddNode(true, 1, []string{"server2", "zone1"}, []string{"1.2.3.5:56789", "1.2.3.5:9876"}, "Meta Four", []byte("Conf"))
-	b.AddNode(false, 0, []string{"server3", "zone1"}, []string{"1.2.3.6:56789"}, "Meta Three", []byte("Conf"))
+	b.AddNode(true, 1, []string{"server1", "zone1"}, []string{"1.2.3.4:56789"}, "Meta One", []byte("Config"))
+	b.AddNode(true, 1, []string{"server2", "zone1"}, []string{"1.2.3.5:56789", "1.2.3.5:9876"}, "Meta Four", []byte("Config"))
+	b.AddNode(false, 0, []string{"server3", "zone1"}, []string{"1.2.3.6:56789"}, "Meta Three", []byte("Config"))
 	r := b.Ring().(*ring)
 	buf := bytes.NewBuffer(make([]byte, 0, 65536))
 	err := r.Persist(buf)
@@ -151,8 +151,8 @@ func TestRingPersistence(t *testing.T) {
 	if r2.version != r.version {
 		t.Fatalf("%v != %v", r2.version, r.version)
 	}
-	if !bytes.Equal(r2.conf, r.conf) {
-		t.Fatalf("%v != %v", r2.conf, r.conf)
+	if !bytes.Equal(r2.config, r.config) {
+		t.Fatalf("%v != %v", r2.config, r.config)
 	}
 	if len(r2.nodes) != len(r.nodes) {
 		t.Fatalf("%v != %v", len(r2.nodes), len(r.nodes))
@@ -183,8 +183,8 @@ func TestRingPersistence(t *testing.T) {
 		if r2.nodes[i].meta != r.nodes[i].meta {
 			t.Fatalf("%v != %v", r2.nodes[i].meta, r.nodes[i].meta)
 		}
-		if !bytes.Equal(r2.nodes[i].conf, r.nodes[i].conf) {
-			t.Fatalf("%v != %v", r2.nodes[i].conf, r.nodes[i].conf)
+		if !bytes.Equal(r2.nodes[i].config, r.nodes[i].config) {
+			t.Fatalf("%v != %v", r2.nodes[i].config, r.nodes[i].config)
 		}
 	}
 	if r2.partitionBitCount != r.partitionBitCount {

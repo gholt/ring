@@ -30,7 +30,7 @@ type Builder struct {
 	maxPartitionBitCount          uint16
 	moveWait                      uint16
 	moveWaitBase                  int64
-	conf                          []byte
+	config                        []byte
 	idBits                        int
 }
 
@@ -85,13 +85,13 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 	if err != nil {
 		return nil, err
 	}
-	var confbytes int32
-	err = binary.Read(gr, binary.BigEndian, &confbytes)
+	var configBytes int32
+	err = binary.Read(gr, binary.BigEndian, &configBytes)
 	if err != nil {
 		return nil, err
 	}
-	b.conf = make([]byte, confbytes)
-	_, err = io.ReadFull(gr, b.conf)
+	b.config = make([]byte, configBytes)
+	_, err = io.ReadFull(gr, b.config)
 	if err != nil {
 		return nil, err
 	}
@@ -201,8 +201,8 @@ func LoadBuilder(r io.Reader) (*Builder, error) {
 		if err != nil {
 			return nil, err
 		}
-		b.nodes[i].conf = make([]byte, cbytes)
-		_, err = io.ReadFull(gr, b.nodes[i].conf)
+		b.nodes[i].config = make([]byte, cbytes)
+		_, err = io.ReadFull(gr, b.nodes[i].config)
 		if err != nil {
 			return nil, err
 		}
@@ -271,14 +271,14 @@ func (b *Builder) Persist(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if len(b.conf) > math.MaxInt32 {
-		return fmt.Errorf("%d conf bytes is too large; max is %d", len(b.conf), math.MaxInt32)
+	if len(b.config) > math.MaxInt32 {
+		return fmt.Errorf("%d config bytes is too large; max is %d", len(b.config), math.MaxInt32)
 	}
-	err = binary.Write(gw, binary.BigEndian, int32(len(b.conf)))
+	err = binary.Write(gw, binary.BigEndian, int32(len(b.config)))
 	if err != nil {
 		return err
 	}
-	_, err = gw.Write(b.conf)
+	_, err = gw.Write(b.config)
 	if err != nil {
 		return err
 	}
@@ -386,14 +386,14 @@ func (b *Builder) Persist(w io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if len(n.conf) > math.MaxInt32 {
-			return fmt.Errorf("%d conf length is too large; max is %d", len(n.conf), math.MaxInt32)
+		if len(n.config) > math.MaxInt32 {
+			return fmt.Errorf("%d config length is too large; max is %d", len(n.config), math.MaxInt32)
 		}
-		err = binary.Write(gw, binary.BigEndian, int32(len(n.conf)))
+		err = binary.Write(gw, binary.BigEndian, int32(len(n.config)))
 		if err != nil {
 			return err
 		}
-		_, err = gw.Write(n.conf)
+		_, err = gw.Write(n.config)
 		if err != nil {
 			return err
 		}
@@ -551,14 +551,14 @@ func (b *Builder) SetMoveWait(minutes uint16) {
 	b.moveWait = minutes
 }
 
-// Conf is the raw encoded global configuration.
-func (b *Builder) Conf() []byte {
-	return b.conf
+// Config is the raw encoded global configuration.
+func (b *Builder) Config() []byte {
+	return b.config
 }
 
-func (b *Builder) SetConf(conf []byte) {
+func (b *Builder) SetConfig(config []byte) {
 	b.dirty = true
-	b.conf = conf
+	b.config = config
 }
 
 // IDBits is the number of bits in use for node IDs.
@@ -595,7 +595,7 @@ func (b *Builder) Nodes() NodeSlice {
 // AddNode will add a new node to the builder for data assigment. Actual data
 // assignment won't ocurr until the Ring method is called, so you can add
 // multiple nodes or alter node values after creation if desired.
-func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresses []string, meta string, conf []byte) (BuilderNode, error) {
+func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresses []string, meta string, config []byte) (BuilderNode, error) {
 	b.dirty = true
 	addressesCopy := make([]string, len(addresses))
 	copy(addressesCopy, addresses)
@@ -607,7 +607,7 @@ func (b *Builder) AddNode(active bool, capacity uint32, tiers []string, addresse
 	n.capacity = capacity
 	n.addresses = addressesCopy
 	n.meta = meta
-	n.conf = conf
+	n.config = config
 	for level, value := range tiers {
 		n.SetTier(level, value)
 	}
@@ -716,7 +716,7 @@ func (b *Builder) Ring() Ring {
 		partitionBitCount: b.partitionBitCount,
 		nodes:             nodes,
 		replicaToPartitionToNodeIndex: replicaToPartitionToNodeIndex,
-		conf: b.conf,
+		config: b.config,
 	}
 }
 
