@@ -10,9 +10,9 @@ and it is those partitions that point to their corresponding nodes. The
 difference allows for more precise assignments and faster lookups, but at a
 cost of upfront build and update speeds, and perhaps memory usage.
 
-I won't try to fully explain consistent hashing rings on this page, perhaps I
-will elsewhere. On this page I'm going to assume you already know what
-consistent hashing is.
+I won't try to fully explain consistent hashing rings on this page; for that,
+see the [Basic Hash Ring](BASIC_HASH_RING.md) page. On this page I'm going to
+assume you already know what consistent hashing is.
 
 More common rings keep a sorted list of virtual nodes, where virtual nodes are
 just hashes based on the actual node. Usually the sorted list just contains the

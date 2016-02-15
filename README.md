@@ -4,6 +4,9 @@
 **Experimental: No stable version of this package yet exists; it is still in
 early development.**
 
+> _If you're not entirely sure what consistent hashing is, reading [Basic Hash
+> Ring](BASIC_HASH_RING.md) might help._
+
 Package ring contains tools for building and using a consistent hashing ring
 with replicas, automatic partitioning (ring ranges), and keeping replicas of
 the same partitions in as distinct tiered nodes as possible (tiers might be
@@ -62,6 +65,7 @@ Third is handled by NodeB
 ```
 
 [API Documentation](http://godoc.org/github.com/gholt/ring)  
+[Basic Hash Ring](BASIC_HASH_RING.md)  
 [Partition Ring vs. Hash Ring](PARTITION_RING_VS_HASH_RING.md)
 
 This is the latest development area for the package.  
