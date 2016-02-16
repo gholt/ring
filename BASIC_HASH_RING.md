@@ -461,3 +461,7 @@ capacities) where you'd give nodes different amounts of items based on their
 weight, and replicas (or copies or backup nodes) where you'd assign items to
 distinct secondary nodes, among other features. But I think this is enough for
 one page.
+
+> Other interesting ideas in this space:  
+> [Jump consistent hashing](http://arxiv.org/abs/1406.2294) - [dgryski implementation](https://github.com/dgryski/go-jump) also [dgryski shared key-value store](https://github.com/dgryski/go-shardedkv)  
+> [Multi-probe consistent hashing](http://arxiv.org/pdf/1505.00062.pdf) - [dgryski implementation](https://github.com/dgryski/go-mpchash)

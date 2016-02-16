@@ -68,6 +68,10 @@ Third is handled by NodeB
 [Basic Hash Ring](BASIC_HASH_RING.md)  
 [Partition Ring vs. Hash Ring](PARTITION_RING_VS_HASH_RING.md)
 
+> Other interesting ideas in this space:  
+> [Jump consistent hashing](http://arxiv.org/abs/1406.2294) - [dgryski implementation](https://github.com/dgryski/go-jump) also [dgryski shared key-value store](https://github.com/dgryski/go-shardedkv)  
+> [Multi-probe consistent hashing](http://arxiv.org/pdf/1505.00062.pdf) - [dgryski implementation](https://github.com/dgryski/go-mpchash)
+
 This is the latest development area for the package.  
 Eventually a stable version of the package will be established but, for now,
 all things about this package are subject to change.
