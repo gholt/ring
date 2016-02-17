@@ -808,7 +808,7 @@ func CLIConfigFile(r Ring, b *Builder, args []string, output io.Writer) (changed
 		b.SetConfig(config)
 		return true, nil
 	}
-	return false, fmt.Errorf("too many arguments %v; should just be the file name or nothing", qStrings)
+	return false, fmt.Errorf("too many arguments %v; should just be the file name or nothing", qStrings(args))
 }
 
 func qStrings(strings []string) []string {
