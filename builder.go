@@ -474,7 +474,7 @@ func (b *Builder) minimizeTiers() {
 			}
 			b.tiers[lv][i] = ""
 			for _, n := range b.nodes {
-				if n.tierIndexes[lv] > int32(i) {
+				if lv < len(n.tierIndexes) && n.tierIndexes[lv] > int32(i) {
 					n.tierIndexes[lv]--
 				}
 			}
