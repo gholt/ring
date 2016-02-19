@@ -717,7 +717,7 @@ func CLIRemove(b *Builder, args []string, output io.Writer) error {
 	if len(args) != 1 || !strings.HasPrefix(args[0], "id=") {
 		return fmt.Errorf("must specify node to remove with id=<value>")
 	}
-	id, err := strconv.ParseUint(args[0][3:], 16, 64)
+	id, err := strconv.ParseUint(args[0][3:], 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid id %#v", args[0][3:])
 	}
