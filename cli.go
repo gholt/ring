@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gholt/blackfridaytext"
 	"github.com/gholt/brimtext"
 )
 
@@ -22,29 +23,31 @@ import (
 //      package main
 //
 //      import (
-//      	"fmt"
-//      	"os"
+//          "fmt"
+//          "os"
 //
-//      	"github.com/gholt/ring"
-//      	"github.com/gholt/brimtext"
+//          "github.com/gholt/ring"
+//          "github.com/gholt/brimtext"
 //      )
 //
 //      func main() {
-//      	if err := ring.CLI(os.Args, os.Stdout); err != nil {
-//      		fmt.Fprintln(os.Stderr, brimtext.Sentence(err.Error()))
-//      		os.Exit(1)
-//      	}
+//          if err := ring.CLI(os.Args, os.Stdout); err != nil {
+//              fmt.Fprintln(os.Stderr, brimtext.Sentence(err.Error()))
+//              os.Exit(1)
+//          }
 //      }
 //
 // The individual subcommands are also included in the ring package, prefixed
 // with CLI, so you can build your command line interface with just the
-// commands you want, or leverage them to build a web interface, etc.
-func CLI(args []string, output io.Writer) error {
+// commands you want, or leverage them to build a web interface, etc. The
+// ansiColor value indicates if you'd like ANSI color escape sequences embedded
+// in the output.
+func CLI(args []string, output io.Writer, ansiColor bool) error {
 	var r Ring
 	var b *Builder
 	var err error
 	if len(args) < 2 || (len(args) > 1 && args[1] == "help") {
-		return CLIHelp(args, output)
+		return CLIHelp(args, output, ansiColor)
 	}
 	if len(args) > 2 && args[2] == "create" {
 		return CLICreate(args[1], args[3:], output)
@@ -125,134 +128,191 @@ func CLI(args []string, output io.Writer) error {
 	return fmt.Errorf("unknown command: %#v", args[2])
 }
 
-// CLIHelp outputs the help text for the default CLI.
-func CLIHelp(args []string, output io.Writer) error {
-	fmt.Fprintf(output, `Ring Command Line Development Version <github.com/gholt/ring>
+// CLIHelp outputs the help text for the default CLI. The ansiColor value
+// indicates if you'd like ANSI color escape sequences embedded in the output.
+func CLIHelp(args []string, output io.Writer, ansiColor bool) error {
+	_, text := blackfridaytext.MarkdownToText([]byte(fmt.Sprintf(`
+# Ring Command Line Development Version - http://github.com/gholt/ring
 
-%[1]s <file>
-    Shows general information about the data within the <file>.
+# %[1]s <file>
 
-%[1]s <file> node [filter] ...
-    Lists the nodes contained within the <file>, with optional filtering.
-    Filters are attribute=value for exact string matches or attribute~=value
-    for regular expression matches (per the http://golang.org/pkg/regexp/
-    implementation). Multiple filters will be ANDed together; meaning the
-    resulting list will match all the filters given. Of note, matches are case
-    sensitive by default but you can prefix them with "(?i)" to switch to case
-    insensitive, such as:
-    
-        meta~="(?i)model 50x"
+Shows general information about the data within the <file>.
 
-    Available Filter Attributes:
 
-    id          A node's id.
-    active      Whether a node is active or not (use "true" or "false").
-    capacity    A node's capacity.
-    tier        Any tier of a node.
-    tierX       A node's specific tier level specified by X.
-    address     Any address of a node.
-    addressX    A node's specific address index specified by X.
-    meta        A node's meta attribute.
+# %[1]s <file> node [filter] ...
 
-%[1]s <file> fullnode [filter] ...
-    Same as "node" above, but always lists the full information for each
-    matching node.
+Lists the nodes contained within the <file>, with optional filtering. Filters
+are attribute=value for exact string matches or attribute~=value for regular
+expression matches (per the http://golang.org/pkg/regexp/ implementation).
 
-%[1]s <file> tier
-    Lists the tiers in the ring or builder file.
+Multiple filters will be ANDed together; meaning the resulting list will match
+all the filters given. Of note, matches are case sensitive by default but you
+can prefix them with (?i) to switch to case insensitive, such as:
+meta~="(?i)model 50x"
 
-%[1]s <ring-file> partition <value>
-    Lists information about the given partition's node assignments.
+Available Filter Attributes:
 
-%[1]s <builder-file> create [<name>=<value>] [<name>=<value>] ...
-    Creates a new <builder-file> with any optional attributes. Attributes:
-        replicas=<value>
-            The <value> is a positive number that defaults to 3.
-        points-allowed=<value>
-            The <value> is a positive number that defaults to 1 and indicates
-            the number of percentage points the builder should try to keep each
-            node balanced within. In other words, by default, plus or minus one
-            percent assignments per node based on the relative capacity.
-        max-partition-bits=<value>
-            The <value> is a positive number that defaults to 23 and indicates
-            the maximum bits for partition numbers, which limits the memory
-            size of the ring but also limits the balancing ability. 23 allows
-            for 8388608 partitions which, with a 3 replica ring, would use
-            about 100M of memory.
-        move-wait=<value>
-            The <value> is a positive number that defaults to 60 and indicates
-            the number of minutes to wait before reassigning a given replica of
-            a partition. This is to give time for actual data to rebalance in
-            the system before changing where it is assigned again.
-        config=<value>
-            The <value> is the string to be stored as the global config value.
-        config-file=<value>
-            The <value> is the path to a file that will be byte encoded and
-            stored as the global config value.
-        id-bits=<value>
-            The <value> is a number from 1 to 64 that defaults to 64 and
-            indicates the number of bits to use for node IDs in the ring.
-            Perhaps a strange setting, but limiting the bits may required or
-            useful in applications that store or transmit node IDs.
+id
+: A node's id.
 
-%[1]s <builder-file> add [<name>=<value>] ...
-    Adds a new node to the builder. Available attributes:
-        active=<true|false>
-            Nodes are active by default; this attribute can change that status.
-        capacity=<value>
-            The <value> is a decimal number from 0 to 4294967295 and indicates
-            how much of the ring to assign to the node relative to other nodes.
-        tierX=<value>
-            Sets the value for the tier level specified by X.
-            For example: "tier0=server233 tier1=zone74"
-        addressX=<value>
-            Sets the value for the address index specified by X.
-            For example: "address0=10.1.2.3:12345 address1="192.1.2.3:54321"
-            The <value> is a network address that can be accepted by Go's
-            network library <golang.org/pkg/net/#Dial>; some examples:
-            12.34.56.78:80 host.com:http [2001:db8::1]:http [fe80::1%%lo0]:80
-        meta=[value]
-            The [value] can be any string and is not used directly by the
-            builder or  It can be used for notes about the node if
-            desired, such as the model or serial number.
-        config=<value>
-            The <value> is the string to be stored in the node's config field.
-        config-file=<value>
-            The <value> is the path to a file that will be byte encoded and
-            stored in the node's config field.
+active
+: Whether a node is active or not (use true or false).
 
-%[1]s <builder-file> remove id=<value>
-    Removes the specified node from the builder. Often it's quicker to just set
-    a node as inactive with "node id=<value> set active=false" and that will
-    retain a record of the node having existed, but permanent removal from the
-    record may be desired.
+capacity
+: A node's capacity.
 
-%[1]s <builder-file> node [filter] ... set [<name>=<value>] ...
-    Updates existing node attributes. The filters are the same as for the
-    generic "node" command above. The available attributes to set are the same
-    as for the "add" command above. Examples:
+tier
+: Any tier of a node.
 
-    %[1]s my.builder node id=a839da27 set active=false
-    %[1]s my.builder node tier0=server50 set capacity=3 meta="3T WD3003FZEX"
+tierX
+: A node's specific tier level specified by X.
 
-%[1]s <builder-file> ring
-    Writes a new ring file based on the information contained in the builder.
-    This may take a while if rebalancing ring assignments are needed. The ring
-    file name will be the base name of the builder file plus a .ring extension.
+address
+: Any address of a node.
 
-%[1]s <builder-file> pretend-elapsed <minutes>
-    Pretends the number of <minutes> have elapsed. Useful for testing and you
-    want to work around the protections that restrict reassigning data quicker
-    than the move-wait limit.
+addressX
+: A node's specific address index specified by X.
 
-%[1]s <file> config [value]
-    Displays or sets the global config in the provided ring or builder file.
+meta
+: A node's meta attribute.
 
-%[1]s <file> config-file [path]
-    Displays or sets the global config in the provided ring or builder file.
-    This will output the raw bytes if no [path] is given, or it will set the
-    config based on the contents of the file at the [path] given.
-`, path.Base(args[0]))
+
+# %[1]s <file> fullnode [filter] ...
+
+Same as node above, but always lists the full information for each matching
+node.
+
+
+# %[1]s <file> tier
+
+Lists the tiers in the ring or builder file.
+
+
+# %[1]s <ring-file> partition <value>
+
+Lists information about the given partition's node assignments.
+
+
+# %[1]s <builder-file> create [<name>=<value>] [<name>=<value>] ...
+
+Creates a new <builder-file> with any optional attributes.
+
+Available Attributes:
+
+replicas=<value>
+: The <value> is a positive number that defaults to 3.
+
+points-allowed=<value>
+: The <value> is a positive number that defaults to 1 and indicates the number
+of percentage points the builder should try to keep each node balanced within.
+In other words, by default, plus or minus one percent assignments per node
+based on the relative capacity.
+
+max-partition-bits=<value>
+: The <value> is a positive number that defaults to 23 and indicates the
+maximum bits for partition numbers, which limits the memory size of the ring
+but also limits the balancing ability. 23 allows for 8388608 partitions which,
+with a 3 replica ring, would use about 100M of memory.
+
+move-wait=<value>
+: The <value> is a positive number that defaults to 60 and indicates the number
+of minutes to wait before reassigning a given replica of a partition. This is
+to give time for actual data to rebalance in the system before changing where
+it is assigned again.
+
+config=<value>
+: The <value> is the string to be stored as the global config value.
+
+config-file=<value>
+: The <value> is the path to a file that will be byte encoded and stored as the
+global config value.
+
+id-bits=<value>
+: The <value> is a number from 1 to 64 that defaults to 64 and indicates the
+number of bits to use for node IDs in the ring. Perhaps a strange setting, but
+limiting the bits may required or useful in applications that store or transmit
+node IDs.
+
+
+# %[1]s <builder-file> add [<name>=<value>] ...
+
+Adds a new node to the builder. Available attributes:
+
+active=<true|false>
+: Nodes are active by default; this attribute can change that status.
+
+capacity=<value>
+: The <value> is a decimal number from 0 to 4294967295 and indicates how much
+of the ring to assign to the node relative to other nodes.
+
+tierX=<value>
+: Sets the value for the tier level specified by X. For example:
+tier0=server233 tier1=zone74
+
+addressX=<value>
+: Sets the value for the address index specified by X. For example:
+address0=10.1.2.3:12345 address1=192.1.2.3:54321 The <value> is a network
+address that can be accepted by Go's network library golang.org/pkg/net/#Dial
+Some examples: 12.34.56.78:80 host.com:http [2001:db8::1]:http
+[fe80::1%%lo0]:80
+
+meta=[value]
+: The [value] can be any string and is not used directly by the builder or it
+can be used for notes about the node if desired, such as the model or serial
+number.
+
+config=<value>
+: The <value> is the string to be stored in the node's config field.
+
+config-file=<value>
+: The <value> is the path to a file that will be byte encoded and stored in the
+node's config field.
+
+
+# %[1]s <builder-file> remove id=<value>
+
+Removes the specified node from the builder. Often it's quicker to just set a
+node as inactive with "node id=<value> set active=false" and that will retain a
+record of the node having existed, but permanent removal from the record may be
+desired.
+
+
+# %[1]s <builder-file> node [filter] ... set [<name>=<value>] ...
+
+Updates existing node attributes. The filters are the same as for the generic
+"node" command above. The available attributes to set are the same as for the
+"add" command above. Examples:
+
+%[1]s my.builder node id=a839da27 set active=false
+
+%[1]s my.builder node tier0=server50 set capacity=3 meta="3T WD3003FZEX"
+
+
+# %[1]s <builder-file> ring
+
+Writes a new ring file based on the information contained in the builder. This
+may take a while if rebalancing ring assignments are needed. The ring file name
+will be the base name of the builder file plus a .ring extension.
+
+
+# %[1]s <builder-file> pretend-elapsed <minutes>
+
+Pretends the number of <minutes> have elapsed. Useful for testing and you want
+to work around the protections that restrict reassigning data quicker than the
+move-wait limit.
+
+
+# %[1]s <file> config [value]
+
+Displays or sets the global config in the provided ring or builder file.
+
+# %[1]s <file> config-file [path]
+
+Displays or sets the global config in the provided ring or builder file. This
+will output the raw bytes if no [path] is given, or it will set the config
+based on the contents of the file at the [path] given.
+`, path.Base(args[0]))), &blackfridaytext.Options{Color: ansiColor})
+	output.Write(text)
 	return nil
 }
 
