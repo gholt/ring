@@ -47,7 +47,7 @@ func CLI(args []string, output io.Writer, ansiColor bool) error {
 	var b *Builder
 	var err error
 	if len(args) < 2 || (len(args) > 1 && args[1] == "help") {
-		return CLIHelp(args, output, ansiColor)
+		return CLIHelp(args, output, ansiColor, false)
 	}
 	if len(args) > 2 && args[2] == "create" {
 		return CLICreate(args[1], args[3:], output)
@@ -130,8 +130,10 @@ func CLI(args []string, output io.Writer, ansiColor bool) error {
 
 // CLIHelp outputs the help text for the default CLI. The ansiColor value
 // indicates if you'd like ANSI color escape sequences embedded in the output.
-func CLIHelp(args []string, output io.Writer, ansiColor bool) error {
-	_, text := blackfridaytext.MarkdownToText([]byte(fmt.Sprintf(`
+// The markdown value indicates if you'd like the raw Markdown help text
+// instead of the processed text.
+func CLIHelp(args []string, output io.Writer, ansiColor bool, markdown bool) error {
+	md := []byte(fmt.Sprintf(`
 # Ring Command Line Development Version - http://github.com/gholt/ring
 
 # %[1]s <file>
@@ -311,8 +313,13 @@ Displays or sets the global config in the provided ring or builder file.
 Displays or sets the global config in the provided ring or builder file. This
 will output the raw bytes if no [path] is given, or it will set the config
 based on the contents of the file at the [path] given.
-`, path.Base(args[0]))), &blackfridaytext.Options{Color: ansiColor})
-	output.Write(text)
+`, path.Base(args[0])))
+	if markdown {
+		output.Write(md)
+	} else {
+		_, text := blackfridaytext.MarkdownToText(md, &blackfridaytext.Options{Color: ansiColor})
+		output.Write(text)
+	}
 	return nil
 }
 
