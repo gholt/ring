@@ -317,7 +317,7 @@ based on the contents of the file at the [path] given.
 	if markdown {
 		output.Write(md)
 	} else {
-		_, text := blackfridaytext.MarkdownToText(md, &blackfridaytext.Options{Color: ansiColor})
+		_, text := blackfridaytext.MarkdownToText(md, &blackfridaytext.Options{Color: ansiColor, HeaderPrefix: []byte{}, HeaderSuffix: []byte{}})
 		output.Write(text)
 	}
 	return nil
