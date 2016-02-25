@@ -59,6 +59,13 @@ func TestRingNode(t *testing.T) {
 	}
 }
 
+func TestRingNodeCount(t *testing.T) {
+	v := (&ring{nodes: []*node{&node{id: 1}, &node{id: 2}}}).NodeCount()
+	if v != 2 {
+		t.Fatalf("NodeCount() gave %d instead of 2", v)
+	}
+}
+
 func TestRingLocalNode(t *testing.T) {
 	v := (&ring{localNodeIndex: -1}).LocalNode()
 	if v != nil {

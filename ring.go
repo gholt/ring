@@ -105,6 +105,8 @@ type Ring interface {
 	Node(nodeID uint64) Node
 	// Nodes returns a NodeSlice of the nodes the Ring references.
 	Nodes() NodeSlice
+	// NodeCount returns the number of nodes the Ring references.
+	NodeCount() int
 	// Tiers returns the tier values in use at each level. Note that an empty
 	// string is always an available value at any level, although it is not
 	// returned from this method.
@@ -530,6 +532,10 @@ func (r *ring) Node(id uint64) Node {
 		}
 	}
 	return nil
+}
+
+func (r *ring) NodeCount() int {
+	return len(r.nodes)
 }
 
 func (r *ring) Tiers() [][]string {
