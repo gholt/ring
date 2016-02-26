@@ -128,7 +128,7 @@ func (c *testConnNoReads) Close() error {
 /***** Actual tests start here *****/
 
 func TestTCPMsgRingIsMsgRing(t *testing.T) {
-	tmr := NewTCPMsgRing(nil)
+	tmr, _ := NewTCPMsgRing(nil)
 	r, _, _, err := newTestRing()
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +138,7 @@ func TestTCPMsgRingIsMsgRing(t *testing.T) {
 }
 
 func Test_NewTCPMsgRing(t *testing.T) {
-	msgring := NewTCPMsgRing(nil)
+	msgring, _ := NewTCPMsgRing(nil)
 	r, _, _, err := newTestRing()
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +150,7 @@ func Test_NewTCPMsgRing(t *testing.T) {
 }
 
 func Test_TCPMsgRingSetRing(t *testing.T) {
-	msgring := NewTCPMsgRing(nil)
+	msgring, _ := NewTCPMsgRing(nil)
 	r, _, _, err := newTestRing()
 	if err != nil {
 		t.Fatal(err)
