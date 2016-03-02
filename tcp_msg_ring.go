@@ -148,16 +148,16 @@ type TCPMsgRing struct {
 	clientCAPool       *x509.CertPool
 }
 
-func newServerTLSConfig(CertFile, KeyFile, CAFile string, InsecureSkipVerify, MutualTLS bool) (*tls.Config, error) {
+func newServerTLSConfig(certFile, keyFile, caFile string, insecureSkipVerify, mutualTLS bool) (*tls.Config, error) {
 	tlsConf := &tls.Config{}
-	if MutualTLS {
-		caCert, err := ioutil.ReadFile(CAFile)
+	if mutualTLS {
+		caCert, err := ioutil.ReadFile(caFile)
 		if err != nil {
-			return nil, fmt.Errorf("Unable to load ca cert %s: %s", CAFile, err.Error())
+			return nil, fmt.Errorf("Unable to load ca cert %s: %s", caFile, err.Error())
 		}
 		clientCertPool := x509.NewCertPool()
 		if ok := clientCertPool.AppendCertsFromPEM(caCert); !ok {
-			return nil, fmt.Errorf("Unable to append cert %s to pool.", CAFile)
+			return nil, fmt.Errorf("Unable to append cert %s to pool.", caFile)
 		}
 		tlsConf = &tls.Config{
 			ClientAuth: tls.RequireAndVerifyClientCert,
@@ -165,23 +165,23 @@ func newServerTLSConfig(CertFile, KeyFile, CAFile string, InsecureSkipVerify, Mu
 		}
 		tlsConf.BuildNameToCertificate()
 	}
-	cert, err := tls.LoadX509KeyPair(CertFile, KeyFile)
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, err
 	}
 	tlsConf.Certificates = []tls.Certificate{cert}
-	tlsConf.InsecureSkipVerify = InsecureSkipVerify
+	tlsConf.InsecureSkipVerify = insecureSkipVerify
 	return tlsConf, nil
 }
 
-func newClientCertAndPool(CertFile, KeyFile, CAFile string) (cert tls.Certificate, pool *x509.CertPool, err error) {
-	cert, err = tls.LoadX509KeyPair(CertFile, KeyFile)
+func newClientCertAndPool(certFile, keyFile, caFile string) (cert tls.Certificate, pool *x509.CertPool, err error) {
+	cert, err = tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return cert, pool, err
 	}
 	pool = x509.NewCertPool()
-	if CAFile != "" {
-		clientCACert, err := ioutil.ReadFile(CAFile)
+	if caFile != "" {
+		clientCACert, err := ioutil.ReadFile(caFile)
 		if err != nil {
 			return cert, pool, err
 		}
