@@ -22,10 +22,10 @@ assigned to what nodes:
 package main
 
 import (
-	"fmt"
-	"hash/fnv"
+    "fmt"
+    "hash/fnv"
 
-	"github.com/gholt/ring"
+    "github.com/gholt/ring"
 )
 
 func main() {
@@ -38,16 +38,16 @@ func main() {
     builder.AddNode(true, 1, nil, nil, "NodeB", nil)
     builder.AddNode(true, 1, nil, nil, "NodeC", nil)
     // This rebalances if necessary and provides a usable Ring instance.
-	ring := builder.Ring()
+    ring := builder.Ring()
     // This value indicates how many bits are in use for determining ring
     // partitions.
     partitionBitCount := ring.PartitionBitCount()
     for _, item := range []string{"First", "Second", "Third"} {
         // We're using fnv hashing here, but you can use whatever you like.
         // We don't actually recommend fnv, but it's useful for this example.
-		hasher := fnv.New64a()
-		hasher.Write([]byte(item))
-		partition := uint32(hasher.Sum64() >> (64 - partitionBitCount))
+        hasher := fnv.New64a()
+        hasher.Write([]byte(item))
+        partition := uint32(hasher.Sum64() >> (64 - partitionBitCount))
         // We can just grab the first node since this example just uses one
         // replica. See Builder.SetReplicaCount for more information.
         node := ring.ResponsibleNodes(partition)[0]
