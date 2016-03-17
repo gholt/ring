@@ -673,9 +673,6 @@ func CLIAddOrSet(b *Builder, args []string, n BuilderNode, output io.Writer) err
 		if sarg[0] == "" {
 			return fmt.Errorf(`invalid expression %#v; nothing was left of "="`, arg)
 		}
-		if sarg[1] == "" {
-			return fmt.Errorf(`invalid expression %#v; nothing was right of "="`, arg)
-		}
 		switch sarg[0] {
 		case "active":
 			switch sarg[1] {
