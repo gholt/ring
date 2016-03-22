@@ -232,8 +232,8 @@ func TestRingStats(t *testing.T) {
 	if s.ReplicaCount != 3 {
 		t.Fatalf("RingStats gave ReplicaCount of %d instead of 3", s.ReplicaCount)
 	}
-	if s.NodeCount != 6 {
-		t.Fatalf("RingStats gave NodeCount of %d instead of 6", s.NodeCount)
+	if s.ActiveNodeCount != 5 {
+		t.Fatalf("RingStats gave ActiveNodeCount of %d instead of 6", s.ActiveNodeCount)
 	}
 	if s.InactiveNodeCount != 1 {
 		t.Fatalf("RingStats gave InactiveNodeCount of %d instead of 1", s.InactiveNodeCount)
@@ -244,8 +244,8 @@ func TestRingStats(t *testing.T) {
 	if s.PartitionCount != 4 {
 		t.Fatalf("RingStats gave PartitionCount of %d instead of 4", s.PartitionCount)
 	}
-	if s.TotalCapacity != 510 {
-		t.Fatalf("RingStats gave TotalCapacity of %d instead of 510", s.TotalCapacity)
+	if s.ActiveCapacity != 510 {
+		t.Fatalf("RingStats gave ActiveCapacity of %d instead of 510", s.ActiveCapacity)
 	}
 	// Node id 4 should be most underweight.
 	d := float64(104.0) / 510.0 * 4 * 3

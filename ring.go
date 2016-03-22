@@ -600,11 +600,12 @@ func (r *ring) ResponsibleNodes(partition uint32) NodeSlice {
 // the Ring.Stats() method.
 type Stats struct {
 	ReplicaCount      int
-	NodeCount         int
+	ActiveNodeCount   int
 	InactiveNodeCount int
 	PartitionBitCount uint16
 	PartitionCount    int
-	TotalCapacity     uint64
+	ActiveCapacity    uint64
+	InactiveCapacity  uint64
 	// MaxUnderNodePercentage is the percentage a node is underweight, or has
 	// less data assigned to it than its capacity would indicate it desires.
 	MaxUnderNodePercentage float64
@@ -618,13 +619,12 @@ type Stats struct {
 func (r *ring) Stats() *Stats {
 	stats := &Stats{
 		ReplicaCount:      r.ReplicaCount(),
-		NodeCount:         len(r.nodes),
 		PartitionBitCount: r.PartitionBitCount(),
 		PartitionCount:    1 << r.PartitionBitCount(),
 		MaxUnderNodeID:    0,
 		MaxOverNodeID:     0,
 	}
-	nodeIndexToPartitionCount := make([]int, stats.NodeCount)
+	nodeIndexToPartitionCount := make([]int, len(r.nodes))
 	for _, partitionToNodeIndex := range r.replicaToPartitionToNodeIndex {
 		for _, nodeIndex := range partitionToNodeIndex {
 			nodeIndexToPartitionCount[nodeIndex]++
@@ -633,15 +633,17 @@ func (r *ring) Stats() *Stats {
 	for _, n := range r.nodes {
 		if n.inactive {
 			stats.InactiveNodeCount++
+			stats.InactiveCapacity += uint64(n.capacity)
 		} else {
-			stats.TotalCapacity += (uint64)(n.capacity)
+			stats.ActiveNodeCount++
+			stats.ActiveCapacity += uint64(n.capacity)
 		}
 	}
 	for nodeIndex, n := range r.nodes {
 		if n.inactive {
 			continue
 		}
-		desiredPartitionCount := float64(n.capacity) / float64(stats.TotalCapacity) * float64(stats.PartitionCount) * float64(stats.ReplicaCount)
+		desiredPartitionCount := float64(n.capacity) / float64(stats.ActiveCapacity) * float64(stats.PartitionCount) * float64(stats.ReplicaCount)
 		actualPartitionCount := float64(nodeIndexToPartitionCount[nodeIndex])
 		if desiredPartitionCount > actualPartitionCount {
 			under := 100.0 * (desiredPartitionCount - actualPartitionCount) / desiredPartitionCount
