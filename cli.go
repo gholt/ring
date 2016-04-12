@@ -31,7 +31,7 @@ import (
 //      )
 //
 //      func main() {
-//          if err := ring.CLI(os.Args, os.Stdout); err != nil {
+//          if err := ring.CLI(os.Args, os.Stdout, false); err != nil {
 //              fmt.Fprintln(os.Stderr, brimtext.Sentence(err.Error()))
 //              os.Exit(1)
 //          }
