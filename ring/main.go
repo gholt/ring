@@ -6,20 +6,23 @@ import (
 
 	"github.com/gholt/brimtext"
 	"github.com/gholt/ring"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 func main() {
-	i := -1
-	for j, v := range os.Args {
-		if v == "--no-color" {
-			i = j
-			break
+	var args []string
+	color := terminal.IsTerminal(int(os.Stdout.Fd()))
+	for _, arg := range os.Args {
+		switch arg {
+		case "--color":
+			color = true
+		case "--no-color":
+			color = false
+		default:
+			args = append(args, arg)
 		}
 	}
-	if i != -1 {
-		os.Args = append(os.Args[:i], os.Args[i+1:]...)
-	}
-	if err := ring.CLI(os.Args, os.Stdout, i == -1); err != nil {
+	if err := ring.CLI(args, os.Stdout, color); err != nil {
 		fmt.Fprintln(os.Stderr, brimtext.Sentence(err.Error()))
 		os.Exit(1)
 	}
