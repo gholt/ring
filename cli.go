@@ -81,6 +81,14 @@ func CLI(args []string, output io.Writer, ansiColor bool) error {
 		return CLITier(r, b, args[3:], output)
 	case "part", "partition":
 		return CLIPartition(r, b, args[3:], output)
+	case "set-replicas":
+		if r != nil {
+			return fmt.Errorf("cannot set replica count for a ring; use with a builder instead")
+		}
+		if err = CLISetReplicas(b, args[3:], output); err != nil {
+			return err
+		}
+		return PersistRingOrBuilder(r, b, args[1])
 	case "add":
 		if r != nil {
 			return fmt.Errorf("cannot add a node to ring; use with a builder instead")
@@ -234,6 +242,11 @@ id-bits=<value>
 number of bits to use for node IDs in the ring. Perhaps a strange setting, but
 limiting the bits may required or useful in applications that store or transmit
 node IDs.
+
+
+# %[1]s <builder-file> set-replicas <count>
+
+Changes the replica count to <count>.
 
 
 # %[1]s <builder-file> add [<name>=<value>] ...
@@ -562,9 +575,6 @@ func CLIPartition(r Ring, b *Builder, args []string, output io.Writer) error {
 
 // CLICreate creates a new builder; see the output of CLIHelp for detailed
 // information.
-//
-// Provide either the ring or the builder, but not both; set the other to nil.
-// Normally the results from RingOrBuilder.
 func CLICreate(filename string, args []string, output io.Writer) error {
 	replicaCount := 3
 	pointsAllowed := 1
@@ -663,6 +673,23 @@ func CLICreate(filename string, args []string, output io.Writer) error {
 	if err = f.Close(); err != nil {
 		return err
 	}
+	return nil
+}
+
+// CLISetReplicas changes the replica count for the builder; see the output of
+// CLIHelp for detailed information.
+func CLISetReplicas(b *Builder, args []string, output io.Writer) error {
+	if len(args) != 1 {
+		return fmt.Errorf("syntax: <count>")
+	}
+	count, err := strconv.Atoi(args[0])
+	if err != nil {
+		return err
+	}
+	if count < 1 {
+		return fmt.Errorf("invalid <count> %d", count)
+	}
+	b.SetReplicaCount(count)
 	return nil
 }
 
