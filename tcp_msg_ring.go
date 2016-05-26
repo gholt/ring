@@ -302,13 +302,13 @@ func (t *TCPMsgRing) MsgToNode(msg Msg, nodeID uint64, timeout time.Duration) {
 	ring := t.Ring()
 	if ring == nil {
 		atomic.AddInt32(&t.msgToNodeNoRings, 1)
-		msg.Free()
+		msg.Free(0, 0)
 		return
 	}
 	node := ring.Node(nodeID)
 	if node == nil {
 		atomic.AddInt32(&t.msgToNodeNoNodes, 1)
-		msg.Free()
+		msg.Free(0, 0)
 		return
 	}
 	t.msgToAddr(msg, node.Address(t.addressIndex), timeout)
@@ -328,11 +328,11 @@ func (t *TCPMsgRing) MsgToOtherReplicas(msg Msg, partition uint32, timeout time.
 	ring := t.Ring()
 	if ring == nil {
 		atomic.AddInt32(&t.msgToOtherReplicasNoRings, 1)
-		msg.Free()
+		msg.Free(0, 0)
 		return
 	}
 	nodes := ring.ResponsibleNodes(partition)
-	mmsg := &multiMsg{msg: msg, freerChan: make(chan struct{}, len(nodes))}
+	mmsg := &multiMsg{msg: msg, freerChan: make(chan *freeReturnValue, len(nodes))}
 	toAddrChan := make(chan struct{}, len(nodes))
 	toAddr := func(addr string) {
 		t.msgToAddr(mmsg, addr, timeout)
@@ -350,7 +350,7 @@ func (t *TCPMsgRing) MsgToOtherReplicas(msg Msg, partition uint32, timeout time.
 		}
 	}
 	if toAddrs == 0 {
-		msg.Free()
+		msg.Free(0, 0)
 		return
 	}
 	for i := 0; i < toAddrs; i++ {
@@ -512,13 +512,13 @@ func (t *TCPMsgRing) msgToAddr(msg Msg, addr string, timeout time.Duration) {
 	case <-t.controlChan:
 		atomic.AddInt32(&t.msgToAddrShutdownDrops, 1)
 		timer.Stop()
-		msg.Free()
+		msg.Free(0, 1)
 	case msgChan <- msg:
 		atomic.AddInt32(&t.msgToAddrQueues, 1)
 		timer.Stop()
 	case <-timer.C:
 		atomic.AddInt32(&t.msgToAddrTimeoutDrops, 1)
-		msg.Free()
+		msg.Free(0, 1)
 	}
 	// TODO: Uncertain the code block above is better than that below.
 	//       Seems reasonable to Stop a timer if it won't be used; but
@@ -768,11 +768,11 @@ func (t *TCPMsgRing) writeMsgs(writer *timeoutWriter, msgChan chan Msg) {
 		if err := t.writeMsg(writer, msg); err != nil {
 			atomic.AddInt32(&t.msgWriteErrors, 1)
 			t.logDebug("writeMsg: %s\n", err)
-			msg.Free()
+			msg.Free(0, 1)
 			break
 		}
 		atomic.AddInt32(&t.msgWrites, 1)
-		msg.Free()
+		msg.Free(1, 0)
 	}
 }
 
@@ -796,9 +796,14 @@ func (t *TCPMsgRing) writeMsg(writer *timeoutWriter, msg Msg) error {
 	return nil
 }
 
+type freeReturnValue struct {
+	successes int
+	failures  int
+}
+
 type multiMsg struct {
 	msg       Msg
-	freerChan chan struct{}
+	freerChan chan *freeReturnValue
 }
 
 func (m *multiMsg) MsgType() uint64 {
@@ -813,15 +818,19 @@ func (m *multiMsg) WriteContent(w io.Writer) (uint64, error) {
 	return m.msg.WriteContent(w)
 }
 
-func (m *multiMsg) Free() {
-	m.freerChan <- struct{}{}
+func (m *multiMsg) Free(successes int, failures int) {
+	m.freerChan <- &freeReturnValue{successes: successes, failures: failures}
 }
 
 func (m *multiMsg) freer(count int) {
+	var successes int
+	var failures int
 	for i := 0; i < count; i++ {
-		<-m.freerChan
+		rv := <-m.freerChan
+		successes += rv.successes
+		failures += rv.failures
 	}
-	m.msg.Free()
+	m.msg.Free(successes, failures)
 }
 
 type TCPMsgRingStats struct {

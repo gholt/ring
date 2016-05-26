@@ -53,7 +53,7 @@ type MsgRing interface {
 	// timeout should be considered for queueing, not for actual delivery.
 	//
 	// When the msg has actually been sent or has been discarded due to
-	// delivery errors or delays, msg.Free() will be called.
+	// delivery errors or delays, msg.Free will be called.
 	MsgToNode(msg Msg, nodeID uint64, timeout time.Duration)
 	// MsgToNode queues the message for delivery to all other replicas of a
 	// partition; the timeout should be considered for queueing, not for actual
@@ -63,7 +63,7 @@ type MsgRing interface {
 	// then the delivery attempts will be to all replicas.
 	//
 	// When the msg has actually been sent or has been discarded due to
-	// delivery errors or delays, msg.Free() will be called.
+	// delivery errors or delays, msg.Free will be called.
 	MsgToOtherReplicas(msg Msg, partition uint32, timeout time.Duration)
 }
 
@@ -88,8 +88,9 @@ type Msg interface {
 	WriteContent(io.Writer) (uint64, error)
 	// Free will be called when the MsgRing no longer has any references to the
 	// message and allows the message to free any resources it may have, or be
-	// reused, etc.
-	Free()
+	// reused, etc. The call will be given the number of times the message was
+	// successfully sent and/or failed.
+	Free(successes int, failures int)
 }
 
 // MsgUnmarshaller will attempt to read desiredBytesToRead from the reader and
