@@ -52,6 +52,8 @@ type TCPMsgRingConfig struct {
 	// WithinMessageTimeout indicates how many seconds before giving up on
 	// reading data within a message. Defaults to 5 seconds.
 	WithinMessageTimeout int
+	// Default port to listen on.
+	DefaultPort int
 	// UseTLS enables use of TLS for server and client comms
 	UseTLS         bool
 	MutualTLS      bool
@@ -87,6 +89,9 @@ func resolveTCPMsgRingConfig(c *TCPMsgRingConfig) *TCPMsgRingConfig {
 	if cfg.WithinMessageTimeout < 1 {
 		cfg.WithinMessageTimeout = 5
 	}
+	if cfg.DefaultPort == 0 {
+		cfg.DefaultPort = 12345
+	}
 	return cfg
 }
 
@@ -107,6 +112,7 @@ type TCPMsgRing struct {
 	reconnectInterval          time.Duration
 	chunkSize                  int
 	withinMessageTimeout       time.Duration
+	defaultPort                int
 
 	ringChanges               int32
 	ringChangeCloses          int32
@@ -207,6 +213,7 @@ func NewTCPMsgRing(c *TCPMsgRingConfig) (*TCPMsgRing, error) {
 		reconnectInterval:          time.Duration(cfg.ReconnectInterval) * time.Second,
 		chunkSize:                  cfg.ChunkSize,
 		withinMessageTimeout:       time.Duration(cfg.WithinMessageTimeout) * time.Second,
+		defaultPort:                cfg.DefaultPort,
 		chaosAddrOffs:              make(map[string]bool),
 		chaosAddrDisconnects:       make(map[string]bool),
 		useTLS:                     cfg.UseTLS,
@@ -394,8 +401,13 @@ OuterLoop:
 			continue
 		}
 		node := ring.LocalNode()
+		var hostPort string
+		hostPort, err = CanonicalHostPort(node.Address(t.addressIndex), t.defaultPort)
+		if err != nil {
+			continue
+		}
 		var tcpAddr *net.TCPAddr
-		tcpAddr, err = net.ResolveTCPAddr("tcp", node.Address(t.addressIndex))
+		tcpAddr, err = net.ResolveTCPAddr("tcp", hostPort)
 		if err != nil {
 			continue
 		}
