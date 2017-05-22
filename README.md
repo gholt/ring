@@ -12,9 +12,6 @@ with replicas, automatic partitioning (ring ranges), and keeping replicas of
 the same partitions in as distinct tiered nodes as possible (tiers might be
 devices, servers, cabinets, rooms, data centers, geographical regions, etc.)
 
-It also contains tools for using a ring as a messaging hub, easing
-communication between nodes in the ring.
-
 Here's a quick example of building a ring and discovering what items are
 assigned to what nodes:
 
