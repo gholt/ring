@@ -339,6 +339,7 @@ func Example_storageUseCase() {
 	// Replica 0 of "my test object" is on 10.1.1.2/sda1 which is on Server2 in ZoneA
 	// Replica 1 of "my test object" is on 10.1.1.20/sdb1 which is on Server20 in ZoneE
 	// Replica 2 of "my test object" is on 10.1.1.16/sda1 which is on Server16 in ZoneD
+
 	// Output:
 	// Replica 0 of "my test object" is on 10.1.1.2/sda1 which is on Server2 in ZoneA
 	// Replica 1 of "my test object" is on 10.1.1.20/sdb1 which is on Server20 in ZoneE
