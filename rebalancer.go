@@ -16,13 +16,12 @@ type rebalancer struct {
 	tierToTierSeps           [][]*tierSeparation
 	tierToNodeIndexToTierSep [][]*tierSeparation
 	partitionToMovementsLeft []byte
-	altered                  bool
 	usedNodeIndexes          []int32
 	tierToUsedTierSeps       [][]*tierSeparation
 }
 
 type tierSeparation struct {
-	values              []int32
+	values              []uint32
 	nodeIndexesByDesire []int32
 	used                bool
 }
@@ -30,8 +29,8 @@ type tierSeparation struct {
 func newRebalancer(builder *Builder) *rebalancer {
 	rb := &rebalancer{
 		builder:      builder,
-		maxReplica:   len(builder.replicaToPartitionToNodeIndex) - 1,
-		maxPartition: len(builder.replicaToPartitionToNodeIndex[0]) - 1,
+		maxReplica:   len(builder.Ring) - 1,
+		maxPartition: len(builder.Ring[0]) - 1,
 	}
 	rb.initMaxTier()
 	rb.initNodeDesires()
@@ -46,42 +45,47 @@ func newRebalancer(builder *Builder) *rebalancer {
 }
 
 func (rb *rebalancer) initMaxTier() {
-	rb.maxTier = len(rb.builder.tiers)
+	rb.maxTier = 0
+	for _, n := range rb.builder.Nodes {
+		if len(n.TierIndexes) > rb.maxTier {
+			rb.maxTier = len(n.TierIndexes)
+		}
+	}
 }
 
 func (rb *rebalancer) initNodeDesires() {
 	totalCapacity := float64(0)
-	for _, node := range rb.builder.nodes {
-		if !node.inactive {
-			totalCapacity += (float64)(node.capacity)
+	for _, node := range rb.builder.Nodes {
+		if !node.Disabled {
+			totalCapacity += (float64)(node.Capacity)
 		}
 	}
-	nodeIndexToPartitionCount := make([]int32, len(rb.builder.nodes))
-	for _, partitionToNodeIndex := range rb.builder.replicaToPartitionToNodeIndex {
+	nodeIndexToPartitionCount := make([]int32, len(rb.builder.Nodes))
+	for _, partitionToNodeIndex := range rb.builder.Ring {
 		for _, nodeIndex := range partitionToNodeIndex {
 			if nodeIndex >= 0 {
 				nodeIndexToPartitionCount[nodeIndex]++
 			}
 		}
 	}
-	rb.nodeIndexToDesire = make([]int32, len(rb.builder.nodes))
-	allPartitionsCount := float64(len(rb.builder.replicaToPartitionToNodeIndex) * len(rb.builder.replicaToPartitionToNodeIndex[0]))
-	for nodeIndex, node := range rb.builder.nodes {
-		if node.inactive {
+	rb.nodeIndexToDesire = make([]int32, len(rb.builder.Nodes))
+	allPartitionsCount := float64(len(rb.builder.Ring) * len(rb.builder.Ring[0]))
+	for nodeIndex, node := range rb.builder.Nodes {
+		if node.Disabled {
 			rb.nodeIndexToDesire[nodeIndex] = math.MinInt32
 		} else {
-			rb.nodeIndexToDesire[nodeIndex] = int32(float64(node.capacity)/totalCapacity*allPartitionsCount+0.5) - nodeIndexToPartitionCount[nodeIndex]
+			rb.nodeIndexToDesire[nodeIndex] = int32(float64(node.Capacity)/totalCapacity*allPartitionsCount+0.5) - nodeIndexToPartitionCount[nodeIndex]
 		}
 	}
-	rb.nodeIndexesByDesire = make([]int32, len(rb.builder.nodes))
-	for i := int32(len(rb.builder.nodes) - 1); i >= 0; i-- {
+	rb.nodeIndexesByDesire = make([]int32, len(rb.builder.Nodes))
+	for i := int32(len(rb.builder.Nodes) - 1); i >= 0; i-- {
 		rb.nodeIndexesByDesire[i] = i
 	}
 	sort.Sort(&nodeIndexByDesireSorter{
 		nodeIndexes:       rb.nodeIndexesByDesire,
 		nodeIndexToDesire: rb.nodeIndexToDesire,
 	})
-	rb.nodeIndexToUsed = make([]bool, len(rb.builder.nodes))
+	rb.nodeIndexToUsed = make([]bool, len(rb.builder.Nodes))
 }
 
 func (rb *rebalancer) initMovementsLeft() {
@@ -93,7 +97,7 @@ func (rb *rebalancer) initMovementsLeft() {
 	for partition := rb.maxPartition; partition >= 0; partition-- {
 		rb.partitionToMovementsLeft[partition] = movementsPerPartition
 		for replica := rb.maxReplica; replica >= 0; replica-- {
-			if rb.builder.replicaToPartitionToLastMove[replica][partition] < rb.builder.moveWait {
+			if rb.builder.LastMoved[replica][partition] < rb.builder.MoveWait {
 				rb.partitionToMovementsLeft[partition]--
 			}
 		}
@@ -104,17 +108,17 @@ func (rb *rebalancer) initTierInfo() {
 	rb.tierToNodeIndexToTierSep = make([][]*tierSeparation, rb.maxTier+1)
 	rb.tierToTierSeps = make([][]*tierSeparation, rb.maxTier+1)
 	for tier := rb.maxTier; tier >= 0; tier-- {
-		rb.tierToNodeIndexToTierSep[tier] = make([]*tierSeparation, len(rb.builder.nodes))
+		rb.tierToNodeIndexToTierSep[tier] = make([]*tierSeparation, len(rb.builder.Nodes))
 		rb.tierToTierSeps[tier] = make([]*tierSeparation, 0)
 	}
-	for nodeIndex, node := range rb.builder.nodes {
-		nodeTierIndexes := node.tierIndexes
+	for nodeIndex, node := range rb.builder.Nodes {
+		nodeTierIndexes := node.TierIndexes
 		for tier := 0; tier <= rb.maxTier; tier++ {
 			var tierSep *tierSeparation
 			for _, candidateTierSep := range rb.tierToTierSeps[tier] {
 				tierSep = candidateTierSep
 				for valueIndex := 0; valueIndex <= rb.maxTier-tier; valueIndex++ {
-					value := int32(0)
+					value := uint32(0)
 					if valueIndex+tier < len(nodeTierIndexes) {
 						value = nodeTierIndexes[valueIndex+tier]
 					}
@@ -128,9 +132,9 @@ func (rb *rebalancer) initTierInfo() {
 				}
 			}
 			if tierSep == nil {
-				tierSep = &tierSeparation{values: make([]int32, rb.maxTier-tier+1), nodeIndexesByDesire: []int32{int32(nodeIndex)}}
+				tierSep = &tierSeparation{values: make([]uint32, rb.maxTier-tier+1), nodeIndexesByDesire: []int32{int32(nodeIndex)}}
 				for valueIndex := 0; valueIndex <= rb.maxTier-tier; valueIndex++ {
-					value := int32(0)
+					value := uint32(0)
 					if valueIndex+tier < len(nodeTierIndexes) {
 						value = nodeTierIndexes[valueIndex+tier]
 					}
@@ -172,7 +176,7 @@ func (rb *rebalancer) clearUsed() {
 
 func (rb *rebalancer) markUsed(partition int) {
 	for replica := rb.maxReplica; replica >= 0; replica-- {
-		nodeIndex := rb.builder.replicaToPartitionToNodeIndex[replica][partition]
+		nodeIndex := rb.builder.Ring[replica][partition]
 		if nodeIndex < 0 {
 			continue
 		}
@@ -306,20 +310,19 @@ func (rb *rebalancer) changeDesire(nodeIndex int32, increment bool) {
 	rb.nodeIndexToDesire[nodeIndex] = newDesire
 }
 
-func (rb *rebalancer) rebalance() bool {
+func (rb *rebalancer) rebalance() {
 	rb.assignUnassigned()
 	rb.reassignDeactivated()
 	rb.reassignSameNodeDups()
 	rb.reassignSameTierDups()
 	rb.reassignOverweight()
-	return rb.altered
 }
 
 // Assign any partitions assigned as -1 (happens with new ring and can happen
 // with a node removed with the Remove() method).
 func (rb *rebalancer) assignUnassigned() {
 	for replica := rb.maxReplica; replica >= 0; replica-- {
-		partitionToNodeIndex := rb.builder.replicaToPartitionToNodeIndex[replica]
+		partitionToNodeIndex := rb.builder.Ring[replica]
 		for partition := rb.maxPartition; partition >= 0; partition-- {
 			if partitionToNodeIndex[partition] >= 0 {
 				continue
@@ -333,8 +336,7 @@ func (rb *rebalancer) assignUnassigned() {
 			partitionToNodeIndex[partition] = nodeIndex
 			rb.changeDesire(nodeIndex, false)
 			rb.partitionToMovementsLeft[partition]--
-			rb.builder.replicaToPartitionToLastMove[replica][partition] = 0
-			rb.altered = true
+			rb.builder.LastMoved[replica][partition] = 0
 		}
 	}
 }
@@ -342,12 +344,12 @@ func (rb *rebalancer) assignUnassigned() {
 // We'll reassign any partition replicas assigned to nodes marked inactive
 // (deleted or failed nodes).
 func (rb *rebalancer) reassignDeactivated() {
-	for deletedNodeIndex, deletedNode := range rb.builder.nodes {
-		if !deletedNode.inactive {
+	for deletedNodeIndex, deletedNode := range rb.builder.Nodes {
+		if !deletedNode.Disabled {
 			continue
 		}
 		for replica := rb.maxReplica; replica >= 0; replica-- {
-			partitionToNodeIndex := rb.builder.replicaToPartitionToNodeIndex[replica]
+			partitionToNodeIndex := rb.builder.Ring[replica]
 			for partition := rb.maxPartition; partition >= 0; partition-- {
 				if partitionToNodeIndex[partition] != int32(deletedNodeIndex) {
 					continue
@@ -361,8 +363,7 @@ func (rb *rebalancer) reassignDeactivated() {
 				partitionToNodeIndex[partition] = nodeIndex
 				rb.changeDesire(nodeIndex, false)
 				rb.partitionToMovementsLeft[partition]--
-				rb.builder.replicaToPartitionToLastMove[replica][partition] = 0
-				rb.altered = true
+				rb.builder.LastMoved[replica][partition] = 0
 			}
 		}
 	}
@@ -382,11 +383,11 @@ DupLoopPartition:
 		}
 	DupLoopReplica:
 		for replica := rb.maxReplica; replica > 0; replica-- {
-			if rb.builder.replicaToPartitionToLastMove[replica][partition] < rb.builder.moveWait {
+			if rb.builder.LastMoved[replica][partition] < rb.builder.MoveWait {
 				continue
 			}
 			for replicaB := replica - 1; replicaB >= 0; replicaB-- {
-				if rb.builder.replicaToPartitionToNodeIndex[replica][partition] == rb.builder.replicaToPartitionToNodeIndex[replicaB][partition] {
+				if rb.builder.Ring[replica][partition] == rb.builder.Ring[replicaB][partition] {
 					rb.clearUsed()
 					rb.markUsed(partition)
 					nodeIndex := rb.bestNodeIndex()
@@ -395,16 +396,15 @@ DupLoopPartition:
 					}
 					// No sense reassigning a duplicate to another duplicate.
 					for replicaC := rb.maxReplica; replicaC >= 0; replicaC-- {
-						if nodeIndex == rb.builder.replicaToPartitionToNodeIndex[replicaC][partition] {
+						if nodeIndex == rb.builder.Ring[replicaC][partition] {
 							continue DupLoopReplica
 						}
 					}
-					rb.changeDesire(rb.builder.replicaToPartitionToNodeIndex[replica][partition], true)
-					rb.builder.replicaToPartitionToNodeIndex[replica][partition] = nodeIndex
+					rb.changeDesire(rb.builder.Ring[replica][partition], true)
+					rb.builder.Ring[replica][partition] = nodeIndex
 					rb.changeDesire(nodeIndex, false)
 					rb.partitionToMovementsLeft[partition]--
-					rb.builder.replicaToPartitionToLastMove[replica][partition] = 0
-					rb.altered = true
+					rb.builder.LastMoved[replica][partition] = 0
 					if rb.partitionToMovementsLeft[partition] < 1 {
 						continue DupLoopPartition
 					}
@@ -423,11 +423,11 @@ func (rb *rebalancer) reassignSameTierDups() {
 			}
 		DupTierLoopReplica:
 			for replica := rb.maxReplica; replica > 0; replica-- {
-				if rb.builder.replicaToPartitionToLastMove[replica][partition] < rb.builder.moveWait {
+				if rb.builder.LastMoved[replica][partition] < rb.builder.MoveWait {
 					continue
 				}
 				for replicaB := replica - 1; replicaB >= 0; replicaB-- {
-					if rb.tierToNodeIndexToTierSep[tier][rb.builder.replicaToPartitionToNodeIndex[replica][partition]] == rb.tierToNodeIndexToTierSep[tier][rb.builder.replicaToPartitionToNodeIndex[replicaB][partition]] {
+					if rb.tierToNodeIndexToTierSep[tier][rb.builder.Ring[replica][partition]] == rb.tierToNodeIndexToTierSep[tier][rb.builder.Ring[replicaB][partition]] {
 						rb.clearUsed()
 						rb.markUsed(partition)
 						nodeIndex := rb.bestNodeIndex()
@@ -437,16 +437,15 @@ func (rb *rebalancer) reassignSameTierDups() {
 						// No sense reassigning a duplicate to another
 						// duplicate.
 						for replicaC := rb.maxReplica; replicaC >= 0; replicaC-- {
-							if rb.tierToNodeIndexToTierSep[tier][nodeIndex] == rb.tierToNodeIndexToTierSep[tier][rb.builder.replicaToPartitionToNodeIndex[replicaC][partition]] {
+							if rb.tierToNodeIndexToTierSep[tier][nodeIndex] == rb.tierToNodeIndexToTierSep[tier][rb.builder.Ring[replicaC][partition]] {
 								continue DupTierLoopReplica
 							}
 						}
-						rb.changeDesire(rb.builder.replicaToPartitionToNodeIndex[replica][partition], true)
-						rb.builder.replicaToPartitionToNodeIndex[replica][partition] = nodeIndex
+						rb.changeDesire(rb.builder.Ring[replica][partition], true)
+						rb.builder.Ring[replica][partition] = nodeIndex
 						rb.changeDesire(nodeIndex, false)
 						rb.partitionToMovementsLeft[partition]--
-						rb.builder.replicaToPartitionToLastMove[replica][partition] = 0
-						rb.altered = true
+						rb.builder.LastMoved[replica][partition] = 0
 						if rb.partitionToMovementsLeft[partition] < 1 {
 							continue DupTierLoopPartition
 						}
@@ -465,21 +464,21 @@ func (rb *rebalancer) reassignSameTierDups() {
 
 // Try to reassign replicas from overweight nodes to underweight ones.
 func (rb *rebalancer) reassignOverweight() {
-	visited := make([]bool, len(rb.builder.nodes))
+	visited := make([]bool, len(rb.builder.Nodes))
 OverweightLoop:
 	for i := len(rb.nodeIndexesByDesire) - 1; i >= 0; i-- {
 		overweightNodeIndex := rb.nodeIndexesByDesire[i]
 		if rb.nodeIndexToDesire[overweightNodeIndex] >= 0 {
 			break
 		}
-		if visited[overweightNodeIndex] || rb.builder.nodes[overweightNodeIndex].inactive {
+		if visited[overweightNodeIndex] || rb.builder.Nodes[overweightNodeIndex].Disabled {
 			continue
 		}
 		// First pass to reassign to only underweight nodes.
 		for replica := rb.maxReplica; replica >= 0; replica-- {
-			partitionToNodeIndex := rb.builder.replicaToPartitionToNodeIndex[replica]
+			partitionToNodeIndex := rb.builder.Ring[replica]
 			for partition := rb.maxPartition; partition >= 0; partition-- {
-				if partitionToNodeIndex[partition] != overweightNodeIndex || rb.partitionToMovementsLeft[partition] < 1 || rb.builder.replicaToPartitionToLastMove[replica][partition] < rb.builder.moveWait {
+				if partitionToNodeIndex[partition] != overweightNodeIndex || rb.partitionToMovementsLeft[partition] < 1 || rb.builder.LastMoved[replica][partition] < rb.builder.MoveWait {
 					continue
 				}
 				rb.clearUsed()
@@ -492,8 +491,7 @@ OverweightLoop:
 				partitionToNodeIndex[partition] = nodeIndex
 				rb.changeDesire(nodeIndex, false)
 				rb.partitionToMovementsLeft[partition]--
-				rb.builder.replicaToPartitionToLastMove[replica][partition] = 0
-				rb.altered = true
+				rb.builder.LastMoved[replica][partition] = 0
 				if rb.nodeIndexToDesire[overweightNodeIndex] >= 0 {
 					visited[overweightNodeIndex] = true
 					i = len(rb.nodeIndexesByDesire)
@@ -503,9 +501,9 @@ OverweightLoop:
 		}
 		// Second pass to reassign to any node not as overweight.
 		for replica := rb.maxReplica; replica >= 0; replica-- {
-			partitionToNodeIndex := rb.builder.replicaToPartitionToNodeIndex[replica]
+			partitionToNodeIndex := rb.builder.Ring[replica]
 			for partition := rb.maxPartition; partition >= 0; partition-- {
-				if partitionToNodeIndex[partition] != overweightNodeIndex || rb.partitionToMovementsLeft[partition] < 1 || rb.builder.replicaToPartitionToLastMove[replica][partition] < rb.builder.moveWait {
+				if partitionToNodeIndex[partition] != overweightNodeIndex || rb.partitionToMovementsLeft[partition] < 1 || rb.builder.LastMoved[replica][partition] < rb.builder.MoveWait {
 					continue
 				}
 				rb.clearUsed()
@@ -518,8 +516,7 @@ OverweightLoop:
 				partitionToNodeIndex[partition] = nodeIndex
 				rb.changeDesire(nodeIndex, false)
 				rb.partitionToMovementsLeft[partition]--
-				rb.builder.replicaToPartitionToLastMove[replica][partition] = 0
-				rb.altered = true
+				rb.builder.LastMoved[replica][partition] = 0
 				if rb.nodeIndexToDesire[overweightNodeIndex] >= 0 {
 					visited[overweightNodeIndex] = true
 					i = len(rb.nodeIndexesByDesire)
@@ -529,4 +526,21 @@ OverweightLoop:
 		}
 		visited[overweightNodeIndex] = true
 	}
+}
+
+type nodeIndexByDesireSorter struct {
+	nodeIndexes       []int32
+	nodeIndexToDesire []int32
+}
+
+func (sorter *nodeIndexByDesireSorter) Len() int {
+	return len(sorter.nodeIndexes)
+}
+
+func (sorter *nodeIndexByDesireSorter) Swap(x int, y int) {
+	sorter.nodeIndexes[x], sorter.nodeIndexes[y] = sorter.nodeIndexes[y], sorter.nodeIndexes[x]
+}
+
+func (sorter *nodeIndexByDesireSorter) Less(x int, y int) bool {
+	return sorter.nodeIndexToDesire[sorter.nodeIndexes[x]] > sorter.nodeIndexToDesire[sorter.nodeIndexes[y]]
 }

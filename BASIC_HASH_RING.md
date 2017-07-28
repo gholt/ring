@@ -369,78 +369,74 @@ algorithm, here is the above code translated for this library:
 package main
 
 import (
-    "fmt"
-    "hash/fnv"
+	"fmt"
+	"hash/fnv"
 
-    "github.com/gholt/ring"
+	"github.com/gholt/ring"
 )
 
-func Hash(x int) uint64 {
-    hasher := fnv.New64a()
-    hasher.Write([]byte(fmt.Sprintf("%d", x)))
-    return hasher.Sum64()
-}
-
-const ITEMS = 1000000
-const NODES = 100
-
 func main() {
-    nodeIDsToNode := make(map[uint64]int)
-    b := ring.NewBuilder(64)
-    for n := 0; n < NODES; n++ {
-        bn, _ := b.AddNode(true, 1, nil, nil, "", nil)
-        nodeIDsToNode[bn.ID()] = n
-    }
-    ring := b.Ring()
+	Hash := func(x int) uint64 {
+		hasher := fnv.New64a()
+		hasher.Write([]byte(fmt.Sprintf("%d", x)))
+		return hasher.Sum64()
+	}
 
-    nodeIDsToNode2 := make(map[uint64]int, NODES+1)
-    for k, v := range nodeIDsToNode {
-        nodeIDsToNode2[k] = v
-    }
-    b.PretendElapsed(b.MoveWait() + 1)
-    bn, _ := b.AddNode(true, 1, nil, nil, "", nil)
-    nodeIDsToNode2[bn.ID()] = NODES
-    ring2 := b.Ring()
+	const ITEMS = 1000000
+	const NODES = 100
 
-    countPerNode := make([]int, NODES)
-    for i := 0; i < ITEMS; i++ {
-        h := Hash(i)
-        x := ring.ResponsibleNodes(uint32(h >> (64 - ring.PartitionBitCount())))[0].ID()
-        countPerNode[nodeIDsToNode[x]]++
-    }
-    min := ITEMS
-    max := 0
-    for n := 0; n < NODES; n++ {
-        if countPerNode[n] < min {
-            min = countPerNode[n]
-        }
-        if countPerNode[n] > max {
-            max = countPerNode[n]
-        }
-    }
-    t := ITEMS / NODES
-    fmt.Printf("%d to %d assigments per node, target was %d.\n", min, max, t)
-    fmt.Printf("That's %.02f%% under and %.02f%% over.\n",
-        float64(t-min)/float64(t)*100, float64(max-t)/float64(t)*100)
+	b := ring.Builder{}
+	for n := 0; n < NODES; n++ {
+		b.Nodes = append(b.Nodes, &ring.Node{Capacity: 1})
+	}
+	b.Rebalance()
+	ring1 := b.Ring.RingDuplicate()
 
-    moved := 0
-    for i := 0; i < ITEMS; i++ {
-        h := Hash(i)
-        x := ring.ResponsibleNodes(uint32(h >> (64 - ring.PartitionBitCount())))[0].ID()
-        x2 := ring2.ResponsibleNodes(uint32(h >> (64 - ring2.PartitionBitCount())))[0].ID()
-        if nodeIDsToNode[x] != nodeIDsToNode2[x2] {
-            moved++
-        }
-    }
-    fmt.Printf("%d items moved, %.02f%%.\n",
-        moved, float64(moved)/float64(ITEMS)*100)
+	partitionCount1 := uint64(ring1.PartitionCount())
+	countPerNode := make([]int, NODES)
+	for i := 0; i < ITEMS; i++ {
+		n := ring1[0][Hash(i)%partitionCount1]
+		countPerNode[n]++
+	}
+	min := ITEMS
+	max := 0
+	for n := 0; n < NODES; n++ {
+		if countPerNode[n] < min {
+			min = countPerNode[n]
+		}
+		if countPerNode[n] > max {
+			max = countPerNode[n]
+		}
+	}
+	t := ITEMS / NODES
+	fmt.Printf("%d to %d assigments per node, target was %d.\n", min, max, t)
+	fmt.Printf("That's %.02f%% under and %.02f%% over.\n",
+		float64(t-min)/float64(t)*100, float64(max-t)/float64(t)*100)
+
+	b.Nodes = append(b.Nodes, &ring.Node{Capacity: 1})
+	b.AddLastMoved(b.MoveWait + 1)
+	b.Rebalance()
+	ring2 := b.Ring.RingDuplicate()
+
+	partitionCount2 := uint64(ring2.PartitionCount())
+	moved := 0
+	for i := 0; i < ITEMS; i++ {
+		h := Hash(i)
+		n1 := ring1[0][h%partitionCount1]
+		n2 := ring2[0][h%partitionCount2]
+		if n1 != n2 {
+			moved++
+		}
+	}
+	fmt.Printf("%d items moved, %.02f%%.\n",
+		moved, float64(moved)/float64(ITEMS)*100)
 }
 ```
 
 ```
-9395 to 10933 assigments per node, target was 10000.
-That's 6.05% under and 9.33% over.
-11710 items moved, 1.17%.
+9792 to 10246 assigments per node, target was 10000.
+That's 2.08% under and 2.46% over.
+11157 items moved, 1.12%.
 ```
 
 The under/over is much, much better. More items moved than with the hash ring,
@@ -450,11 +446,11 @@ vs. Hash Ring](PARTITION_RING_VS_HASH_RING.md) for more information.
 
 I also ran each sample program 100 times by just making a new main function
 that called the original 100 times. The first hash ring with no virtual nodes
-took 1m0.861s, the second hash ring with virtual nodes took 1m22.554s, and the
-partition ring from this library took 1m17.088s. Not bad at all considering how
-much better the balance is. Granted, this isn't exactly the best benchmark;
-ideally a benchmark would measure creation speeds separately from modification
-speeds separately from lookup speeds, etc. But it gives a general idea.
+took 46.277s, the second hash ring with virtual nodes took 1m5.711s, and the
+partition ring from this library took 36.244s. Granted, this isn't exactly the
+best benchmark; ideally a benchmark would measure creation speeds separately
+from modification speeds separately from lookup speeds, etc. But it gives a
+general idea.
 
 There are also other more complex topics with rings, like node weights (or
 capacities) where you'd give nodes different amounts of items based on their

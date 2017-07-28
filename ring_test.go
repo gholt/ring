@@ -1,262 +1,77 @@
-package ring
+package ring_test
 
 import (
-	"bytes"
-	"testing"
+	"fmt"
+
+	"github.com/gholt/ring"
 )
 
-func TestRingVersion(t *testing.T) {
-	v := (&ring{version: 1}).Version()
-	if v != 1 {
-		t.Fatalf("Version() gave %d instead of 1", v)
-	}
-}
-
-func TestRingConfig(t *testing.T) {
-	configBytes := []byte("three shall be the number thou shalt count")
-	v := (&ring{config: configBytes}).Config()
-	if !bytes.Equal(v, configBytes) {
-		t.Fatalf("Config() gave %s instead of %s", v, configBytes)
-	}
-}
-
-func TestRingPartitionBitCount(t *testing.T) {
-	v := (&ring{partitionBitCount: 1}).PartitionBitCount()
-	if v != 1 {
-		t.Fatalf("PartitionBitCount() gave %d instead of 1", v)
-	}
-}
-
-func TestRingReplicaCount(t *testing.T) {
-	v := (&ring{replicaToPartitionToNodeIndex: make([][]int32, 3)}).ReplicaCount()
-	if v != 3 {
-		t.Fatalf("ReplicaCount() gave %d instead of 3", v)
-	}
-}
-
-func TestRingNodes(t *testing.T) {
-	v := (&ring{nodes: []*node{&node{id: 1}, &node{id: 2}}}).Nodes()
-	if len(v) != 2 {
-		t.Fatalf("Nodes() gave %d entries instead of 2", len(v))
-	}
-	if v[0].ID() != 1 || v[1].ID() != 2 {
-		t.Fatalf("Nodes() gave [%v, %v] instead of [&{1}, &{2}]", v[0], v[1])
-	}
-}
-
-func TestRingNode(t *testing.T) {
-	v := (&ring{nodes: []*node{&node{id: 1}, &node{id: 2}}}).Node(1)
-	if v.ID() != 1 {
-		t.Fatalf("Nodes() gave %v instead of &{1}", v)
-	}
-	v = (&ring{nodes: []*node{&node{id: 1}, &node{id: 2}}}).Node(2)
-	if v.ID() != 2 {
-		t.Fatalf("Nodes() gave %v instead of &{2}", v)
-	}
-	v = (&ring{nodes: []*node{&node{id: 1}, &node{id: 2}}}).Node(3)
-	if v != nil {
-		t.Fatalf("Nodes() gave %v instead of nil", v)
-	}
-}
-
-func TestRingNodeCount(t *testing.T) {
-	v := (&ring{nodes: []*node{&node{id: 1}, &node{id: 2}}}).NodeCount()
-	if v != 2 {
-		t.Fatalf("NodeCount() gave %d instead of 2", v)
-	}
-}
-
-func TestRingLocalNode(t *testing.T) {
-	v := (&ring{localNodeIndex: -1}).LocalNode()
-	if v != nil {
-		t.Fatalf("LocalNode() gave %v instead of nil", v)
-	}
-	v = (&ring{localNodeIndex: 0, nodes: []*node{&node{id: 123}, &node{id: 456}, &node{id: 789}}}).LocalNode()
-	if v.ID() != 123 {
-		t.Fatalf("LocalNode() gave %v instead of 0", v)
-	}
-	v = (&ring{localNodeIndex: 1, nodes: []*node{&node{id: 123}, &node{id: 456}, &node{id: 789}}}).LocalNode()
-	if v.ID() != 456 {
-		t.Fatalf("LocalNode() gave %v instead of 0", v)
-	}
-}
-
-func TestRingResponsible(t *testing.T) {
-	v := (&ring{localNodeIndex: -1}).Responsible(123)
-	if v {
-		t.Fatal("Responsible(123) gave true instead of false")
-	}
-	d := make([][]int32, 3)
-	d[0] = []int32{0, 1, 2}
-	d[1] = []int32{3, 4, 5}
-	d[2] = []int32{6, 7, 8}
-	v = (&ring{localNodeIndex: 0, replicaToPartitionToNodeIndex: d}).Responsible(0)
-	if !v {
-		t.Fatal("Responsible(0) gave false instead of true")
-	}
-	v = (&ring{localNodeIndex: 0, replicaToPartitionToNodeIndex: d}).Responsible(1)
-	if v {
-		t.Fatal("Responsible(1) gave true instead of false")
-	}
-}
-
-func TestRingResponsibleReplica(t *testing.T) {
-	v := (&ring{localNodeIndex: -1}).ResponsibleReplica(123)
-	if v != -1 {
-		t.Fatalf("ResponsibleReplica(123) gave %d instead of -1\n", v)
-	}
-	d := make([][]int32, 3)
-	d[0] = []int32{0, 1, 2}
-	d[1] = []int32{3, 4, 5}
-	d[2] = []int32{6, 7, 0}
-	v = (&ring{localNodeIndex: 0, replicaToPartitionToNodeIndex: d}).ResponsibleReplica(0)
-	if v != 0 {
-		t.Fatalf("ResponsibleReplica(0) gave %d instead of 0\n", v)
-	}
-	v = (&ring{localNodeIndex: 0, replicaToPartitionToNodeIndex: d}).ResponsibleReplica(1)
-	if v != -1 {
-		t.Fatalf("ResponsibleReplica(1) gave %d instead of -1\n", v)
-	}
-	v = (&ring{localNodeIndex: 0, replicaToPartitionToNodeIndex: d}).ResponsibleReplica(2)
-	if v != 2 {
-		t.Fatalf("ResponsibleReplica(2) gave %d instead of 2\n", v)
-	}
-}
-
-func TestRingResponsibleIDs(t *testing.T) {
-	d := make([][]int32, 3)
-	d[0] = []int32{0, 1, 2}
-	d[1] = []int32{3, 4, 5}
-	d[2] = []int32{6, 7, 8}
-	v := (&ring{nodes: []*node{&node{id: 10}, &node{id: 11}, &node{id: 12}, &node{id: 13}, &node{id: 14}, &node{id: 15}, &node{id: 16}, &node{id: 17}, &node{id: 18}}, replicaToPartitionToNodeIndex: d}).ResponsibleNodes(0)
-	if len(v) != 3 || v[0].ID() != 10 || v[1].ID() != 13 || v[2].ID() != 16 {
-		t.Fatalf("ResponsibleNodes(0) gave %v instead of [10 13 16]", v)
-	}
-	v = (&ring{nodes: []*node{&node{id: 10}, &node{id: 11}, &node{id: 12}, &node{id: 13}, &node{id: 14}, &node{id: 15}, &node{id: 16}, &node{id: 17}, &node{id: 18}}, replicaToPartitionToNodeIndex: d}).ResponsibleNodes(2)
-	if len(v) != 3 || v[0].ID() != 12 || v[1].ID() != 15 || v[2].ID() != 18 {
-		t.Fatalf("ResponsibleNodes(2) gave %v instead of [12 15 18]", v)
-	}
-}
-
-func TestRingPersistence(t *testing.T) {
-	b := NewBuilder(64)
-	b.SetReplicaCount(3)
-	b.AddNode(true, 1, []string{"server1", "zone1"}, []string{"1.2.3.4:56789"}, "Meta One", []byte("Config"))
-	b.AddNode(true, 1, []string{"server2", "zone1"}, []string{"1.2.3.5:56789", "1.2.3.5:9876"}, "Meta Four", []byte("Config"))
-	b.AddNode(false, 0, []string{"server3", "zone1"}, []string{"1.2.3.6:56789"}, "Meta Three", []byte("Config"))
-	r := b.Ring().(*ring)
-	buf := bytes.NewBuffer(make([]byte, 0, 65536))
-	err := r.Persist(buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r2i, err := LoadRing(bytes.NewBuffer(buf.Bytes()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	r2 := r2i.(*ring)
-	if r2.version != r.version {
-		t.Fatalf("%v != %v", r2.version, r.version)
-	}
-	if !bytes.Equal(r2.config, r.config) {
-		t.Fatalf("%v != %v", r2.config, r.config)
-	}
-	if len(r2.nodes) != len(r.nodes) {
-		t.Fatalf("%v != %v", len(r2.nodes), len(r.nodes))
-	}
-	for i := 0; i < len(r2.nodes); i++ {
-		if r2.nodes[i].id != r.nodes[i].id {
-			t.Fatalf("%v != %v", r2.nodes[i].id, r.nodes[i].id)
-		}
-		if r2.nodes[i].capacity != r.nodes[i].capacity {
-			t.Fatalf("%v != %v", r2.nodes[i].capacity, r.nodes[i].capacity)
-		}
-		if len(r2.nodes[i].tierIndexes) != len(r.nodes[i].tierIndexes) {
-			t.Fatalf("%v != %v", len(r2.nodes[i].tierIndexes), len(r.nodes[i].tierIndexes))
-		}
-		for j := 0; j < len(r2.nodes[i].tierIndexes); j++ {
-			if r2.nodes[i].tierIndexes[j] != r.nodes[i].tierIndexes[j] {
-				t.Fatalf("%v != %v", r2.nodes[i].tierIndexes[j], r.nodes[i].tierIndexes[j])
-			}
-		}
-		if len(r2.nodes[i].addresses) != len(r.nodes[i].addresses) {
-			t.Fatalf("%v != %v", len(r2.nodes[i].addresses), len(r.nodes[i].addresses))
-		}
-		for j := 0; j < len(r2.nodes[i].addresses); j++ {
-			if r2.nodes[i].addresses[j] != r.nodes[i].addresses[j] {
-				t.Fatalf("%v != %v", r2.nodes[i].addresses[j], r.nodes[i].addresses[j])
-			}
-		}
-		if r2.nodes[i].meta != r.nodes[i].meta {
-			t.Fatalf("%v != %v", r2.nodes[i].meta, r.nodes[i].meta)
-		}
-		if !bytes.Equal(r2.nodes[i].config, r.nodes[i].config) {
-			t.Fatalf("%v != %v", r2.nodes[i].config, r.nodes[i].config)
-		}
-	}
-	if r2.partitionBitCount != r.partitionBitCount {
-		t.Fatalf("%v != %v", r2.partitionBitCount, r.partitionBitCount)
-	}
-	if len(r2.replicaToPartitionToNodeIndex) != len(r.replicaToPartitionToNodeIndex) {
-		t.Fatalf("%v != %v", len(r2.replicaToPartitionToNodeIndex), len(r.replicaToPartitionToNodeIndex))
-	}
-	for i := 0; i < len(r2.replicaToPartitionToNodeIndex); i++ {
-		if len(r2.replicaToPartitionToNodeIndex[i]) != len(r.replicaToPartitionToNodeIndex[i]) {
-			t.Fatalf("%v != %v", len(r2.replicaToPartitionToNodeIndex[i]), len(r.replicaToPartitionToNodeIndex[i]))
-		}
-		for j := 0; j < len(r2.replicaToPartitionToNodeIndex[i]); j++ {
-			if r2.replicaToPartitionToNodeIndex[i][j] != r.replicaToPartitionToNodeIndex[i][j] {
-				t.Fatalf("%v != %v", r2.replicaToPartitionToNodeIndex[i][j], r.replicaToPartitionToNodeIndex[i][j])
+func ExampleRing_overview() {
+	nodes := []string{"FirstNode", "SecondNode"}
+	replicaToPartitionToNodeIndex_aka_Ring := ring.Ring{[]int32{0, 1}, []int32{1, -1}}
+	for replica, partitionToNodeIndex := range replicaToPartitionToNodeIndex_aka_Ring {
+		for partition, nodeIndex := range partitionToNodeIndex {
+			fmt.Printf("Replica %d of Partition %d is ", replica, partition)
+			if nodeIndex >= 0 {
+				fmt.Printf("assigned to %s\n", nodes[nodeIndex])
+			} else {
+				fmt.Println("unassigned")
 			}
 		}
 	}
+	// Output:
+	// Replica 0 of Partition 0 is assigned to FirstNode
+	// Replica 0 of Partition 1 is assigned to SecondNode
+	// Replica 1 of Partition 0 is assigned to SecondNode
+	// Replica 1 of Partition 1 is unassigned
 }
 
-func TestRingStats(t *testing.T) {
-	s := (&ring{
-		partitionBitCount: 2,
-		nodes: []*node{
-			&node{id: 0, capacity: 100},
-			&node{id: 1, capacity: 101},
-			&node{id: 2, capacity: 102},
-			&node{id: 3, capacity: 103},
-			&node{id: 4, capacity: 104},
-			&node{id: 5, inactive: true},
-		},
-		replicaToPartitionToNodeIndex: [][]int32{
-			[]int32{0, 1, 2, 3},
-			[]int32{4, 0, 1, 2},
-			[]int32{3, 4, 0, 1},
-		},
-	}).Stats()
-	if s.ReplicaCount != 3 {
-		t.Fatalf("RingStats gave ReplicaCount of %d instead of 3", s.ReplicaCount)
+func ExampleRing_PartitionCount() {
+	fmt.Println(ring.Ring{
+		[]int32{0, 1, 0},
+		[]int32{1, 0, 1},
+	}.PartitionCount())
+	// Output: 3
+}
+
+func ExampleRing_ReplicaCount() {
+	fmt.Println(ring.Ring{
+		[]int32{0, 1, 1},
+		[]int32{1, 0, 1},
+	}.ReplicaCount())
+	// Output: 2
+}
+
+func ExampleRing_RingEqual() {
+	r1 := ring.Ring{
+		[]int32{0, 1, 1},
+		[]int32{1, 0, 1},
 	}
-	if s.ActiveNodeCount != 5 {
-		t.Fatalf("RingStats gave ActiveNodeCount of %d instead of 6", s.ActiveNodeCount)
+	r2 := ring.Ring{
+		[]int32{0, 1, 1},
+		[]int32{1, 0, 1},
 	}
-	if s.InactiveNodeCount != 1 {
-		t.Fatalf("RingStats gave InactiveNodeCount of %d instead of 1", s.InactiveNodeCount)
+	r3 := ring.Ring{
+		[]int32{1, 0, 0},
+		[]int32{0, 1, 0},
 	}
-	if s.PartitionBitCount != 2 {
-		t.Fatalf("RingStats gave PartitionBitCount of %d instead of 2", s.PartitionBitCount)
-	}
-	if s.PartitionCount != 4 {
-		t.Fatalf("RingStats gave PartitionCount of %d instead of 4", s.PartitionCount)
-	}
-	if s.ActiveCapacity != 510 {
-		t.Fatalf("RingStats gave ActiveCapacity of %d instead of 510", s.ActiveCapacity)
-	}
-	// Node id 4 should be most underweight.
-	d := float64(104.0) / 510.0 * 4 * 3
-	v := float64(100.0) * (d - 2) / d
-	if s.MaxUnderNodePercentage != v {
-		t.Fatalf("RingStats gave MaxUnderNodePercentage of %v instead of %v", s.MaxUnderNodePercentage, v)
-	}
-	// Node id 0 should be most overweight.
-	d = float64(100.0) / 510.0 * 4 * 3
-	v = float64(100.0) * (3 - d) / d
-	if s.MaxOverNodePercentage != v {
-		t.Fatalf("RingStats gave MaxOverNodePercentage of %v instead of %v", s.MaxOverNodePercentage, v)
-	}
+	fmt.Println(r1.RingEqual(r2), r1.RingEqual(r3), r2.RingEqual(r1), r2.RingEqual(r3), r3.RingEqual(r1), r3.RingEqual(r2))
+	fmt.Println(r1.RingEqual(r1))
+	// Output:
+	// true false true false false false
+	// true
+}
+
+func ExampleRing_RingDuplicate() {
+	builder := ring.Builder{Nodes: []*ring.Node{{Capacity: 1}, {Capacity: 1}}}
+	builder.Rebalance()
+	ring1 := builder.RingDuplicate()
+	fmt.Println(ring1.RingEqual(builder.Ring))
+	builder.Nodes = append(builder.Nodes, &ring.Node{Capacity: 1})
+	builder.AddLastMoved(builder.MoveWait + 1)
+	builder.Rebalance()
+	fmt.Println(ring1.RingEqual(builder.Ring))
+	// Output:
+	// true
+	// false
 }
