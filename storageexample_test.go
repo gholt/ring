@@ -336,6 +336,9 @@ func Example_storageUseCase() {
 	for replica, disk := range sr.DisksFor(objectName) {
 		fmt.Printf("Replica %d of %q is on %s/%s which is on %s in %s\n", replica, objectName, disk.addr, disk.name, disk.Tiers()[0], disk.Tiers()[1])
 	}
+	// Replica 0 of "my test object" is on 10.1.1.2/sda1 which is on Server2 in ZoneA
+	// Replica 1 of "my test object" is on 10.1.1.20/sdb1 which is on Server20 in ZoneE
+	// Replica 2 of "my test object" is on 10.1.1.16/sda1 which is on Server16 in ZoneD
 	// Output:
 	// Replica 0 of "my test object" is on 10.1.1.2/sda1 which is on Server2 in ZoneA
 	// Replica 1 of "my test object" is on 10.1.1.20/sdb1 which is on Server20 in ZoneE
