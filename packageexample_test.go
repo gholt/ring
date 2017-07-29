@@ -62,16 +62,16 @@ func Example_tiers() {
 	builder.ChangeReplicaCount(3)
 	builder.Rebalance()
 	fmt.Println("And now here are the replica assigments for partition 0:")
-	//     Replica 0 assigned to firstDisk of serverOne
+	//     Replica 0 assigned to firstDisk of serverTwo
 	//     Replica 1 assigned to secondDisk of serverTwo
-	//     Replica 2 assigned to secondDisk of serverOne
+	//     Replica 2 assigned to firstDisk of serverOne
 	partition = 0
 	for replica := 0; replica < builder.ReplicaCount(); replica++ {
 		fmt.Printf("    Replica %d assigned to %s of %s\n", replica,
 			nodeNames[builder.Ring[replica][partition]],
 			tierNames[serverTier][builder.Nodes[builder.Ring[replica][partition]].TierIndexes[serverTier]])
 	}
-	fmt.Println("So now it ended up using serverOne twice, but note that it made sure to pick distinct drives at least.")
+	fmt.Println("So now it ended up using serverTwo twice, but note that it made sure to pick distinct drives at least.")
 	fmt.Println("Let's get more complicated and define another tier, will call it the region tier.")
 	regionTier := len(tierNames)
 	tierNames = append(tierNames, []string{"east", "central", "west"})
@@ -99,9 +99,9 @@ func Example_tiers() {
 	builder.ChangeReplicaCount(3)
 	builder.Rebalance()
 	fmt.Println("And now here are the replica assigments for partition 0:")
-	//     Replica 0 assigned to secondDisk of serverOne in the central region
-	//     Replica 1 assigned to secondDisk of serverOne in the east region
-	//     Replica 2 assigned to secondDisk of serverOne in the west region
+	//     Replica 0 assigned to secondDisk of serverTwo in the central region
+	//     Replica 1 assigned to firstDisk of serverOne in the west region
+	//     Replica 2 assigned to secondDisk of serverOne in the east region
 	partition = 0
 	for replica := 0; replica < builder.ReplicaCount(); replica++ {
 		fmt.Printf("    Replica %d assigned to %s of %s in the %s region\n", replica,
@@ -130,16 +130,16 @@ func Example_tiers() {
 	// If the node name (disk name) happens to be the same it doesn't matter since they are on different servers.
 	// Let's up the replica count to 3, where we know it will have to assign multiple replicas to a single server...
 	// And now here are the replica assigments for partition 0:
-	//     Replica 0 assigned to firstDisk of serverOne
+	//     Replica 0 assigned to firstDisk of serverTwo
 	//     Replica 1 assigned to secondDisk of serverTwo
-	//     Replica 2 assigned to secondDisk of serverOne
-	// So now it ended up using serverOne twice, but note that it made sure to pick distinct drives at least.
+	//     Replica 2 assigned to firstDisk of serverOne
+	// So now it ended up using serverTwo twice, but note that it made sure to pick distinct drives at least.
 	// Let's get more complicated and define another tier, will call it the region tier.
 	// And we'll assign our first two servers to the east region, and add two more servers in the central region, and even two more servers in the west region.
 	// And now here are the replica assigments for partition 0:
-	//     Replica 0 assigned to secondDisk of serverOne in the central region
-	//     Replica 1 assigned to secondDisk of serverOne in the east region
-	//     Replica 2 assigned to secondDisk of serverOne in the west region
+	//     Replica 0 assigned to secondDisk of serverTwo in the central region
+	//     Replica 1 assigned to firstDisk of serverOne in the west region
+	//     Replica 2 assigned to secondDisk of serverOne in the east region
 	// So now you can see it assigned replicas in distinct regions before worrying about the lower tiers.
 }
 
@@ -205,7 +205,7 @@ func Example_fromBasicHashRingDocument() {
 	fmt.Printf("%d items moved, %.02f%%.\n",
 		moved, float64(moved)/float64(ITEMS)*100)
 	// Output:
-	// 9792 to 10246 assigments per node, target was 10000.
-	// That's 2.08% under and 2.46% over.
-	// 11157 items moved, 1.12%.
+	// 9761 to 10192 assigments per node, target was 10000.
+	// That's 2.39% under and 1.92% over.
+	// 11115 items moved, 1.11%.
 }

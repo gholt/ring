@@ -1,208 +1,106 @@
-package ring_test
+package ring
 
 import (
-	"fmt"
-
-	"github.com/gholt/ring"
+	"testing"
 )
 
-func ExampleBuilder_overview() {
-	builder := ring.Builder{
-		Nodes: []*ring.Node{
-			{Capacity: 1},
-			{Capacity: 1},
-		},
-	}
-	builder.ChangeReplicaCount(2)
-	builder.Rebalance()
-	for partition := 0; partition < builder.PartitionCount(); partition++ {
-		for replica := 0; replica < builder.ReplicaCount(); replica++ {
-			fmt.Printf("Replica %d of Partition %d is assigned to Node %d\n", replica, partition, builder.Ring[replica][partition])
+func TestBuilderReflections(t *testing.T) {
+	b := &Builder{}
+	zones := uint32(5)
+	servers := uint32(5)
+	devices := uint32(10)
+	for zone := uint32(0); zone < zones; zone++ {
+		for server := uint32(0); server < servers; server++ {
+			for device := uint32(0); device < devices; device++ {
+				b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []uint32{server, zone}})
+			}
 		}
 	}
-	// Output:
-	// Replica 0 of Partition 0 is assigned to Node 0
-	// Replica 1 of Partition 0 is assigned to Node 1
-	// Replica 0 of Partition 1 is assigned to Node 1
-	// Replica 1 of Partition 1 is assigned to Node 0
+	noRndHighestCommonPartitionCount := -1
+	noRndSmallestNodePartitions := 0
+	yesRndHighestCommonPartitionCount := -1
+	yesRndSmallestNodePartitions := 0
+	for loop := 0; loop < 2; loop++ {
+		if loop == 0 {
+			b.rnd = noRnd
+		} else {
+			b.rnd = nil
+		}
+		b.Ring = nil
+		b.LastMoved = nil
+		b.ChangeReplicaCount(3)
+		b.Rebalance()
+		nodeHasPartition := make([]map[int]bool, len(b.Nodes))
+		for nodeIndex := 0; nodeIndex < len(b.Nodes); nodeIndex++ {
+			nodeHasPartition[nodeIndex] = make(map[int]bool)
+		}
+		for _, partitionToNodeIndex := range b.Ring {
+			for partition, nodeIndex := range partitionToNodeIndex {
+				nodeHasPartition[nodeIndex][partition] = true
+			}
+		}
+		highestCommonPartitionCount := 0
+		smallestNodePartitions := 0
+		for nodeIndex := 0; nodeIndex < len(b.Nodes); nodeIndex++ {
+			for otherNodeIndex := nodeIndex + 1; otherNodeIndex < len(b.Nodes); otherNodeIndex++ {
+				commonPartitionCount := 0
+				for partition := range nodeHasPartition[nodeIndex] {
+					if nodeHasPartition[otherNodeIndex][partition] {
+						commonPartitionCount++
+					}
+				}
+				if commonPartitionCount > highestCommonPartitionCount {
+					highestCommonPartitionCount = commonPartitionCount
+					smallestNodePartitions = len(nodeHasPartition[nodeIndex])
+					if len(nodeHasPartition[otherNodeIndex]) < smallestNodePartitions {
+						smallestNodePartitions = len(nodeHasPartition[otherNodeIndex])
+					}
+				}
+			}
+		}
+		if loop == 0 {
+			noRndHighestCommonPartitionCount = highestCommonPartitionCount
+			noRndSmallestNodePartitions = smallestNodePartitions
+		} else {
+			yesRndHighestCommonPartitionCount = highestCommonPartitionCount
+			yesRndSmallestNodePartitions = smallestNodePartitions
+		}
+	}
+	t.Logf("info: worst mirror without rnd was %d of %d compared to with rnd at %d of %d", noRndHighestCommonPartitionCount, noRndSmallestNodePartitions, yesRndHighestCommonPartitionCount, yesRndSmallestNodePartitions)
+	if noRndHighestCommonPartitionCount <= yesRndHighestCommonPartitionCount {
+		t.Fatal("no improvement with rnd")
+	}
 }
 
-func ExampleBuilder_AddLastMoved_showingHowTheRestrictionWorks() {
-	builder := ring.Builder{
-		Nodes: []*ring.Node{
-			{Capacity: 1},
-			{Capacity: 1},
-			{Capacity: 1},
-		},
+func TestBuilderRingStats(t *testing.T) {
+	b := &Builder{}
+	s := b.RingStats()
+	if s.ReplicaCount != 0 ||
+		s.EnabledNodeCount != 0 ||
+		s.DisabledNodeCount != 0 ||
+		s.PartitionCount != 0 ||
+		s.UnassignedCount != 0 ||
+		s.EnabledCapacity != 0 ||
+		s.DisabledCapacity != 0 ||
+		s.MaxUnderNodePercentage != 0 ||
+		s.MaxUnderNodeIndex != 0 ||
+		s.MaxOverNodePercentage != 0 ||
+		s.MaxOverNodeIndex != 0 {
+		t.Fatal(s)
 	}
-	builder.ChangeReplicaCount(2)
-	builder.Rebalance()
-	printRing := func() {
-		for _, partitionToNodeIndex := range builder.Ring {
-			fmt.Printf("%v\n", partitionToNodeIndex)
-		}
+	b.ChangeReplicaCount(1)
+	s = b.RingStats()
+	if s.ReplicaCount != 1 ||
+		s.EnabledNodeCount != 0 ||
+		s.DisabledNodeCount != 0 ||
+		s.PartitionCount != 1 ||
+		s.UnassignedCount != 1 ||
+		s.EnabledCapacity != 0 ||
+		s.DisabledCapacity != 0 ||
+		s.MaxUnderNodePercentage != 0 ||
+		s.MaxUnderNodeIndex != 0 ||
+		s.MaxOverNodePercentage != 0 ||
+		s.MaxOverNodeIndex != 0 {
+		t.Fatal(s)
 	}
-	fmt.Println("Here are the initial assignments:")
-	printRing()
-	fmt.Println("Let's change the capacity of a node and rebalance...")
-	builder.Nodes[0].Capacity = 2
-	builder.Rebalance()
-	fmt.Println("Note they haven't moved, even though we changed one node's capacity:")
-	printRing()
-	fmt.Println("So we'll \"pretend\" some time has passed and rebalance...")
-	builder.AddLastMoved(builder.MoveWait + 1)
-	builder.Rebalance()
-	fmt.Println("Now reassignments have occurred:")
-	printRing()
-	// Output:
-	// Here are the initial assignments:
-	// [0 1 1 2 0 0 1 2 2 0 1 1 2 0 0 1]
-	// [2 2 0 1 1 2 0 0 1 2 2 0 1 1 2 0]
-	// Let's change the capacity of a node and rebalance...
-	// Note they haven't moved, even though we changed one node's capacity:
-	// [0 1 1 2 0 0 1 2 2 0 1 1 2 0 0 1]
-	// [2 2 0 1 1 2 0 0 1 2 2 0 1 1 2 0]
-	// So we'll "pretend" some time has passed and rebalance...
-	// Now reassignments have occurred:
-	// [0 1 1 2 0 0 1 2 2 0 1 1 2 0 0 1]
-	// [2 0 0 0 1 2 0 0 0 2 0 0 0 1 2 0]
-}
-
-func ExampleBuilder_ChangeReplicaCount() {
-	builder := ring.Builder{
-		Nodes: []*ring.Node{
-			{Capacity: 1},
-			{Capacity: 1},
-		},
-	}
-	builder.Rebalance()
-	printRing := func() {
-		for _, partitionToNodeIndex := range builder.Ring {
-			fmt.Printf("%v\n", partitionToNodeIndex)
-		}
-	}
-	fmt.Println("We start with a basic one replica ring:")
-	printRing()
-	fmt.Println("And add a replica...")
-	builder.ChangeReplicaCount(2)
-	fmt.Println("Note the new replicas are not assigned yet:")
-	printRing()
-	fmt.Println("So we rebalance...")
-	builder.Rebalance()
-	fmt.Println("And now they are assigned:")
-	printRing()
-	fmt.Println("Let's change back to one replica...")
-	builder.ChangeReplicaCount(1)
-	fmt.Println("And see that the second one has been removed:")
-	printRing()
-	// Output:
-	// We start with a basic one replica ring:
-	// [1 0]
-	// And add a replica...
-	// Note the new replicas are not assigned yet:
-	// [1 0]
-	// [-1 -1]
-	// So we rebalance...
-	// And now they are assigned:
-	// [1 0]
-	// [0 1]
-	// Let's change back to one replica...
-	// And see that the second one has been removed:
-	// [1 0]
-}
-
-func ExampleBuilder_Rebalance_inDepth() {
-	builder := ring.Builder{
-		Nodes: []*ring.Node{
-			{Capacity: 1},
-			{Capacity: 1},
-		},
-	}
-	builder.Rebalance()
-	printRing := func() {
-		for _, partitionToNodeIndex := range builder.Ring {
-			fmt.Printf("%v\n", partitionToNodeIndex)
-		}
-	}
-	fmt.Println("Here are the initial assignments:")
-	printRing()
-	fmt.Println("Let's triple the capacity of a node and rebalance...")
-	builder.Nodes[0].Capacity = 3
-	builder.AddLastMoved(builder.MoveWait + 1) // Pretend time has passed
-	builder.Rebalance()
-	fmt.Println("Note that node now has three times the assignments, and that the partition count grew:")
-	printRing()
-	fmt.Println("Let's add another node, with a capacity of 2 to make things difficult, and rebalance...")
-	builder.Nodes = append(builder.Nodes, &ring.Node{Capacity: 2})
-	builder.AddLastMoved(builder.MoveWait + 1) // Pretend time has passed
-	builder.Rebalance()
-	printRing()
-	fmt.Println("Node 0 now has eight assignments, node 1 has three, and node 2 has five.")
-	sidestepGoVet := `The partition count grows just until it gets close to balanced, using builder.PointsAllowed (default +-1%) as a helper.
-The capacities of the nodes were 3, 1, and 2; meaning 50%, 16.67%, and 33.33% of the assignments.
-They got 50%, 18.75%, and 31.25%, which isn't too far off, but is usually much better with more nodes.
-Let's try doubling the nodes and see how the balance is then...`
-	fmt.Println(sidestepGoVet)
-	builder.Nodes = append(builder.Nodes, &ring.Node{Capacity: 3}, &ring.Node{Capacity: 1}, &ring.Node{Capacity: 2})
-	builder.AddLastMoved(builder.MoveWait + 1) // Pretend time has passed
-	builder.Rebalance()
-	assignments := make([]int, len(builder.Nodes))
-	for _, partitionToNodeIndex := range builder.Ring {
-		for _, nodeIndex := range partitionToNodeIndex {
-			assignments[nodeIndex]++
-		}
-	}
-	totalCapacity := 0
-	for _, node := range builder.Nodes {
-		totalCapacity += int(node.Capacity)
-	}
-	for nodeIndex, count := range assignments {
-		fmt.Printf("Node %d wanted %.02f%% and got %.02f%%\n", nodeIndex, float64(builder.Nodes[nodeIndex].Capacity)/float64(totalCapacity)*100, float64(count)/float64(len(builder.Ring[0]))*100)
-	}
-	// Output:
-	// Here are the initial assignments:
-	// [1 0]
-	// Let's triple the capacity of a node and rebalance...
-	// Note that node now has three times the assignments, and that the partition count grew:
-	// [1 0 0 0]
-	// Let's add another node, with a capacity of 2 to make things difficult, and rebalance...
-	// [1 1 1 2 0 0 0 0 0 0 0 0 2 2 2 2]
-	// Node 0 now has eight assignments, node 1 has three, and node 2 has five.
-	// The partition count grows just until it gets close to balanced, using builder.PointsAllowed (default +-1%) as a helper.
-	// The capacities of the nodes were 3, 1, and 2; meaning 50%, 16.67%, and 33.33% of the assignments.
-	// They got 50%, 18.75%, and 31.25%, which isn't too far off, but is usually much better with more nodes.
-	// Let's try doubling the nodes and see how the balance is then...
-	// Node 0 wanted 25.00% and got 25.00%
-	// Node 1 wanted 8.33% and got 8.20%
-	// Node 2 wanted 16.67% and got 16.80%
-	// Node 3 wanted 25.00% and got 25.00%
-	// Node 4 wanted 8.33% and got 8.20%
-	// Node 5 wanted 16.67% and got 16.80%
-}
-
-func ExampleBuilder_RemoveNode() {
-	builder := ring.Builder{
-		Nodes: []*ring.Node{
-			{Capacity: 1},
-			{Capacity: 1},
-			{Capacity: 1},
-			{Capacity: 1},
-		},
-	}
-	builder.Rebalance()
-	printRing := func() {
-		for _, partitionToNodeIndex := range builder.Ring {
-			fmt.Printf("%v\n", partitionToNodeIndex)
-		}
-	}
-	fmt.Println("Here are the initial assignments:")
-	printRing()
-	builder.RemoveNode(2)
-	fmt.Println("And now the assignments after removing a node:")
-	printRing()
-	// Output:
-	// Here are the initial assignments:
-	// [1 2 3 0]
-	// And now the assignments after removing a node:
-	// [1 -1 2 0]
 }

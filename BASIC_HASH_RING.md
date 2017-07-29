@@ -434,9 +434,9 @@ func main() {
 ```
 
 ```
-9792 to 10246 assigments per node, target was 10000.
-That's 2.08% under and 2.46% over.
-11157 items moved, 1.12%.
+9761 to 10192 assigments per node, target was 10000.
+That's 2.39% under and 1.92% over.
+11115 items moved, 1.11%.
 ```
 
 The under/over is much, much better. More items moved than with the hash ring,

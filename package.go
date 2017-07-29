@@ -47,9 +47,11 @@
 // such as disk, server, zone, datacenter, region, etc. See the Example (Tiers)
 // for a more in-depth code discussion.
 //
-// Last Moved: The builder algorithm for rings records when it reassigns each
-// replica of each partition in the ring. It uses this information to then
-// restrict when it will move that replica again.
+// Last Moved: The record of when a given replica of a partition was last
+// reassigned to a different node. The builder uses this information restrict
+// future movements of that replica and of the other replicas for that
+// partition. For example, it might only move 2 of 5 replicas of a partition
+// within an hour, unless absolutely necessary, such as a failed node.
 //
 // What About Other Distributed Ring Algorithms
 //

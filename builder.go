@@ -2,6 +2,7 @@ package ring
 
 import (
 	"math"
+	"math/rand"
 	"time"
 )
 
@@ -51,24 +52,45 @@ type Builder struct {
 	// be moved again.
 	// 0 will be treated as the default, which currently is 60 minutes.
 	MoveWait uint16
+	// MovesPerPartition is the highest number of replicas for a partition that
+	// can be in motion within the MoveWait window.
+	// For full copy replicas, you probably want this set to no more than half
+	// the replica count. For erasure coding, you want this set to no more than
+	// "m", the maximum number of failure chunks.
+	// 0 (or less) will be treated as the default, which currently is
+	// int(replicas/2), but at least 1.
+	MovesPerPartition int
 	// PointsAllowed is the number of percentage points over or under that the
 	// Builder will try to keep replica assignments within.
 	// 0 will be treated as the default, which currently is 1 for one percent
 	// extra or fewer replicas per node.
 	PointsAllowed byte
 	// MaxPartitionCount is the maximum number of partitions the builder should
-	// grow to, capping the memory usage.
-	// Estimate replicas*MaxPartitionCount*6 bytes of maximum memory usage.
-	// Each Ring entry is 4 bytes (int32) and each LastMoved entry is 2 bytes
-	// (uint16).
-	// Values less than 2 will be treated as the default, which currently is
-	// 8388608 and would, with 3 replicas, use about 150M of memory at max
-	// size.
+	// grow to. This keeps the rebalancer from running too long trying to
+	// achieve desired balances and also caps memory usage.
+	// 0 (or less) will be treated as the default, which currently is 8388608.
 	MaxPartitionCount int
+	// rnd is used to add a some shuffling to the rebalancing algorithms. This
+	// can help keep nodes from mirroring each other too much. Mirroring
+	// meaning that two nodes share more partitions than they really should, so
+	// if both fail at the same time more partitions lose multiple replicas
+	// than they really should.
+	// If nil, this will be set to rand.New(rand.NewSource(0)) -- yes, this
+	// means it's the same seed always, which is fine. We want the shuffling to
+	// help with distribution, but providing repeatable results for users is
+	// also beneficial.
+	// It can be set to noRnd to skip the shuffling, useful for tests comparing
+	// shuffling versus not.
+	rnd *rand.Rand
 }
+
+var noRnd = &rand.Rand{}
 
 // Rebalance updates the b.Ring replica assignments, if needed and possible.
 func (b *Builder) Rebalance() {
+	if b.rnd == nil {
+		b.rnd = rand.New(rand.NewSource(0))
+	}
 	if b.MoveWait == 0 {
 		b.MoveWait = 60 // MoveWait default of 60 minutes.
 	}
@@ -82,8 +104,8 @@ func (b *Builder) Rebalance() {
 		return
 	}
 	if len(b.Ring) == 0 {
-		b.Ring = Ring{[]int32{-1, -1}}
-		b.LastMoved = [][]uint16{{math.MaxUint16, math.MaxUint16}}
+		b.Ring = Ring{[]int32{-1}}
+		b.LastMoved = [][]uint16{{math.MaxUint16}}
 	}
 	newBase := time.Now()
 	d := int(newBase.Sub(b.LastMovedBase) / time.Minute)
@@ -113,8 +135,8 @@ func (b *Builder) ChangeReplicaCount(count int) {
 		count = 1
 	}
 	if len(b.Ring) == 0 {
-		b.Ring = Ring{[]int32{-1, -1}}
-		b.LastMoved = [][]uint16{{math.MaxUint16, math.MaxUint16}}
+		b.Ring = Ring{[]int32{-1}}
+		b.LastMoved = [][]uint16{{math.MaxUint16}}
 	}
 	if count < len(b.Ring) {
 		b.Ring = b.Ring[:count]
@@ -136,9 +158,8 @@ func (b *Builder) ChangeReplicaCount(count int) {
 
 // AddLastMoved shifts forward the LastMoved records by the number of minutes
 // given. This is done when the LastMovedBase is updated but can also be useful
-// in testing, as the ring algorithms will not reassign replicas more often
-// than once per MoveWait minutes in order to let reassignments take effect
-// before moving the same replica yet again.
+// in testing, as the ring algorithms will restrict the movement of replicas
+// based on this information.
 func (b *Builder) AddLastMoved(minutes uint16) {
 	for _, partitionToLastMoved := range b.LastMoved {
 		for partition := len(partitionToLastMoved) - 1; partition >= 0; partition-- {
@@ -160,7 +181,7 @@ func (b *Builder) AddLastMoved(minutes uint16) {
 // the removed node.
 //
 // Depending on the use case, it might be better to just leave a "dead" node in
-// place and simply set it as inactive.
+// place and simply set it as disabled.
 func (b *Builder) RemoveNode(nodeIndex int32) {
 	if nodeIndex < 0 || int(nodeIndex) >= len(b.Nodes) {
 		return
@@ -185,7 +206,7 @@ func (b *Builder) growIfNeeded() {
 	// sense. This does mean if you change the MaxPartitionCount and the
 	// current partition count is already over that, it will not reduce at this
 	// time.
-	if b.MaxPartitionCount < 2 {
+	if b.MaxPartitionCount < 1 {
 		b.MaxPartitionCount = 8388608 // MaxPartitionCount default of 8388608 partitions.
 	}
 	if b.PartitionCount() >= b.MaxPartitionCount {
@@ -208,25 +229,30 @@ func (b *Builder) growIfNeeded() {
 		b.PointsAllowed = 1 // PointsAllowed default of 1 percent.
 	}
 	pointsAllowed := float64(b.PointsAllowed) * 0.01
-	for _, n := range b.Nodes {
-		if n.Disabled {
-			continue
-		}
-		desiredPartitionCount := float64(partitionCount) * float64(replicaCount) * (float64(n.Capacity) / float64(totalCapacity))
-		under := (desiredPartitionCount - float64(int(desiredPartitionCount))) / desiredPartitionCount
-		over := float64(0)
-		if desiredPartitionCount > float64(int(desiredPartitionCount)) {
-			over = (float64(int(desiredPartitionCount)+1) - desiredPartitionCount) / desiredPartitionCount
-		}
-		if under > pointsAllowed || over > pointsAllowed {
-			partitionCount *= 2
-			doublings++
-			if partitionCount == b.MaxPartitionCount {
-				break
-			} else if partitionCount > b.MaxPartitionCount {
-				partitionCount /= 2
-				doublings--
-				break
+	keepTrying := true
+	for keepTrying && partitionCount < b.MaxPartitionCount {
+		keepTrying = false
+		for _, n := range b.Nodes {
+			if n.Disabled {
+				continue
+			}
+			desiredPartitionCount := float64(partitionCount) * float64(replicaCount) * (float64(n.Capacity) / float64(totalCapacity))
+			under := (desiredPartitionCount - float64(int(desiredPartitionCount))) / desiredPartitionCount
+			over := float64(0)
+			if desiredPartitionCount > float64(int(desiredPartitionCount)) {
+				over = (float64(int(desiredPartitionCount)+1) - desiredPartitionCount) / desiredPartitionCount
+			}
+			if under > pointsAllowed || over > pointsAllowed {
+				partitionCount *= 2
+				doublings++
+				if partitionCount == b.MaxPartitionCount {
+					break
+				} else if partitionCount > b.MaxPartitionCount {
+					partitionCount /= 2
+					doublings--
+					break
+				}
+				keepTrying = true
 			}
 		}
 	}
@@ -243,4 +269,71 @@ func (b *Builder) growIfNeeded() {
 			b.LastMoved[replica] = partitionToLastMoved
 		}
 	}
+}
+
+// RingStats gives an overview of the state and health of the Builder's Ring.
+// It is returned by the RingStats() method.
+type RingStats struct {
+	ReplicaCount      int
+	EnabledNodeCount  int
+	DisabledNodeCount int
+	PartitionCount    int
+	UnassignedCount   int
+	EnabledCapacity   uint64
+	DisabledCapacity  uint64
+	// MaxUnderNodePercentage is the percentage a node is underweight, or has
+	// less data assigned to it than its capacity would indicate it desires.
+	MaxUnderNodePercentage float64
+	MaxUnderNodeIndex      int32
+	// MaxOverNodePercentage is the percentage a node is overweight, or has
+	// more data assigned to it than its capacity would indicate it desires.
+	MaxOverNodePercentage float64
+	MaxOverNodeIndex      int32
+}
+
+func (b *Builder) RingStats() *RingStats {
+	stats := &RingStats{
+		ReplicaCount:   b.ReplicaCount(),
+		PartitionCount: b.PartitionCount(),
+	}
+	nodeIndexToPartitionCount := make([]int, len(b.Nodes))
+	for _, partitionToNodeIndex := range b.Ring {
+		for _, nodeIndex := range partitionToNodeIndex {
+			if nodeIndex < 0 {
+				stats.UnassignedCount++
+			} else {
+				nodeIndexToPartitionCount[nodeIndex]++
+			}
+		}
+	}
+	for _, n := range b.Nodes {
+		if n.Disabled {
+			stats.DisabledNodeCount++
+			stats.DisabledCapacity += uint64(n.Capacity)
+		} else {
+			stats.EnabledNodeCount++
+			stats.EnabledCapacity += uint64(n.Capacity)
+		}
+	}
+	for nodeIndex, n := range b.Nodes {
+		if n.Disabled {
+			continue
+		}
+		desiredPartitionCount := float64(n.Capacity) / float64(stats.EnabledCapacity) * float64(stats.PartitionCount) * float64(stats.ReplicaCount)
+		actualPartitionCount := float64(nodeIndexToPartitionCount[nodeIndex])
+		if desiredPartitionCount > actualPartitionCount {
+			under := 100.0 * (desiredPartitionCount - actualPartitionCount) / desiredPartitionCount
+			if under > stats.MaxUnderNodePercentage {
+				stats.MaxUnderNodePercentage = under
+				stats.MaxUnderNodeIndex = int32(nodeIndex)
+			}
+		} else if desiredPartitionCount < actualPartitionCount {
+			over := 100.0 * (actualPartitionCount - desiredPartitionCount) / desiredPartitionCount
+			if over > stats.MaxOverNodePercentage {
+				stats.MaxOverNodePercentage = over
+				stats.MaxOverNodeIndex = int32(nodeIndex)
+			}
+		}
+	}
+	return stats
 }
