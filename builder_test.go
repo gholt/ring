@@ -70,9 +70,9 @@ func TestBuilderReflections(t *testing.T) {
 	}
 }
 
-func TestBuilderRingStats(t *testing.T) {
+func TestBuilderStats(t *testing.T) {
 	b := &Builder{}
-	s := b.RingStats()
+	s := b.Stats()
 	if s.ReplicaCount != 0 ||
 		s.EnabledNodeCount != 0 ||
 		s.DisabledNodeCount != 0 ||
@@ -87,7 +87,7 @@ func TestBuilderRingStats(t *testing.T) {
 		t.Fatal(s)
 	}
 	b.SetReplicaCount(1)
-	s = b.RingStats()
+	s = b.Stats()
 	if s.ReplicaCount != 1 ||
 		s.EnabledNodeCount != 0 ||
 		s.DisabledNodeCount != 0 ||

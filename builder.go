@@ -310,9 +310,9 @@ func (b *Builder) growIfNeeded() {
 	}
 }
 
-// RingStats gives an overview of the state and health of the Builder's Ring.
-// It is returned by the Builder.RingStats() method.
-type RingStats struct {
+// Stats gives an overview of the state and health of the Builder.
+// It is returned by the Builder.Stats() method.
+type Stats struct {
 	ReplicaCount      int
 	EnabledNodeCount  int
 	DisabledNodeCount int
@@ -330,8 +330,8 @@ type RingStats struct {
 	MaxOverNodeIndex      NodeIndexType
 }
 
-func (b *Builder) RingStats() *RingStats {
-	stats := &RingStats{
+func (b *Builder) Stats() *Stats {
+	stats := &Stats{
 		ReplicaCount:   b.ReplicaCount(),
 		PartitionCount: b.PartitionCount(),
 	}
