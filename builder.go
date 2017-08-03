@@ -151,7 +151,7 @@ func (b *Builder) Rebalance() {
 		b.LastMoved = [][]LastMovedType{{LastMovedMax}}
 	}
 	newBase := time.Now()
-	b.AddLastMoved(newBase.Sub(b.LastMovedBase))
+	b.ShiftLastMoved(newBase.Sub(b.LastMovedBase))
 	b.growIfNeeded()
 	newRebalancer(b).rebalance()
 }
@@ -184,11 +184,14 @@ func (b *Builder) SetReplicaCount(count int) {
 	}
 }
 
-// AddLastMoved shifts forward the LastMoved records by the duration given.
+// ShiftLastMoved shifts the LastMoved records by the duration given, as if
+// that much more time has passed since all replicas of all partitions have
+// been moved.
+//
 // This is done automatically when Rebalance is called and therefore
 // LastMovedBase is updated but can also be useful in testing, as the ring
 // algorithms will restrict the movement of replicas based on this information.
-func (b *Builder) AddLastMoved(d time.Duration) {
+func (b *Builder) ShiftLastMoved(d time.Duration) {
 	if b.LastMovedUnit == 0 {
 		b.LastMovedUnit = time.Minute
 	}

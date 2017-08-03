@@ -66,24 +66,24 @@ func longBuilderTester(t *testing.T, zones int, varyingCapacities bool) {
 		}
 	}
 	start := time.Now()
-	b.AddLastMoved(b.MoveWait * 2)
+	b.ShiftLastMoved(b.MoveWait * 2)
 	b.Rebalance()
 	stats := b.Stats()
 	fmt.Printf("%6d %8d %5d %10d %8.0f %7.02f%% %6.02f%% %7d\n", stats.EnabledNodeCount, stats.DisabledNodeCount, zones, stats.PartitionCount, stats.EnabledCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 	b.Nodes[25].Disabled = true
 	start = time.Now()
-	b.AddLastMoved(b.MoveWait * 2)
+	b.ShiftLastMoved(b.MoveWait * 2)
 	b.Rebalance()
 	stats = b.Stats()
 	fmt.Printf("%6d %8d %5d %10d %8.0f %7.02f%% %6.02f%% %7d\n", stats.EnabledNodeCount, stats.DisabledNodeCount, zones, stats.PartitionCount, stats.EnabledCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 	b.Nodes[20].Capacity = 75
 	start = time.Now()
-	b.AddLastMoved(b.MoveWait * 2)
+	b.ShiftLastMoved(b.MoveWait * 2)
 	b.Rebalance()
 	stats = b.Stats()
 	fmt.Printf("%6d %8d %5d %10d %8.0f %7.02f%% %6.02f%% %7d\n", stats.EnabledNodeCount, stats.DisabledNodeCount, zones, stats.PartitionCount, stats.EnabledCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
 	start = time.Now()
-	b.AddLastMoved(b.MoveWait * 2)
+	b.ShiftLastMoved(b.MoveWait * 2)
 	b.Rebalance()
 	stats = b.Stats()
 	fmt.Printf("%6d %8d %5d %10d %8.0f %7.02f%% %6.02f%% %7d\n", stats.EnabledNodeCount, stats.DisabledNodeCount, zones, stats.PartitionCount, stats.EnabledCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))

@@ -188,7 +188,7 @@ func Example_fromBasicHashRingDocument() {
 		float64(t-min)/float64(t)*100, float64(max-t)/float64(t)*100)
 
 	b.Nodes = append(b.Nodes, &ring.Node{Capacity: 1})
-	b.AddLastMoved(b.MoveWait * 2)
+	b.ShiftLastMoved(b.MoveWait * 2)
 	b.Rebalance()
 	ring2 := b.Ring.RingDuplicate()
 

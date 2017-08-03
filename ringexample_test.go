@@ -68,7 +68,7 @@ func ExampleRing_RingDuplicate() {
 	ring1 := builder.RingDuplicate()
 	fmt.Println(ring1.RingEqual(builder.Ring))
 	builder.Nodes = append(builder.Nodes, &ring.Node{Capacity: 1})
-	builder.AddLastMoved(builder.MoveWait * 2)
+	builder.ShiftLastMoved(builder.MoveWait * 2)
 	builder.Rebalance()
 	fmt.Println(ring1.RingEqual(builder.Ring))
 	// Output:
