@@ -320,6 +320,11 @@ func (b *Builder) growIfNeeded() {
 	}
 }
 
+// Equal is true only if the b pointer is the same as the b2 pointer.
+func (b *Builder) Equal(b2 interface{}) bool {
+	return b == b2
+}
+
 // Stats gives an overview of the state and health of the Builder.
 // It is returned by the Builder.Stats() method.
 type Stats struct {

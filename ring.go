@@ -23,20 +23,24 @@ func (r Ring) PartitionCount() int {
 	return 0
 }
 
-// RingEqual is true if the size and all the assignments of the given ring are the
+// Equal is true if the size and all the assignments of the given ring are the
 // same as this ring.
 //
 // Note: This only can compare the node index value assignments. If the indexes
 // point to different node information, that is outside the Ring itself. For
 // example, it is possible you could remove a node from a builder, add another
 // node, rebalance, and end up with the same index values assigned.
-func (r Ring) RingEqual(r2 Ring) bool {
-	if len(r) != len(r2) {
+func (r Ring) Equal(r2 interface{}) bool {
+	r2t, ok := r2.(Ring)
+	if !ok {
+		return false
+	}
+	if len(r) != len(r2t) {
 		return false
 	}
 	for replica := range r {
 		partitionToNodeIndex := r[replica]
-		partitionToNodeIndex2 := r2[replica]
+		partitionToNodeIndex2 := r2t[replica]
 		if len(partitionToNodeIndex) != len(partitionToNodeIndex2) {
 			return false
 		}
