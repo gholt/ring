@@ -5,7 +5,7 @@ package ring
 //
 // All Ring[replica] slices will be the same length.
 //
-// A negative NodeIndexType value indicates no node assignment.
+// A NodeIndexNil value indicates no node assignment.
 //
 // Usually these are generated and maintained by the Builder.
 type Ring [][]NodeIndexType
