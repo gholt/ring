@@ -53,6 +53,13 @@ type Builder struct {
 	Ring
 
 	// Nodes are the targets of each replica assignment.
+	//
+	// You can add nodes to this slice directly but if you wish to remove
+	// nodes, use the Builder's RemoveNode method. Indexes to this slice are
+	// used elsewhere and need to be updated if they change. Currently there is
+	// no method to help with completely changing the order of Nodes. If you
+	// really want to do that, you will have to update the Builder's Ring
+	// assignments yourself.
 	Nodes []*Node
 
 	// LastMovedBase is the base time for the LastMoved delta values.
