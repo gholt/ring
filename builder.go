@@ -340,6 +340,7 @@ type Stats struct {
 	MaxOverNodeIndex      NodeIndexType
 }
 
+// Stats gives an overview of the state and health of the Builder.
 func (b *Builder) Stats() *Stats {
 	stats := &Stats{
 		ReplicaCount:   b.ReplicaCount(),
