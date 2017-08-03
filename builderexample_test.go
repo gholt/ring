@@ -14,7 +14,7 @@ func ExampleBuilder_quickOverview() {
 			{Capacity: 4},
 		},
 	}
-	builder.ChangeReplicaCount(2)
+	builder.SetReplicaCount(2)
 	builder.Rebalance()
 	for partition := 0; partition < builder.PartitionCount(); partition++ {
 		for replica := 0; replica < builder.ReplicaCount(); replica++ {
@@ -40,7 +40,7 @@ func ExampleBuilder_AddLastMoved_showingHowTheRestrictionWorks() {
 			{Capacity: 1},
 		},
 	}
-	builder.ChangeReplicaCount(2)
+	builder.SetReplicaCount(2)
 	builder.Rebalance()
 	printRing := func() {
 		for _, partitionToNodeIndex := range builder.Ring {
@@ -72,7 +72,7 @@ func ExampleBuilder_AddLastMoved_showingHowTheRestrictionWorks() {
 	// [1 2 0 0 0 1 2 0]
 }
 
-func ExampleBuilder_ChangeReplicaCount() {
+func ExampleBuilder_SetReplicaCount() {
 	builder := ring.Builder{
 		Nodes: []*ring.Node{
 			{Capacity: 1},
@@ -99,7 +99,7 @@ func ExampleBuilder_ChangeReplicaCount() {
 	fmt.Println("We start with a basic one replica ring:")
 	printRing()
 	fmt.Println("And add a replica...")
-	builder.ChangeReplicaCount(2)
+	builder.SetReplicaCount(2)
 	fmt.Println("Note the new replicas are not assigned yet:")
 	printRing()
 	fmt.Println("So we rebalance...")
@@ -107,7 +107,7 @@ func ExampleBuilder_ChangeReplicaCount() {
 	fmt.Println("And now they are assigned:")
 	printRing()
 	fmt.Println("Let's change back to one replica...")
-	builder.ChangeReplicaCount(1)
+	builder.SetReplicaCount(1)
 	fmt.Println("And see that the second one has been removed:")
 	printRing()
 	// Output:

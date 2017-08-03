@@ -10,7 +10,7 @@ func TestRebalancerBasic(t *testing.T) {
 	// 128 node, 3 replica ring should end up with 128 partitions and each node
 	// assigned 3 replicas.
 	b := &Builder{rnd: rand.New(rand.NewSource(0))}
-	b.ChangeReplicaCount(3)
+	b.SetReplicaCount(3)
 	for i := 0; i < 128; i++ {
 		b.Nodes = append(b.Nodes, &Node{Capacity: 1})
 	}
@@ -35,7 +35,7 @@ func TestRebalancerTier0(t *testing.T) {
 	// with 32 partitions, 8 assignments per tier, and 1 assignment per node.
 	// Also, no partition should have replicas in the same tier.
 	b := &Builder{rnd: rand.New(rand.NewSource(0))}
-	b.ChangeReplicaCount(4)
+	b.SetReplicaCount(4)
 	for i := 0; i < 128; i++ {
 		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{i % 16}})
 	}
@@ -75,7 +75,7 @@ func TestRebalancerTier0(t *testing.T) {
 func TestRebalancerTier0b(t *testing.T) {
 	// Same as TestRebalancerTier0 but give tier0 one of tier15's nodes.
 	b := &Builder{rnd: rand.New(rand.NewSource(0))}
-	b.ChangeReplicaCount(4)
+	b.SetReplicaCount(4)
 	for i := 0; i < 127; i++ {
 		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{i % 16}})
 	}
@@ -126,7 +126,7 @@ func TestRebalancerTier0c(t *testing.T) {
 	// nodes than all the others. Here, the per node balance will suffer but
 	// the tier distinctions should remain.
 	b := &Builder{rnd: rand.New(rand.NewSource(0))}
-	b.ChangeReplicaCount(4)
+	b.SetReplicaCount(4)
 	for i := 0; i < 96; i++ {
 		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{i % 16}})
 	}
@@ -195,7 +195,7 @@ func TestRebalancerTier1(t *testing.T) {
 	// per tier1, and 1 assignment per node. Also, no partition should have
 	// replicas in the same tier.
 	b := &Builder{rnd: rand.New(rand.NewSource(0))}
-	b.ChangeReplicaCount(4)
+	b.SetReplicaCount(4)
 	for i := 0; i < 128; i++ {
 		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{i % 32, i % 16}})
 	}
@@ -249,7 +249,7 @@ func TestRebalancerTier1b(t *testing.T) {
 	// Similar to TestRebalancerTier1 but give tier0-0,tier1-0 a lot more
 	// nodes. Assert that balancing suffers but tier distinctions are kept.
 	b := &Builder{rnd: rand.New(rand.NewSource(0))}
-	b.ChangeReplicaCount(4)
+	b.SetReplicaCount(4)
 	for i := 0; i < 96; i++ {
 		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{i % 32, i % 16}})
 	}

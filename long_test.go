@@ -47,7 +47,7 @@ func TestLongBuilder(t *testing.T) {
 
 func longBuilderTester(t *testing.T, zones int, varyingCapacities bool) {
 	b := &Builder{}
-	b.ChangeReplicaCount(3)
+	b.SetReplicaCount(3)
 	capacity := 100
 	if varyingCapacities {
 		capacity = 1

@@ -115,8 +115,8 @@ func (sb *StorageBuilder) AddDisk() *BuilderDisk {
 	return bd
 }
 
-func (sb *StorageBuilder) ChangeReplicaCount(count int) {
-	sb.builder.ChangeReplicaCount(count)
+func (sb *StorageBuilder) SetReplicaCount(count int) {
+	sb.builder.SetReplicaCount(count)
 }
 
 // We'll skip removing disks, listing all disks, reading the replica count,
@@ -212,7 +212,7 @@ func (sr *StorageRing) DisksFor(objectName string) []*StorageDisk {
 
 func Example_storageUseCase() {
 	sb := &StorageBuilder{}
-	sb.ChangeReplicaCount(3)
+	sb.SetReplicaCount(3)
 	// We're going to add a bunch of disks, two per server, four servers per
 	// zone, and five zones.
 	serverNumber := 0

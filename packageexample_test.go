@@ -27,7 +27,7 @@ func Example_tiers() {
 			{Capacity: 1, TierIndexes: []int{1}}, // secondDisk, serverTwo
 		},
 	}
-	builder.ChangeReplicaCount(2)
+	builder.SetReplicaCount(2)
 	builder.Rebalance()
 	fmt.Println("Here are the node assignments:")
 	//     [1 2]
@@ -59,7 +59,7 @@ func Example_tiers() {
 	// Reset the ring, so it will completely rebalance freshly.
 	builder.Ring = nil
 	builder.LastMoved = nil
-	builder.ChangeReplicaCount(3)
+	builder.SetReplicaCount(3)
 	builder.Rebalance()
 	fmt.Println("And now here are the replica assigments for partition 0:")
 	//     Replica 0 assigned to firstDisk of serverTwo
@@ -96,7 +96,7 @@ func Example_tiers() {
 	// Reset the ring, so it will completely rebalance freshly.
 	builder.Ring = nil
 	builder.LastMoved = nil
-	builder.ChangeReplicaCount(3)
+	builder.SetReplicaCount(3)
 	builder.Rebalance()
 	fmt.Println("And now here are the replica assigments for partition 0:")
 	//     Replica 0 assigned to secondDisk of serverTwo in the central region

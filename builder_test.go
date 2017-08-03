@@ -26,7 +26,7 @@ func TestBuilderReflections(t *testing.T) {
 		}
 		b.Ring = nil
 		b.LastMoved = nil
-		b.ChangeReplicaCount(3)
+		b.SetReplicaCount(3)
 		b.Rebalance()
 		nodeHasPartition := make([]map[int]bool, len(b.Nodes))
 		for nodeIndex := 0; nodeIndex < len(b.Nodes); nodeIndex++ {
@@ -86,7 +86,7 @@ func TestBuilderRingStats(t *testing.T) {
 		s.MaxOverNodeIndex != 0 {
 		t.Fatal(s)
 	}
-	b.ChangeReplicaCount(1)
+	b.SetReplicaCount(1)
 	s = b.RingStats()
 	if s.ReplicaCount != 1 ||
 		s.EnabledNodeCount != 0 ||

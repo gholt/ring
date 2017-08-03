@@ -156,9 +156,9 @@ func (b *Builder) Rebalance() {
 	newRebalancer(b).rebalance()
 }
 
-// ChangeReplicaCount will add or remove replicas so that len(b.Ring) == count.
+// SetReplicaCount will add or remove replicas so that len(b.Ring) == count.
 // If replicas are added they will be unassigned: b.Ring[newReplica][*] = NodeIndexNil
-func (b *Builder) ChangeReplicaCount(count int) {
+func (b *Builder) SetReplicaCount(count int) {
 	if count < 1 {
 		count = 1
 	}
