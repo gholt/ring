@@ -55,7 +55,7 @@ func ExampleBuilder_AddLastMoved_showingHowTheRestrictionWorks() {
 	fmt.Println("Note they haven't moved, even though we changed one node's capacity:")
 	printRing()
 	fmt.Println("So we'll \"pretend\" some time has passed and rebalance...")
-	builder.AddLastMoved(builder.MoveWait + 1)
+	builder.AddLastMoved(builder.MoveWait * 2)
 	builder.Rebalance()
 	fmt.Println("Now reassignments have occurred:")
 	printRing()
@@ -82,7 +82,18 @@ func ExampleBuilder_ChangeReplicaCount() {
 	builder.Rebalance()
 	printRing := func() {
 		for _, partitionToNodeIndex := range builder.Ring {
-			fmt.Printf("%v\n", partitionToNodeIndex)
+			fmt.Print("[")
+			for i, n := range partitionToNodeIndex {
+				if i != 0 {
+					fmt.Print(" ")
+				}
+				if n == ring.NodeIndexNil {
+					fmt.Print(".")
+				} else {
+					fmt.Print(n)
+				}
+			}
+			fmt.Println("]")
 		}
 	}
 	fmt.Println("We start with a basic one replica ring:")
@@ -105,7 +116,7 @@ func ExampleBuilder_ChangeReplicaCount() {
 	// And add a replica...
 	// Note the new replicas are not assigned yet:
 	// [1 0]
-	// [-1 -1]
+	// [. .]
 	// So we rebalance...
 	// And now they are assigned:
 	// [1 0]
@@ -132,13 +143,13 @@ func ExampleBuilder_Rebalance_inDepth() {
 	printRing()
 	fmt.Println("Let's triple the capacity of a node and rebalance...")
 	builder.Nodes[0].Capacity = 3
-	builder.AddLastMoved(builder.MoveWait + 1) // Pretend time has passed
+	builder.AddLastMoved(builder.MoveWait * 2) // Pretend time has passed
 	builder.Rebalance()
 	fmt.Println("Note that node now has three times the assignments, and that the partition count grew:")
 	printRing()
 	fmt.Println("Let's add another node, with a capacity of 2 to make things difficult, and rebalance...")
 	builder.Nodes = append(builder.Nodes, &ring.Node{Capacity: 2})
-	builder.AddLastMoved(builder.MoveWait + 1) // Pretend time has passed
+	builder.AddLastMoved(builder.MoveWait * 2) // Pretend time has passed
 	builder.Rebalance()
 	fmt.Printf("We're not going to print the whole ring because now its partition count has ballooned to %d.\n", builder.PartitionCount())
 	fmt.Println("Let's print out how balanced each node is instead:")
@@ -183,7 +194,18 @@ func ExampleBuilder_RemoveNode() {
 	builder.Rebalance()
 	printRing := func() {
 		for _, partitionToNodeIndex := range builder.Ring {
-			fmt.Printf("%v\n", partitionToNodeIndex)
+			fmt.Print("[")
+			for i, n := range partitionToNodeIndex {
+				if i != 0 {
+					fmt.Print(" ")
+				}
+				if n == ring.NodeIndexNil {
+					fmt.Print(".")
+				} else {
+					fmt.Print(n)
+				}
+			}
+			fmt.Println("]")
 		}
 	}
 	fmt.Println("Here are the initial assignments:")
@@ -195,5 +217,5 @@ func ExampleBuilder_RemoveNode() {
 	// Here are the initial assignments:
 	// [1 2 3 0]
 	// And now the assignments after removing a node:
-	// [1 -1 2 0]
+	// [1 . 2 0]
 }

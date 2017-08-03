@@ -21,10 +21,10 @@ func Example_tiers() {
 	serverTier := 0
 	builder := ring.Builder{
 		Nodes: []*ring.Node{
-			{Capacity: 1, TierIndexes: []uint32{0}}, // firstDisk, serverOne
-			{Capacity: 1, TierIndexes: []uint32{0}}, // secondDisk, serverOne
-			{Capacity: 1, TierIndexes: []uint32{1}}, // firstDisk, serverTwo
-			{Capacity: 1, TierIndexes: []uint32{1}}, // secondDisk, serverTwo
+			{Capacity: 1, TierIndexes: []int{0}}, // firstDisk, serverOne
+			{Capacity: 1, TierIndexes: []int{0}}, // secondDisk, serverOne
+			{Capacity: 1, TierIndexes: []int{1}}, // firstDisk, serverTwo
+			{Capacity: 1, TierIndexes: []int{1}}, // secondDisk, serverTwo
 		},
 	}
 	builder.ChangeReplicaCount(2)
@@ -81,17 +81,17 @@ func Example_tiers() {
 	}
 	nodeNames = append(nodeNames, "firstDisk", "secondDisk", "firstDisk", "secondDisk")
 	builder.Nodes = append(builder.Nodes, []*ring.Node{
-		{Capacity: 1, TierIndexes: []uint32{0, 1}}, // firstDisk, serverOne, central
-		{Capacity: 1, TierIndexes: []uint32{0, 1}}, // secondDisk, serverOne, central
-		{Capacity: 1, TierIndexes: []uint32{1, 1}}, // firstDisk, serverTwo, central
-		{Capacity: 1, TierIndexes: []uint32{1, 1}}, // secondDisk, serverTwo, central
+		{Capacity: 1, TierIndexes: []int{0, 1}}, // firstDisk, serverOne, central
+		{Capacity: 1, TierIndexes: []int{0, 1}}, // secondDisk, serverOne, central
+		{Capacity: 1, TierIndexes: []int{1, 1}}, // firstDisk, serverTwo, central
+		{Capacity: 1, TierIndexes: []int{1, 1}}, // secondDisk, serverTwo, central
 	}...)
 	nodeNames = append(nodeNames, "firstDisk", "secondDisk", "firstDisk", "secondDisk")
 	builder.Nodes = append(builder.Nodes, []*ring.Node{
-		{Capacity: 1, TierIndexes: []uint32{0, 2}}, // firstDisk, serverOne, west
-		{Capacity: 1, TierIndexes: []uint32{0, 2}}, // secondDisk, serverOne, west
-		{Capacity: 1, TierIndexes: []uint32{1, 2}}, // firstDisk, serverTwo, west
-		{Capacity: 1, TierIndexes: []uint32{1, 2}}, // secondDisk, serverTwo, west
+		{Capacity: 1, TierIndexes: []int{0, 2}}, // firstDisk, serverOne, west
+		{Capacity: 1, TierIndexes: []int{0, 2}}, // secondDisk, serverOne, west
+		{Capacity: 1, TierIndexes: []int{1, 2}}, // firstDisk, serverTwo, west
+		{Capacity: 1, TierIndexes: []int{1, 2}}, // secondDisk, serverTwo, west
 	}...)
 	// Reset the ring, so it will completely rebalance freshly.
 	builder.Ring = nil
@@ -188,7 +188,7 @@ func Example_fromBasicHashRingDocument() {
 		float64(t-min)/float64(t)*100, float64(max-t)/float64(t)*100)
 
 	b.Nodes = append(b.Nodes, &ring.Node{Capacity: 1})
-	b.AddLastMoved(b.MoveWait + 1)
+	b.AddLastMoved(b.MoveWait * 2)
 	b.Rebalance()
 	ring2 := b.Ring.RingDuplicate()
 

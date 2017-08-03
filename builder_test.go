@@ -1,18 +1,16 @@
 package ring
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestBuilderReflections(t *testing.T) {
 	b := &Builder{}
-	zones := uint32(5)
-	servers := uint32(5)
-	devices := uint32(10)
-	for zone := uint32(0); zone < zones; zone++ {
-		for server := uint32(0); server < servers; server++ {
-			for device := uint32(0); device < devices; device++ {
-				b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []uint32{server, zone}})
+	zones := 5
+	servers := 5
+	devices := 10
+	for zone := 0; zone < zones; zone++ {
+		for server := 0; server < servers; server++ {
+			for device := 0; device < devices; device++ {
+				b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{server, zone}})
 			}
 		}
 	}

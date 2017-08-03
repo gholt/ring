@@ -23,12 +23,15 @@
 // Node: A single unit within a distributed system. For example, a server or a
 // single drive within a server.
 //
-// Partition: A numeric value from a range of values. These partitions are
-// assigned to nodes to indicate each node's responsibilities, such as which
-// data to store or which requests to process. Mapping these data items or
-// requests to partitions is usually done by hashing the name or some other
-// identifier to obtain a number and then using the modulus operator with the
-// overall partition count.
+// Partition: A numeric value from a range of values. Replicas of these
+// partitions are assigned to nodes to indicate each node's responsibilities,
+// such as which data to store or which requests to process. Mapping these data
+// items or requests to partitions is usually done by hashing the name or some
+// other identifier to obtain a number and then using the modulus operator with
+// the overall partition count.
+//
+// Replica: A copy of a partition. Object storage systems often use 3 replicas,
+// for example.
 //
 // Ring: Stores the assignments of replicas of partitions to nodes.
 //
@@ -80,5 +83,6 @@
 // Examples For This Package
 //
 // Below are examples for overall usage of this package, and more in-depth
-// discussions as well.
+// discussions as well. If you're directly reading the code, all the examples
+// are in files named *example_test.go
 package ring

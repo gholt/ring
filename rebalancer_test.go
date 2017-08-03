@@ -37,13 +37,13 @@ func TestRebalancerTier0(t *testing.T) {
 	b := &Builder{rnd: rand.New(rand.NewSource(0))}
 	b.ChangeReplicaCount(4)
 	for i := 0; i < 128; i++ {
-		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []uint32{uint32(i % 16)}})
+		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{i % 16}})
 	}
 	b.growIfNeeded()
 	rb := newRebalancer(b)
 	rb.rebalance()
 	counts := make([]int, 128)
-	tiers := make(map[uint32]int)
+	tiers := make(map[int]int)
 	for _, partitionToNodeIndex := range b.Ring {
 		for _, nodeIndex := range partitionToNodeIndex {
 			counts[nodeIndex]++
@@ -61,7 +61,7 @@ func TestRebalancerTier0(t *testing.T) {
 		}
 	}
 	for p := 0; p < len(b.Ring[0]); p++ {
-		tiers2 := make(map[uint32]bool)
+		tiers2 := make(map[int]bool)
 		for _, partitionToNodeIndex := range b.Ring {
 			tier := b.Nodes[partitionToNodeIndex[p]].TierIndexes[0]
 			if _, ok := tiers2[tier]; ok {
@@ -77,14 +77,14 @@ func TestRebalancerTier0b(t *testing.T) {
 	b := &Builder{rnd: rand.New(rand.NewSource(0))}
 	b.ChangeReplicaCount(4)
 	for i := 0; i < 127; i++ {
-		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []uint32{uint32(i % 16)}})
+		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{i % 16}})
 	}
-	b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []uint32{0}})
+	b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{0}})
 	b.growIfNeeded()
 	rb := newRebalancer(b)
 	rb.rebalance()
 	counts := make([]int, 128)
-	tiers := make(map[uint32]int)
+	tiers := make(map[int]int)
 	for _, partitionToNodeIndex := range b.Ring {
 		for _, nodeIndex := range partitionToNodeIndex {
 			counts[nodeIndex]++
@@ -110,7 +110,7 @@ func TestRebalancerTier0b(t *testing.T) {
 		}
 	}
 	for p := 0; p < len(b.Ring[0]); p++ {
-		tiers2 := make(map[uint32]bool)
+		tiers2 := make(map[int]bool)
 		for _, partitionToNodeIndex := range b.Ring {
 			tier := b.Nodes[partitionToNodeIndex[p]].TierIndexes[0]
 			if _, ok := tiers2[tier]; ok {
@@ -128,16 +128,16 @@ func TestRebalancerTier0c(t *testing.T) {
 	b := &Builder{rnd: rand.New(rand.NewSource(0))}
 	b.ChangeReplicaCount(4)
 	for i := 0; i < 96; i++ {
-		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []uint32{uint32(i % 16)}})
+		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{i % 16}})
 	}
 	for i := 0; i < 32; i++ {
-		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []uint32{0}})
+		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{0}})
 	}
 	b.growIfNeeded()
 	rb := newRebalancer(b)
 	rb.rebalance()
 	counts := make([]int, 128)
-	tiers := make(map[uint32]int)
+	tiers := make(map[int]int)
 	for _, partitionToNodeIndex := range b.Ring {
 		for _, nodeIndex := range partitionToNodeIndex {
 			counts[nodeIndex]++
@@ -178,7 +178,7 @@ func TestRebalancerTier0c(t *testing.T) {
 		t.Fatal(countCounts[2])
 	}
 	for p := 0; p < len(b.Ring[0]); p++ {
-		tiers2 := make(map[uint32]bool)
+		tiers2 := make(map[int]bool)
 		for _, partitionToNodeIndex := range b.Ring {
 			tier := b.Nodes[partitionToNodeIndex[p]].TierIndexes[0]
 			if _, ok := tiers2[tier]; ok {
@@ -197,14 +197,14 @@ func TestRebalancerTier1(t *testing.T) {
 	b := &Builder{rnd: rand.New(rand.NewSource(0))}
 	b.ChangeReplicaCount(4)
 	for i := 0; i < 128; i++ {
-		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []uint32{uint32(i % 32), uint32(i % 16)}})
+		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{i % 32, i % 16}})
 	}
 	b.growIfNeeded()
 	rb := newRebalancer(b)
 	rb.rebalance()
 	counts := make([]int, 128)
-	tier0s := make(map[uint32]int)
-	tier1s := make(map[uint32]int)
+	tier0s := make(map[int]int)
+	tier1s := make(map[int]int)
 	for _, partitionToNodeIndex := range b.Ring {
 		for _, nodeIndex := range partitionToNodeIndex {
 			counts[nodeIndex]++
@@ -228,8 +228,8 @@ func TestRebalancerTier1(t *testing.T) {
 		}
 	}
 	for p := 0; p < len(b.Ring[0]); p++ {
-		tier0s2 := make(map[uint32]bool)
-		tier1s2 := make(map[uint32]bool)
+		tier0s2 := make(map[int]bool)
+		tier1s2 := make(map[int]bool)
 		for _, partitionToNodeIndex := range b.Ring {
 			tier := b.Nodes[partitionToNodeIndex[p]].TierIndexes[0]
 			if _, ok := tier0s2[tier]; ok {
@@ -251,17 +251,17 @@ func TestRebalancerTier1b(t *testing.T) {
 	b := &Builder{rnd: rand.New(rand.NewSource(0))}
 	b.ChangeReplicaCount(4)
 	for i := 0; i < 96; i++ {
-		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []uint32{uint32(i % 32), uint32(i % 16)}})
+		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{i % 32, i % 16}})
 	}
 	for i := 0; i < 32; i++ {
-		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []uint32{0, 0}})
+		b.Nodes = append(b.Nodes, &Node{Capacity: 1, TierIndexes: []int{0, 0}})
 	}
 	b.growIfNeeded()
 	rb := newRebalancer(b)
 	rb.rebalance()
 	counts := make([]int, 128)
-	tier0s := make(map[uint32]int)
-	tier1s := make(map[uint32]int)
+	tier0s := make(map[int]int)
+	tier1s := make(map[int]int)
 	for _, partitionToNodeIndex := range b.Ring {
 		for _, nodeIndex := range partitionToNodeIndex {
 			counts[nodeIndex]++
@@ -293,8 +293,8 @@ func TestRebalancerTier1b(t *testing.T) {
 		}
 	}
 	for p := 0; p < len(b.Ring[0]); p++ {
-		tier0s2 := make(map[uint32]bool)
-		tier1s2 := make(map[uint32]bool)
+		tier0s2 := make(map[int]bool)
+		tier1s2 := make(map[int]bool)
 		for _, partitionToNodeIndex := range b.Ring {
 			tier := b.Nodes[partitionToNodeIndex[p]].TierIndexes[0]
 			if _, ok := tier0s2[tier]; ok {
@@ -311,7 +311,7 @@ func TestRebalancerTier1b(t *testing.T) {
 }
 
 func TestNodeIndexByDesireSorter(t *testing.T) {
-	nodeIndexes := []int32{0, 1, 2, 3, 4}
+	nodeIndexes := []NodeIndexType{0, 1, 2, 3, 4}
 	nodeIndexToDesire := []int32{10, 5, 8, 20, 3}
 	sort.Sort(&nodeIndexByDesireSorter{
 		nodeIndexes:       nodeIndexes,

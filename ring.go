@@ -5,10 +5,10 @@ package ring
 //
 // All Ring[replica] slices will be the same length.
 //
-// A negative int32 value indicates no node assignment.
+// A negative NodeIndexType value indicates no node assignment.
 //
 // Usually these are generated and maintained by the Builder.
-type Ring [][]int32
+type Ring [][]NodeIndexType
 
 // ReplicaCount is a convenience method for len(r).
 func (r Ring) ReplicaCount() int {
@@ -54,7 +54,7 @@ func (r Ring) RingEqual(r2 Ring) bool {
 func (r Ring) RingDuplicate() Ring {
 	r2 := make(Ring, len(r))
 	for replica := range r {
-		r2[replica] = make([]int32, len(r[replica]))
+		r2[replica] = make([]NodeIndexType, len(r[replica]))
 		copy(r2[replica], r[replica])
 	}
 	return r2

@@ -1,8 +1,6 @@
 package ring_test
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"hash/fnv"
 
@@ -47,11 +45,11 @@ func (bd *BuilderDisk) SetDisabled(v bool) {
 	bd.node.Disabled = v
 }
 
-func (bd *BuilderDisk) Capacity() uint32 {
+func (bd *BuilderDisk) Capacity() int {
 	return bd.node.Capacity
 }
 
-func (bd *BuilderDisk) SetCapacity(v uint32) {
+func (bd *BuilderDisk) SetCapacity(v int) {
 	bd.node.Capacity = v
 }
 
@@ -68,12 +66,12 @@ func (bd *BuilderDisk) SetTier(tier int, name string) {
 		bd.node.TierIndexes = append(bd.node.TierIndexes, 0)
 	}
 	if bd.storageBuilder.tierNameToIndex == nil {
-		bd.storageBuilder.tierNameToIndex = map[string]uint32{}
+		bd.storageBuilder.tierNameToIndex = map[string]int{}
 	}
 	if ti, ok := bd.storageBuilder.tierNameToIndex[name]; ok {
 		bd.node.TierIndexes[tier] = ti
 	} else {
-		ti = uint32(len(bd.storageBuilder.tierIndexToName))
+		ti = len(bd.storageBuilder.tierIndexToName)
 		bd.storageBuilder.tierIndexToName = append(bd.storageBuilder.tierIndexToName, name)
 		bd.storageBuilder.tierNameToIndex[name] = ti
 		bd.node.TierIndexes[tier] = ti
@@ -96,36 +94,6 @@ func (bd *BuilderDisk) SetName(v string) {
 	bd.name = v
 }
 
-// We want to be able to persist this information, so we make JSON translators.
-// Note that this does not set the storageBuilder field; that has to be done by
-// the StorageBuilder JSON translators.
-
-type builderDiskJSON struct {
-	// ring.Node is serializable on its own.
-	Node *ring.Node
-	Addr string
-	Name string
-}
-
-func (bd *BuilderDisk) MarshalJSON() ([]byte, error) {
-	return json.Marshal(&builderDiskJSON{
-		Node: &bd.node,
-		Addr: bd.addr,
-		Name: bd.name,
-	})
-}
-
-func (bd *BuilderDisk) UnmarshalJSON(b []byte) error {
-	var j builderDiskJSON
-	if err := json.Unmarshal(b, &j); err != nil {
-		return err
-	}
-	bd.node = *j.Node
-	bd.addr = j.Addr
-	bd.name = j.Name
-	return nil
-}
-
 // Now, let's define the StorageBuilder.
 
 type StorageBuilder struct {
@@ -137,7 +105,7 @@ type StorageBuilder struct {
 	// These are to give the tiers human readable names, like Server34 and
 	// Zone5 or whatever is desired.
 	tierIndexToName []string
-	tierNameToIndex map[string]uint32
+	tierNameToIndex map[string]int
 }
 
 func (sb *StorageBuilder) AddDisk() *BuilderDisk {
@@ -179,50 +147,6 @@ func (sb *StorageBuilder) StorageRing() *StorageRing {
 	return storageRing
 }
 
-// Since we want to be able to persist this information, we'll need to make the
-// JSON translators for the StorageBuilder.
-
-type storageBuilderJSON struct {
-	// ring.Builder is serializable on its own but we'll want to zero out its
-	// nodes when we persist and copy in new node references when loading so we
-	// aren't storing duplicate information
-	Builder         *ring.Builder
-	Disks           []*BuilderDisk
-	TierIndexToName []string
-	// No need to store tierNameToIndex; we can rebuild that on load.
-}
-
-func (sb *StorageBuilder) MarshalJSON() ([]byte, error) {
-	savedBuilderNodes := sb.builder.Nodes
-	sb.builder.Nodes = nil
-	b, err := json.Marshal(&storageBuilderJSON{
-		Builder:         &sb.builder,
-		Disks:           sb.disks,
-		TierIndexToName: sb.tierIndexToName,
-	})
-	sb.builder.Nodes = savedBuilderNodes
-	return b, err
-}
-
-func (sb *StorageBuilder) UnmarshalJSON(b []byte) error {
-	var j storageBuilderJSON
-	if err := json.Unmarshal(b, &j); err != nil {
-		return err
-	}
-	sb.builder = *j.Builder
-	sb.disks = j.Disks
-	sb.builder.Nodes = make([]*ring.Node, len(sb.disks))
-	for i, bd := range sb.disks {
-		sb.builder.Nodes[i] = &bd.node
-	}
-	sb.tierIndexToName = j.TierIndexToName
-	sb.tierNameToIndex = make(map[string]uint32, len(sb.tierIndexToName))
-	for ti, name := range sb.tierIndexToName {
-		sb.tierNameToIndex[name] = uint32(ti)
-	}
-	return nil
-}
-
 // Now let's define the StorageDisk and StorageRing.
 // These are completely immutable structs, as you don't want users of the ring
 // to have to constantly check if things moved, replica counts changed, etc.
@@ -232,8 +156,8 @@ func (sb *StorageBuilder) UnmarshalJSON(b []byte) error {
 type StorageDisk struct {
 	storageRing *StorageRing
 	disabled    bool
-	capacity    uint32
-	tierIndexes []uint32
+	capacity    int
+	tierIndexes []int
 	addr        string
 	name        string
 }
@@ -242,7 +166,7 @@ func (sd *StorageDisk) Disabled() bool {
 	return sd.disabled
 }
 
-func (sd *StorageDisk) Capacity() uint32 {
+func (sd *StorageDisk) Capacity() int {
 	return sd.capacity
 }
 
@@ -284,9 +208,6 @@ func (sr *StorageRing) DisksFor(objectName string) []*StorageDisk {
 	return disks
 }
 
-// You would normally provide the JSON marshaling and unmarshaling methods for
-// StorageRing and StorageDisk too, but we'll skip those for now.
-
 // Now let's actually use all this stuff.
 
 func Example_storageUseCase() {
@@ -303,7 +224,7 @@ func Example_storageUseCase() {
 				// We're going to vary the capacities for a bit more work on
 				// the rebalancer. This would usually represent the amount of
 				// space, say, in gigabytes, that each disk has.
-				bd.SetCapacity(uint32(100 + 100*i))
+				bd.SetCapacity(100 + 100*i)
 				bd.SetName(disk)
 				bd.SetAddr(fmt.Sprintf("10.1.1.%d", serverNumber))
 				bd.SetTier(0, fmt.Sprintf("Server%d", serverNumber))
@@ -311,26 +232,7 @@ func Example_storageUseCase() {
 			}
 		}
 	}
-	// Let's do a quick test of the JSON marshaling and unmarshaling.
-	// We'll marshal the builder, unmarshal it into a new variable and
-	// remarshal that, and compare.
-	var first []byte
-	var err error
-	if first, err = json.Marshal(sb); err != nil {
-		fmt.Println(err)
-		return
-	}
-	sb2 := &StorageBuilder{}
-	json.Unmarshal(first, &sb2)
-	var second []byte
-	if second, err = json.Marshal(sb2); err != nil {
-		fmt.Println(err)
-		return
-	}
-	if !bytes.Equal(first, second) {
-		fmt.Println("not equal")
-	}
-	// Now let's actually get a useful ring and look up an object.
+	// Now let's get a useful ring and look up an object.
 	sr := sb.StorageRing()
 	objectName := "my test object"
 	for replica, disk := range sr.DisksFor(objectName) {
