@@ -352,12 +352,12 @@ func (rb *rebalancer) bestNodeIndex(replica int) NodeIndexType {
 			return bestNodeIndex
 		}
 	}
-	// If we found no good higher tiered candidates (or there are no tiers),
-	// we'll have to just take the node with the highest desire that hasn't
-	// already been selected.
 	bestNodeIndex := NodeIndexNil
 	bestReplicaToPartitionCount := rb.builder.PartitionCount()
 	for _, nodeIndex := range rb.nodeIndexesByDesire {
+		if rb.nodeIndexToDesireTenths[nodeIndex] <= 0 && bestNodeIndex != NodeIndexNil {
+			break
+		}
 		if rb.nodeIndexToUsed[nodeIndex] {
 			continue
 		}

@@ -207,5 +207,5 @@ func Example_fromBasicHashRingDocument() {
 	// Output:
 	// 9768 to 10260 assigments per node, target was 10000.
 	// That's 2.32% under and 2.60% over.
-	// 10061 items moved, 1.01%.
+	// 11320 items moved, 1.13%.
 }

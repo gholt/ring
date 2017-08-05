@@ -7,8 +7,6 @@ import (
 )
 
 func ExampleBuilder_quickOverview() {
-	// TODO(GLH): Investigate why this gave 2 replicas to node 0. I feel it
-	// should have given that last Replica 1 of Partition 3 to Node 1.
 	builder := lowring.Builder{
 		Nodes: []*lowring.Node{
 			{Capacity: 1},
@@ -31,7 +29,7 @@ func ExampleBuilder_quickOverview() {
 	// Replica 0 of Partition 2 is assigned to Node 0
 	// Replica 1 of Partition 2 is assigned to Node 2
 	// Replica 0 of Partition 3 is assigned to Node 2
-	// Replica 1 of Partition 3 is assigned to Node 0
+	// Replica 1 of Partition 3 is assigned to Node 1
 }
 
 func ExampleBuilder_ShiftLastMoved_showingHowTheRestrictionWorks() {
