@@ -372,7 +372,7 @@ import (
 	"fmt"
 	"hash/fnv"
 
-	"github.com/gholt/ring"
+	"github.com/gholt/ring/lowring"
 )
 
 func main() {
@@ -385,12 +385,12 @@ func main() {
 	const ITEMS = 1000000
 	const NODES = 100
 
-	b := ring.Builder{}
+	b := lowring.Builder{}
 	for n := 0; n < NODES; n++ {
-		b.Nodes = append(b.Nodes, &ring.Node{Capacity: 1})
+		b.Nodes = append(b.Nodes, &lowring.Node{Capacity: 1})
 	}
 	b.Rebalance()
-	ring1 := b.Ring.RingDuplicate()
+	ring1 := b.Ring.Copy()
 
 	partitionCount1 := uint64(ring1.PartitionCount())
 	countPerNode := make([]int, NODES)
@@ -413,10 +413,10 @@ func main() {
 	fmt.Printf("That's %.02f%% under and %.02f%% over.\n",
 		float64(t-min)/float64(t)*100, float64(max-t)/float64(t)*100)
 
-	b.Nodes = append(b.Nodes, &ring.Node{Capacity: 1})
+	b.Nodes = append(b.Nodes, &lowring.Node{Capacity: 1})
 	b.ShiftLastMoved(b.MoveWait * 2)
 	b.Rebalance()
-	ring2 := b.Ring.RingDuplicate()
+	ring2 := b.Ring.Copy()
 
 	partitionCount2 := uint64(ring2.PartitionCount())
 	moved := 0
@@ -434,15 +434,14 @@ func main() {
 ```
 
 ```
-9761 to 10192 assigments per node, target was 10000.
-That's 2.39% under and 1.92% over.
-11115 items moved, 1.11%.
+9768 to 10260 assigments per node, target was 10000.
+That's 2.32% under and 2.60% over.
+10061 items moved, 1.01%.
 ```
 
-The under/over is much, much better. More items moved than with the hash ring,
-but not much more; and the better balancing is well worth it. Again, there are
-more tradeoffs between partition rings and hash rings, but see [Partition Ring
-vs. Hash Ring](PARTITION_RING_VS_HASH_RING.md) for more information.
+The under/over is much, much better. Again, there are more tradeoffs between
+partition rings and hash rings, but see [Partition Ring vs. Hash
+Ring](PARTITION_RING_VS_HASH_RING.md) for more information.
 
 I also ran each sample program 100 times by just making a new main function
 that called the original 100 times. The first hash ring with no virtual nodes
@@ -451,6 +450,10 @@ partition ring from this library took 36.244s. Granted, this isn't exactly the
 best benchmark; ideally a benchmark would measure creation speeds separately
 from modification speeds separately from lookup speeds, etc. But it gives a
 general idea.
+
+> TODO(GLH): Need to redo these tests because this library is much slower than
+> it was since I improved the placement calculations and haven't yet optimized
+> for speed again.
 
 There are also other more complex topics with rings, like node weights (or
 capacities) where you'd give nodes different amounts of items based on their

@@ -3,7 +3,7 @@
 // Probably best to run as:
 // $ long_test=true go test -timeout 30m
 
-package ring
+package lowring
 
 import (
 	"fmt"
@@ -33,13 +33,8 @@ func TestLongBuilder(t *testing.T) {
 	fmt.Println(" nodes disabled zones partitions capacity maxunder maxover seconds")
 	for _, varyingCapacities := range []bool{false, true} {
 		fmt.Println()
-		for zones := 10; zones <= 200; {
+		for _, zones := range []int{10, 50, 100, 200} {
 			longBuilderTester(t, zones, varyingCapacities)
-			if zones < 100 {
-				zones += 10
-			} else {
-				zones += 100
-			}
 		}
 	}
 	//pprof.StopCPUProfile()
@@ -70,13 +65,16 @@ func longBuilderTester(t *testing.T, zones int, varyingCapacities bool) {
 	b.Rebalance()
 	stats := b.Stats()
 	fmt.Printf("%6d %8d %5d %10d %8.0f %7.02f%% %6.02f%% %7d\n", stats.EnabledNodeCount, stats.DisabledNodeCount, zones, stats.PartitionCount, stats.EnabledCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
-	b.Nodes[25].Disabled = true
+	b.Nodes[len(b.Nodes)/3].Disabled = true
+	b.Nodes[len(b.Nodes)/3*2].Disabled = true
 	start = time.Now()
 	b.ShiftLastMoved(b.MoveWait * 2)
 	b.Rebalance()
 	stats = b.Stats()
 	fmt.Printf("%6d %8d %5d %10d %8.0f %7.02f%% %6.02f%% %7d\n", stats.EnabledNodeCount, stats.DisabledNodeCount, zones, stats.PartitionCount, stats.EnabledCapacity, stats.MaxUnderNodePercentage, stats.MaxOverNodePercentage, int(time.Now().Sub(start)/time.Second))
-	b.Nodes[20].Capacity = 75
+	b.Nodes[len(b.Nodes)/4].Capacity = 200
+	b.Nodes[len(b.Nodes)/2].Capacity = 200
+	b.Nodes[len(b.Nodes)-len(b.Nodes)/4].Capacity = 200
 	start = time.Now()
 	b.ShiftLastMoved(b.MoveWait * 2)
 	b.Rebalance()

@@ -1,4 +1,4 @@
-package ring
+package lowring
 
 import (
 	"math/rand"
@@ -149,15 +149,7 @@ func TestRebalancerTier0c(t *testing.T) {
 			if count != 32 {
 				t.Fatal(tier, count)
 			}
-		} else if tier == 1 {
-			if count != 10 {
-				t.Fatal(tier, count)
-			}
-		} else if tier == 2 {
-			if count != 8 {
-				t.Fatal(tier, count)
-			}
-		} else if count != 6 {
+		} else if count < 6 || count > 7 {
 			t.Fatal(tier, count, tiers)
 		}
 	}
@@ -271,11 +263,11 @@ func TestRebalancerTier1b(t *testing.T) {
 	}
 	for tier, count := range tier0s {
 		if tier == 0 {
-			if count != 31 {
-				t.Fatal(tier, count)
+			if count != 29 {
+				t.Fatal(tier, count, tier0s)
 			}
-		} else if count > 6 {
-			t.Fatal(tier, count)
+		} else if count < 3 || count > 4 {
+			t.Fatal(tier, count, tier0s)
 		}
 	}
 	for tier, count := range tier1s {

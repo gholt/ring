@@ -1,19 +1,19 @@
-package ring_test
+package lowring_test
 
 import (
 	"fmt"
 	"hash/fnv"
 
-	"github.com/gholt/ring"
+	"github.com/gholt/ring/lowring"
 )
 
-// This will be an in-depth implementation of using the ring package. We will
-// be building a distributed object storage system where object names will be
-// mapped to disks. There will be multiple disks per server, and multiple
+// This will be an in-depth implementation of using the lowring package. We
+// will be building a distributed object storage system where object names will
+// be mapped to disks. There will be multiple disks per server, and multiple
 // servers per zone.
 
 // First, let's define our BuilderDisk, representing a single disk in the
-// cluster and is what the ring package will be mapping assignments to.
+// cluster and is what the lowring package will be mapping assignments to.
 
 // We want all the fields to be private because we don't want users of our new
 // package to accidentally alter anything. This complicates our code, but
@@ -25,10 +25,11 @@ type BuilderDisk struct {
 	// it in each node so we notify it of changes and to resolve things like
 	// tier names.
 	storageBuilder *StorageBuilder
-	// This is the actual ring.Node the ring.Builder will need to work with,
-	// and contains whether the disk is Disabled or not, the Capacity, and the
-	// list of indexes that define what tiers (server, zone) the disk is in.
-	node ring.Node
+	// This is the actual lowring.Node the lowring.Builder will need to work
+	// with, and contains whether the disk is Disabled or not, the Capacity,
+	// and the list of indexes that define what tiers (server, zone) the disk
+	// is in.
+	node lowring.Node
 	// The ip:port where the disk can be reached.
 	addr string
 	// The name of the disk on the server.
@@ -98,9 +99,9 @@ func (bd *BuilderDisk) SetName(v string) {
 
 type StorageBuilder struct {
 	// This is the actual builder that will do all the reblancing work.
-	builder ring.Builder
+	builder lowring.Builder
 	// These are all the disks in the cluster, we have to map them to the
-	// ring.Builder's nodes.
+	// lowring.Builder's nodes.
 	disks []*BuilderDisk
 	// These are to give the tiers human readable names, like Server34 and
 	// Zone5 or whatever is desired.
@@ -122,7 +123,7 @@ func (sb *StorageBuilder) SetReplicaCount(count int) {
 // We'll skip removing disks, listing all disks, reading the replica count,
 // partition count, changing last moved, etc. but those kind of methods would
 // normally exist. The important point is that any modifications need to keep
-// the ring.Builder's nodes in sync.
+// the lowring.Builder's nodes in sync.
 
 // We do want to give a useful ring to use, so let's provide that method. We'll
 // define the StorageRing later, but it will be an immutable copy of the state
@@ -130,7 +131,7 @@ func (sb *StorageBuilder) SetReplicaCount(count int) {
 
 func (sb *StorageBuilder) StorageRing() *StorageRing {
 	sb.builder.Rebalance()
-	storageRing := &StorageRing{ring: sb.builder.RingDuplicate()}
+	storageRing := &StorageRing{ring: sb.builder.Copy()}
 	storageRing.disks = make([]*StorageDisk, len(sb.disks))
 	for i, d := range sb.disks {
 		storageRing.disks[i] = &StorageDisk{
@@ -187,7 +188,7 @@ func (sd *StorageDisk) Name() string {
 }
 
 type StorageRing struct {
-	ring            ring.Ring
+	ring            lowring.Ring
 	disks           []*StorageDisk
 	tierIndexToName []string
 }
@@ -238,12 +239,12 @@ func Example_storageUseCase() {
 	for replica, disk := range sr.DisksFor(objectName) {
 		fmt.Printf("Replica %d of %q is on %s/%s which is on %s in %s\n", replica, objectName, disk.addr, disk.name, disk.Tiers()[0], disk.Tiers()[1])
 	}
-	// Replica 0 of "my test object" is on 10.1.1.10/sda1 which is on Server10 in ZoneC
-	// Replica 1 of "my test object" is on 10.1.1.20/sda1 which is on Server20 in ZoneE
-	// Replica 2 of "my test object" is on 10.1.1.8/sdb1 which is on Server8 in ZoneB
+	// Replica 0 of "my test object" is on 10.1.1.4/sda1 which is on Server4 in ZoneA
+	// Replica 1 of "my test object" is on 10.1.1.14/sda1 which is on Server14 in ZoneD
+	// Replica 2 of "my test object" is on 10.1.1.18/sda1 which is on Server18 in ZoneE
 
 	// Output:
-	// Replica 0 of "my test object" is on 10.1.1.10/sda1 which is on Server10 in ZoneC
-	// Replica 1 of "my test object" is on 10.1.1.20/sda1 which is on Server20 in ZoneE
-	// Replica 2 of "my test object" is on 10.1.1.8/sdb1 which is on Server8 in ZoneB
+	// Replica 0 of "my test object" is on 10.1.1.4/sda1 which is on Server4 in ZoneA
+	// Replica 1 of "my test object" is on 10.1.1.14/sda1 which is on Server14 in ZoneD
+	// Replica 2 of "my test object" is on 10.1.1.18/sda1 which is on Server18 in ZoneE
 }

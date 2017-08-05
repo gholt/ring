@@ -8,15 +8,9 @@
 // See https://github.com/gholt/ring/blob/master/BASIC_HASH_RING.md for a
 // introduction to consistent hashing and hashing rings.
 //
-// This package tries to be as simple and concise as possible, which is still
-// pretty complex considering the subject matter. For example, nodes and tiers
-// are just represented by indexes -- no names, IPs, etc. -- it is left to the
-// user of the package to maintain such metadata.
-//
-// This package also aims for speed, which fights against the previous goal.
-// Building and maintaining rings can be resource intensive, and optimizations
-// can greatly reduce this impact. But optimizations often add complexity and
-// reduce flexibility.
+// There is a lower-level package github.com/gholt/ring/lowring that underpins
+// this package. It is provided in case you don't need the extra layer this
+// package provides or you would like to create your own extra layer.
 //
 // Terms Used With This Package
 //

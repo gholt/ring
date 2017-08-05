@@ -1,4 +1,4 @@
-package ring
+package lowring
 
 import "math"
 

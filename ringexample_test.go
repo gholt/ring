@@ -1,77 +1,102 @@
 package ring_test
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/gholt/ring"
 )
 
-func ExampleRing_overview() {
-	nodes := []string{"FirstNode", "SecondNode"}
-	replicaToPartitionToNodeIndex_aka_Ring := ring.Ring{[]ring.NodeIndexType{0, 1}, []ring.NodeIndexType{1, ring.NodeIndexNil}}
-	for replica, partitionToNodeIndex := range replicaToPartitionToNodeIndex_aka_Ring {
-		for partition, nodeIndex := range partitionToNodeIndex {
-			fmt.Printf("Replica %d of Partition %d is ", replica, partition)
-			if nodeIndex == ring.NodeIndexNil {
-				fmt.Println("unassigned")
-			} else {
-				fmt.Printf("assigned to %s\n", nodes[nodeIndex])
+func Example_ringMarshal() {
+	// Build a ring to marshal...
+	b := ring.NewBuilder()
+	b.SetReplicaCount(2)
+	n1 := b.AddNode()
+	n1.SetCapacity(1)
+	n1.SetInfo("Node One")
+	n2 := b.AddNode()
+	n2.SetCapacity(1)
+	n2.SetInfo("Node Two")
+	b.Rebalance()
+	r := b.Ring()
+	// And marshal it...
+	var buf bytes.Buffer
+	if err := r.Marshal(&buf); err != nil {
+		panic(err)
+	}
+	fmt.Println(len(buf.Bytes()), "bytes written")
+	fmt.Println(string(buf.Bytes()[:52]), "...")
+	// Note that even though the beginning is just JSON, there is trailing
+	// binary for the larger data sets that JSON just isn't suited for.
+
+	// Output:
+	// 246 bytes written
+	// {"MarshalVersion":0,"NodeIndexType":16,"Rebalanced": ...
+}
+
+func ExampleUnmarshalRing() {
+	// Build a ring to marshal...
+	b := ring.NewBuilder()
+	b.SetReplicaCount(2)
+	n1 := b.AddNode()
+	n1.SetCapacity(1)
+	n1.SetInfo("Node One")
+	n2 := b.AddNode()
+	n2.SetCapacity(1)
+	n2.SetInfo("Node Two")
+	b.Rebalance()
+	r1 := b.Ring()
+	// And marshal it...
+	var buf bytes.Buffer
+	if err := r1.Marshal(&buf); err != nil {
+		panic(err)
+	}
+	// So we can show how to unmarshal it...
+	r2, err := ring.UnmarshalRing(&buf)
+	if err != nil {
+		panic(err)
+	}
+	// And just do some checks to show they're the same...
+	if !r1.Rebalanced().Equal(r2.Rebalanced()) {
+		panic("")
+	}
+	if r1.ReplicaCount() != r2.ReplicaCount() {
+		panic("")
+	}
+	if r1.PartitionCount() != r2.PartitionCount() {
+		panic("")
+	}
+	compareNodeSlices := func(ns1, ns2 []ring.Node) {
+		if len(ns1) != len(ns2) {
+			panic("")
+		}
+		for i := 0; i < len(ns1); i++ {
+			if ns1[i].Disabled() != ns2[i].Disabled() {
+				panic("")
+			}
+			if ns1[i].Capacity() != ns2[i].Capacity() {
+				panic("")
+			}
+			t1 := ns1[i].Tiers()
+			t2 := ns2[i].Tiers()
+			if len(t1) != len(t2) {
+				panic("")
+			}
+			for j := 0; j < len(t1); j++ {
+				if t1[j] != t2[j] {
+					panic("")
+				}
+			}
+			if ns1[i].Info() != ns2[i].Info() {
+				panic("")
 			}
 		}
 	}
-	// Output:
-	// Replica 0 of Partition 0 is assigned to FirstNode
-	// Replica 0 of Partition 1 is assigned to SecondNode
-	// Replica 1 of Partition 0 is assigned to SecondNode
-	// Replica 1 of Partition 1 is unassigned
-}
-
-func ExampleRing_PartitionCount() {
-	fmt.Println(ring.Ring{
-		[]ring.NodeIndexType{0, 1, 0},
-		[]ring.NodeIndexType{1, 0, 1},
-	}.PartitionCount())
-	// Output: 3
-}
-
-func ExampleRing_ReplicaCount() {
-	fmt.Println(ring.Ring{
-		[]ring.NodeIndexType{0, 1, 1},
-		[]ring.NodeIndexType{1, 0, 1},
-	}.ReplicaCount())
-	// Output: 2
-}
-
-func ExampleRing_Equal() {
-	r1 := ring.Ring{
-		[]ring.NodeIndexType{0, 1, 1},
-		[]ring.NodeIndexType{1, 0, 1},
+	compareNodeSlices(r1.Nodes(), r2.Nodes())
+	for partition := 0; partition < r1.PartitionCount(); partition++ {
+		compareNodeSlices(r1.KeyNodes(partition), r2.KeyNodes(partition))
 	}
-	r2 := ring.Ring{
-		[]ring.NodeIndexType{0, 1, 1},
-		[]ring.NodeIndexType{1, 0, 1},
-	}
-	r3 := ring.Ring{
-		[]ring.NodeIndexType{1, 0, 0},
-		[]ring.NodeIndexType{0, 1, 0},
-	}
-	fmt.Println(r1.Equal(r2), r1.Equal(r3), r2.Equal(r1), r2.Equal(r3), r3.Equal(r1), r3.Equal(r2))
-	fmt.Println(r1.Equal(r1))
+	fmt.Println("They look the same!")
 	// Output:
-	// true false true false false false
-	// true
-}
-
-func ExampleRing_RingDuplicate() {
-	builder := ring.Builder{Nodes: []*ring.Node{{Capacity: 1}, {Capacity: 1}}}
-	builder.Rebalance()
-	ring1 := builder.RingDuplicate()
-	fmt.Println(ring1.Equal(builder.Ring))
-	builder.Nodes = append(builder.Nodes, &ring.Node{Capacity: 1})
-	builder.ShiftLastMoved(builder.MoveWait * 2)
-	builder.Rebalance()
-	fmt.Println(ring1.Equal(builder.Ring))
-	// Output:
-	// true
-	// false
+	// They look the same!
 }
