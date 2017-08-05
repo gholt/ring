@@ -8,11 +8,36 @@ import (
 
 // rebalancer does the actual work of reassigning replicas to nodes. It is
 // separate so that the tracking it uses can just be discarded once complete.
+//
+// This is the most complex part of the library, as it has many concerns to
+// keep in mind while assigning replicas of partitions to nodes.
+//
+// First, and probably most obvious, it doesn't want to assign to fewer or more
+// replicas to a node than the node's capacity indicates. This holds true as
+// you go up the tier levels, such as not wanting one region to have more or
+// less than it's overall capacity indicates.
+//
+// Next, it wants to keep the replicas of a given partition on distinct nodes.
+// This also holds true as you go up the tier levels; it does its best to keep
+// replicas of a partition in distinct tier separations.
+//
+// It also wants to have to distinct nodes (and tiers) across all the
+// partitions for a given replica level. Many use cases have replica 0 as a
+// special "primary" replica that is control or focal point. If a node is the
+// primary for too many partitions, it can get overloaded.
+//
+// Lastly, the rebalancer wants to avoid any "mirroring", where two nodes have
+// the exact same or nearly the same partitions assigned to them. Mirroring is
+// bad because the two nodes will likely be communicating only with each other,
+// rather than making use of other nodes. Also, if both nodes fail, more
+// partitions lose multiple replicas than they really should.
 type rebalancer struct {
 	builder           *Builder
 	moveWaitInUnits   LastMovedType
 	nodeIndexToDesire []int32
-	// Used only for detecting overweight nodes where nodeIndexToDesire would find none.
+	// nodeIndexToDesireTenths is used only for detecting overweight nodes
+	// where nodeIndexToDesire would show them to be at zero; it's calculated
+	// the same way, just stored in tenths instead of whole numbers.
 	nodeIndexToDesireTenths            []int32
 	nodeIndexesByDesire                []NodeIndexType
 	tierToTierSepsByDesire             [][]*tierSeparation
