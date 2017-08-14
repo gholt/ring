@@ -1,3 +1,5 @@
+// got can be found at github.com/gholt/got
+
 //go:generate got valueorderedkeys.got      zzz_desirednodes.go         p=lowring new=newDesiredNodes T=desiredNodes K=byDesire k=Node V=toDesire v=int32
 //go:generate got valueorderedkeys_test.got zzz_desirednodes_test.go    p=lowring new=newDesiredNodes T=desiredNodes K=byDesire k=Node V=toDesire v=int32
 
