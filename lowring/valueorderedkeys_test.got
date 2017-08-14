@@ -1,0 +1,155 @@
+// Copied from github.com/gholt/holdme
+
+package {{.p}}
+
+import (
+    "math/rand"
+    "testing"
+)
+
+func helper{{.T}}InOrder(t *testing.T, x *{{.T}}) {
+    f:=true
+    var pk {{.k}}
+    var pv {{.v}}
+    for i, k := range x.{{.K}} {
+        v := x.{{.V}}[k]
+        if f {
+            f = false
+        } else {
+            if v > pv {
+                t.Fatalf("%v:%v at index %d was greater than %v:%v at index %d", k, v, i, pk, pv, i-1)
+            }
+        }
+        pk = k
+        pv = v
+    }
+}
+
+func helper{{.T}}Find(t *testing.T, x *{{.T}}, k {{.k}}) int {
+    for i, k2 := range x.{{.K}} {
+        if k2 == k {
+            return i
+        }
+    }
+    t.Fatalf("could not find %v", k)
+    return -1
+}
+
+func Test_{{.T}}_Add(t *testing.T) {
+    var x *{{.T}}
+    refresh := func() {
+        x = &{{.T}}{}
+        x.Add(0, 10)
+        for k := {{.k}}(1); k < 6; k++ {
+            x.Add(k, 0)
+        }
+        x.Add(6, -10)
+        helper{{.T}}Find(t, x, 0)
+        for k := {{.k}}(1); k < 6; k++ {
+            helper{{.T}}Find(t, x, k)
+        }
+        helper{{.T}}Find(t, x, 6)
+    }
+    refresh()
+    x.RandIntn = nil
+    x.Add(7, 0)
+    helper{{.T}}InOrder(t, x)
+    i := helper{{.T}}Find(t, x, 7)
+    randIntn := rand.New(rand.NewSource(0)).Intn
+    i2 := i
+    for j:=0;j<100;j++ {
+        refresh()
+        x.RandIntn = randIntn
+        x.Add(7, 0)
+        helper{{.T}}InOrder(t, x)
+        i2 = helper{{.T}}Find(t, x, 7)
+        if i2 != i {
+            break
+        }
+    }
+    if i2 == i {
+        t.Fatal("expected positions to change", x)
+    }
+    randIntn = rand.New(rand.NewSource(1)).Intn
+    i3 := i
+    for j:=0;j<100;j++ {
+        refresh()
+        x.RandIntn = randIntn
+        x.Add(7, 0)
+        helper{{.T}}InOrder(t, x)
+        i3 = helper{{.T}}Find(t, x, 7)
+        if i3 != i && i3 != i2 {
+            break
+        }
+    }
+    if i3 == i || i3 == i2 {
+        t.Fatal("expected positions to change", x)
+    }
+    refresh()
+    x.Add(7, 0)
+    helper{{.T}}InOrder(t, x)
+    ln := len(x.{{.K}})
+    x.Add(7, 0)
+    helper{{.T}}InOrder(t, x)
+    ln2 := len(x.{{.K}})
+    if ln != ln2 {
+        t.Fatal("length changed", ln, ln2)
+    }
+}
+
+func Test_{{.T}}_Move(t *testing.T) {
+    x := &{{.T}}{}
+    for k := {{.k}}(1); k < 10; k++ {
+        x.Add(k, {{.v}}(k))
+    }
+    helper{{.T}}InOrder(t, x)
+    x.Move(3, 7)
+    helper{{.T}}InOrder(t, x)
+    if x.{{.V}}[3] != 7 {
+        t.Fatal("value was", x.{{.V}}[3])
+    }
+    x.Move(3, 7)
+    helper{{.T}}InOrder(t, x)
+    if x.{{.V}}[3] != 7 {
+        t.Fatal("value was", x.{{.V}}[3])
+    }
+    for k := {{.k}}(10); k < 15; k++ {
+        x.Add(k, 5)
+    }
+    helper{{.T}}InOrder(t, x)
+    x.Move(7, 3)
+    helper{{.T}}InOrder(t, x)
+    x.Move(7, 5)
+    helper{{.T}}InOrder(t, x)
+    i := helper{{.T}}Find(t, x, 7)
+    x.RandIntn = rand.New(rand.NewSource(0)).Intn
+    i2 := i
+    for j:=0;j<100;j++ {
+        x.Move(7, 3)
+        helper{{.T}}InOrder(t, x)
+        x.Move(7, 5)
+        helper{{.T}}InOrder(t, x)
+        i2 = helper{{.T}}Find(t, x, 7)
+        if i2 != i {
+            break
+        }
+    }
+    if i2 == i {
+        t.Fatal("expected positions to change", x)
+    }
+    x.RandIntn = rand.New(rand.NewSource(1)).Intn
+    i3 := i
+    for j:=0;j<100;j++ {
+        x.Move(7, 3)
+        helper{{.T}}InOrder(t, x)
+        x.Move(7, 5)
+        helper{{.T}}InOrder(t, x)
+        i3 = helper{{.T}}Find(t, x, 7)
+        if i3 != i && i3 != i2 {
+            break
+        }
+    }
+    if i3 == i || i3 == i2 {
+        t.Fatal("expected positions to change", x)
+    }
+}

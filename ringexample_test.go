@@ -9,14 +9,9 @@ import (
 
 func Example_ringMarshal() {
 	// Build a ring to marshal...
-	b := ring.NewBuilder()
-	b.SetReplicaCount(2)
-	n1 := b.AddNode()
-	n1.SetCapacity(1)
-	n1.SetInfo("Node One")
-	n2 := b.AddNode()
-	n2.SetCapacity(1)
-	n2.SetInfo("Node Two")
+	b := ring.NewBuilder(2)
+	b.AddNode("Node One", 1, nil)
+	b.AddNode("Node Two", 1, nil)
 	b.Rebalance()
 	r := b.Ring()
 	// And marshal it...
@@ -25,25 +20,20 @@ func Example_ringMarshal() {
 		panic(err)
 	}
 	fmt.Println(len(buf.Bytes()), "bytes written")
-	fmt.Println(string(buf.Bytes()[:52]), "...")
+	fmt.Println(string(buf.Bytes()[:213]), "...")
 	// Note that even though the beginning is just JSON, there is trailing
 	// binary for the larger data sets that JSON just isn't suited for.
 
 	// Output:
-	// 246 bytes written
-	// {"MarshalVersion":0,"NodeIndexType":16,"Rebalanced": ...
+	// 243 bytes written
+	// {"MarshalVersion":0,"NodeType":16,"ReplicaCount":2,"PartitionCount":2,"Nodes":[{"Info":"Node One","Capacity":1,"Group":0},{"Info":"Node Two","Capacity":1,"Group":0}],"Groups":[{"Info":"","Parent":0}],"Rebalanced": ...
 }
 
 func ExampleUnmarshalRing() {
 	// Build a ring to marshal...
-	b := ring.NewBuilder()
-	b.SetReplicaCount(2)
-	n1 := b.AddNode()
-	n1.SetCapacity(1)
-	n1.SetInfo("Node One")
-	n2 := b.AddNode()
-	n2.SetCapacity(1)
-	n2.SetInfo("Node Two")
+	b := ring.NewBuilder(2)
+	b.AddNode("Node One", 1, nil)
+	b.AddNode("Node Two", 1, nil)
 	b.Rebalance()
 	r1 := b.Ring()
 	// And marshal it...
@@ -52,7 +42,7 @@ func ExampleUnmarshalRing() {
 		panic(err)
 	}
 	// So we can show how to unmarshal it...
-	r2, err := ring.UnmarshalRing(&buf)
+	r2, err := ring.Unmarshal(&buf)
 	if err != nil {
 		panic(err)
 	}
@@ -61,31 +51,18 @@ func ExampleUnmarshalRing() {
 		panic("")
 	}
 	if r1.ReplicaCount() != r2.ReplicaCount() {
-		panic("")
+		panic(fmt.Sprint(r1.ReplicaCount(), r2.ReplicaCount()))
 	}
 	if r1.PartitionCount() != r2.PartitionCount() {
 		panic("")
 	}
-	compareNodeSlices := func(ns1, ns2 []ring.Node) {
+	compareNodeSlices := func(ns1, ns2 []*ring.Node) {
 		if len(ns1) != len(ns2) {
 			panic("")
 		}
 		for i := 0; i < len(ns1); i++ {
-			if ns1[i].Disabled() != ns2[i].Disabled() {
-				panic("")
-			}
 			if ns1[i].Capacity() != ns2[i].Capacity() {
 				panic("")
-			}
-			t1 := ns1[i].Tiers()
-			t2 := ns2[i].Tiers()
-			if len(t1) != len(t2) {
-				panic("")
-			}
-			for j := 0; j < len(t1); j++ {
-				if t1[j] != t2[j] {
-					panic("")
-				}
 			}
 			if ns1[i].Info() != ns2[i].Info() {
 				panic("")

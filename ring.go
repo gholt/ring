@@ -11,110 +11,99 @@ import (
 	"github.com/gholt/ring/lowring"
 )
 
-// Ring stores the assignments of replicas of partitions to node indexes.
-// Usually these are generated and maintained by the Builder.
-type Ring interface {
-
-	// Rebalanced is the time the ring was rebalanced.
-	Rebalanced() time.Time
-
-	// ReplicaCount is the number of replicas for each partition.
-	ReplicaCount() int
-
-	// PartitionCount indicates how split the key space is.
-	PartitionCount() int
-
-	// Nodes returns all the defined nodes for this ring, some of which may be
-	// disabled.
-	Nodes() []Node
-
-	// KeyNodes returns the nodes assigned to a key; the slice will be
-	// ReplicaCount in length. Usually keys are created by hashing some
-	// identifier of the data, such as the name of an object to be stored in an
-	// object storage system.
-	//
-	// The key % PartitionCount() determines which partition the key belongs
-	// to, so if you'd like to map the node assignments for all partitions you
-	// can easily do that with:
-	//
-	//  for key := 0; key < ring.PartititionCount(); key++ {
-	//      nodes := ring.KeyNodes(key)
-	//      ...
-	//  }
-	KeyNodes(key int) []Node
-
-	// Marshal will persist the data from this ring to the writer. You can read
-	// it back with the UnmarshalRing function.
-	Marshal(w io.Writer) error
+type Ring struct {
+	nodes                    []*Node
+	groups                   []*Group
+	nodeToGroup              []int
+	groupToGroup             []int
+	replicaToPartitionToNode [][]lowring.Node
+	rebalanced               time.Time
 }
 
-type rring struct {
-	rebalanced time.Time
-	nodes      []*node
-	ring       lowring.Ring
+func (r *Ring) Nodes() []*Node {
+	nodes := make([]*Node, len(r.nodes))
+	copy(nodes, r.nodes)
+	return nodes
 }
 
-func (r *rring) Rebalanced() time.Time {
+func (r *Ring) Groups() []*Group {
+	groups := make([]*Group, len(r.groups))
+	copy(groups, r.groups)
+	return groups
+}
+
+func (r *Ring) ReplicaCount() int {
+	return len(r.replicaToPartitionToNode)
+}
+
+func (r *Ring) PartitionCount() int {
+	return len(r.replicaToPartitionToNode[0])
+}
+
+func (r *Ring) AssignmentCount() int {
+	return len(r.replicaToPartitionToNode) * len(r.replicaToPartitionToNode[0])
+}
+
+func (r *Ring) Rebalanced() time.Time {
 	return r.rebalanced
 }
 
-func (r *rring) ReplicaCount() int {
-	return r.ring.ReplicaCount()
-}
-
-func (r *rring) PartitionCount() int {
-	return r.ring.PartitionCount()
-}
-
-func (r *rring) Nodes() []Node {
-	nodes := make([]Node, len(r.nodes))
-	for i, n := range r.nodes {
-		nodes[i] = n
+func (r *Ring) KeyNodes(key int) []*Node {
+	nodes := make([]*Node, 0, len(r.replicaToPartitionToNode))
+	partition := key % len(r.replicaToPartitionToNode[0])
+	for _, partitionToNode := range r.replicaToPartitionToNode {
+		nodes = append(nodes, r.nodes[partitionToNode[partition]])
 	}
 	return nodes
 }
 
-func (r *rring) KeyNodes(key int) []Node {
-	partition := key % r.ring.PartitionCount()
-	nodes := make([]Node, r.ring.ReplicaCount())
-	for i, partitionToNodeIndex := range r.ring {
-		nodes[i] = r.nodes[partitionToNodeIndex[partition]]
-	}
-	return nodes
+func (r *Ring) ResponsibleForReplicaPartition(replica, partition int) *Node {
+	return r.nodes[r.replicaToPartitionToNode[replica][partition]]
 }
 
 type ringJSON struct {
 	MarshalVersion int
-	NodeIndexType  int
-	Rebalanced     int64
+	NodeType       int
 	ReplicaCount   int
 	PartitionCount int
 	Nodes          []*ringNodeJSON
+	Groups         []*ringGroupJSON
+	Rebalanced     int64
 }
 
 type ringNodeJSON struct {
-	Disabled bool
-	Capacity int
-	Tiers    []string
 	Info     string
+	Capacity int
+	Group    int
 }
 
-func (r *rring) Marshal(w io.Writer) error {
-	var nit lowring.NodeIndexType
+type ringGroupJSON struct {
+	Info   string
+	Parent int
+}
+
+func (r *Ring) Marshal(w io.Writer) error {
+	var nodeType lowring.Node
 	j := &ringJSON{
 		MarshalVersion: 0,
-		NodeIndexType:  int(unsafe.Sizeof(nit)) * 8,
-		Rebalanced:     r.rebalanced.UnixNano(),
-		ReplicaCount:   r.ReplicaCount(),
-		PartitionCount: r.PartitionCount(),
+		NodeType:       int(unsafe.Sizeof(nodeType)) * 8,
+		ReplicaCount:   len(r.replicaToPartitionToNode),
+		PartitionCount: len(r.replicaToPartitionToNode[0]),
 		Nodes:          make([]*ringNodeJSON, len(r.nodes)),
+		Groups:         make([]*ringGroupJSON, len(r.groups)),
+		Rebalanced:     r.rebalanced.UnixNano(),
 	}
 	for i, n := range r.nodes {
 		j.Nodes[i] = &ringNodeJSON{
-			Disabled: n.disabled,
-			Capacity: n.capacity,
-			Tiers:    n.tiers,
 			Info:     n.info,
+			Capacity: n.capacity,
+			Group:    r.nodeToGroup[n.index],
+		}
+	}
+	for i, g := range r.groups {
+		j.Groups[i] = &ringGroupJSON{
+			Info:   g.info,
+			Parent: r.groupToGroup[g.index],
 		}
 	}
 	if err := json.NewEncoder(w).Encode(j); err != nil {
@@ -126,18 +115,16 @@ func (r *rring) Marshal(w io.Writer) error {
 	if _, err := w.Write([]byte{0}); err != nil {
 		return err
 	}
-	for _, partitionToNodeIndex := range r.ring {
-		if err := binary.Write(w, binary.LittleEndian, partitionToNodeIndex); err != nil {
+	for _, partitionToNode := range r.replicaToPartitionToNode {
+		if err := binary.Write(w, binary.LittleEndian, partitionToNode); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// UnmarshalRing will return a ring created from data stored in the reader. You
-// can persist a ring to a writer with the ring's Marshal method.
-func UnmarshalRing(r io.Reader) (Ring, error) {
-	var nit lowring.NodeIndexType
+func Unmarshal(r io.Reader) (*Ring, error) {
+	var nodeType lowring.Node
 	j := &ringJSON{}
 	jsonDecoder := json.NewDecoder(r)
 	if err := jsonDecoder.Decode(j); err != nil {
@@ -161,25 +148,29 @@ func UnmarshalRing(r io.Reader) (Ring, error) {
 	if j.MarshalVersion != 0 {
 		return nil, fmt.Errorf("unable to interpret data with MarshalVersion %d", j.MarshalVersion)
 	}
-	if j.NodeIndexType != int(unsafe.Sizeof(nit))*8 {
-		return nil, fmt.Errorf("ring data does not match compiled ring format. NodeIndexType is %d bits in the data and %d bits compiled.", j.NodeIndexType, int(unsafe.Sizeof(nit))*8)
+	if j.NodeType != int(unsafe.Sizeof(nodeType))*8 {
+		return nil, fmt.Errorf("ring data does not match compiled ring format. NodeType is %d bits in the data and %d bits compiled.", j.NodeType, int(unsafe.Sizeof(nodeType))*8)
 	}
-	rv := &rring{
-		rebalanced: time.Unix(0, j.Rebalanced),
-		nodes:      make([]*node, len(j.Nodes)),
-		ring:       make(lowring.Ring, j.ReplicaCount),
+	rv := &Ring{
+		nodes:  make([]*Node, len(j.Nodes)),
+		groups: make([]*Group, len(j.Groups)),
+		replicaToPartitionToNode: make([][]lowring.Node, j.ReplicaCount),
 	}
+	rv.nodeToGroup = make([]int, len(j.Nodes))
+	rv.groupToGroup = make([]int, len(j.Groups))
+	rv.rebalanced = time.Unix(0, j.Rebalanced)
 	for i, jn := range j.Nodes {
-		rn := &node{}
-		rn.disabled = jn.Disabled
-		rn.capacity = jn.Capacity
-		rn.tiers = jn.Tiers
-		rn.info = jn.Info
-		rv.nodes[i] = rn
+		rv.nodes[i] = &Node{ring: rv, index: i, info: jn.Info, capacity: jn.Capacity}
+		rv.nodeToGroup[i] = jn.Group
 	}
+	for i, jg := range j.Groups {
+		rv.groups[i] = &Group{ring: rv, index: i, info: jg.Info}
+		rv.groupToGroup[i] = jg.Parent
+	}
+	rv.replicaToPartitionToNode = make([][]lowring.Node, j.ReplicaCount)
 	for replica := 0; replica < j.ReplicaCount; replica++ {
-		rv.ring[replica] = make([]lowring.NodeIndexType, j.PartitionCount)
-		if err := binary.Read(r, binary.LittleEndian, rv.ring[replica]); err != nil {
+		rv.replicaToPartitionToNode[replica] = make([]lowring.Node, j.PartitionCount)
+		if err := binary.Read(r, binary.LittleEndian, rv.replicaToPartitionToNode[replica]); err != nil {
 			return nil, err
 		}
 	}

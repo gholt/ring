@@ -5,306 +5,283 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
+	"math/rand"
 	"time"
 	"unsafe"
 
 	"github.com/gholt/ring/lowring"
 )
 
-// Builder encapsulates the information needed to best balance ring assignments.
-type Builder interface {
-
-	// Rebalanced is the time Rebalance was last called.
-	Rebalanced() time.Time
-
-	// Nodes are the targets of each replica assignment.
-	Nodes() []BuilderNode
-
-	// AddNode adds a new node to the builder and returns it; may return nil if
-	// no more nodes may be added. It will not be disabled, but will have a
-	// capacity of 0, no tiers, and an empty info string.
-	AddNode() BuilderNode
-
-	// RemoveNode will remove the node from the Builder.
-	//
-	// Note that this can be relatively expensive as it will have to update all
-	// information that pointed to nodes added after the removed node had been
-	// originally added.
-	//
-	// Depending on the use case, it might be better to just leave a "dead"
-	// node in place and simply set it as disabled.
-	RemoveNode(n BuilderNode)
-
-	// MaxNodeCount returns the maximum number of nodes allowed.
-	MaxNodeCount() int
-
-	// ReplicaCount returns the number of replicas per partition.
-	ReplicaCount() int
-
-	// SetReplicaCount will add or remove replicas; if replicas are added they
-	// will be unassigned and require a Rebalance to become assigned.
-	SetReplicaCount(v int)
-
-	// PartitionCount indicates how split the key space is.
-	PartitionCount() int
-
-	// LastMovedUnit is the duration that time is measured in for recording
-	// when replica assignments were last moved.
-	LastMovedUnit() time.Duration
-
-	// SetLastMovedUnit defines the duration that time is measured in for
-	// recording when replica assignments were last moved. The default is
-	// time.Minute as is usually fine.
-	//
-	// If you decide to tweak this, you should understand the underlying code
-	// well, and the constraints in play.
-	SetLastMovedUnit(v time.Duration)
-
-	// MoveWait is how much time must elapse before a replica can be moved
-	// again.
-	MoveWait() time.Duration
-
-	// SetMoveWait defines how much time must elapse before a replica can be
-	// moved again. The default is time.Hour.
-	SetMoveWait(v time.Duration)
-
-	// MovesPerPartition is how many replicas of a given partition can be
-	// reassigned with the MoveWait window.
-	MovesPerPartition() int
-
-	// SetMovesPerPartition defines how many replicas of a given partition can
-	// be reassigned with the MoveWait window.
-	//
-	// For full copy replicas, you probably want this set to no more than half
-	// the replica count. For erasure coding, you probably want this set to no
-	// more than "m", the maximum number of failure chunks.
-	//
-	// 0 (or less) will be treated as the default, which currently is
-	// int(replicas/2), but at least 1.
-	SetMovesPerPartition(v int)
-
-	// PointsAllowed is the number of percentage points over or under that the
-	// Builder will try to keep replica assignments within.
-	PointsAllowed() int
-
-	// SetPointsAllowed defines the number of percentage points over or under
-	// that the Builder will try to keep replica assignments within. For
-	// example, if set to 1% and a node should receive 100 replica assignments,
-	// the Builder will target 99-101 assignments to that node. This is not
-	// guaranteed, just a target.
-	//
-	// This setting will affect how quickly the partition count will increase.
-	// If you feel your use case can handle an over/under of 10%, that could
-	// end up with smaller rings if memory is more of a concern. However, just
-	// setting the MaxPartitionCount is probably a better approach in such a
-	// case.
-	//
-	// 0 (or less) will be treated as the default, which currently is 1 for one
-	// percent extra or fewer replicas per node.
-	SetPointsAllowed(v int)
-
-	// MaxPartitionCount is the maximum number of partitions the builder can
-	// grow to.
-	MaxPartitionCount() int
-
-	// MaxPartitionCount is the maximum number of partitions the builder should
-	// grow to. This keeps the rebalancer from running too long trying to
-	// achieve desired balances and also caps memory usage.
-	//
-	// 0 (or less) will be treated as the default, which currently is 8388608.
-	SetMaxPartitionCount(v int)
-
-	// Rebalance updates the replica assignments, if needed and possible.
-	Rebalance()
-
-	// Ring returns an immutable copy of the replica assignments, the nodes
-	// list, and any other information needed to have a usable ring. Further
-	// modifications to the builder will have no effect on rings previously
-	// returned.
-	Ring() Ring
-
-	// Marshal will persist the data from this builder to the writer. You can
-	// read it back with the UnmarshalBuilder function.
-	Marshal(w io.Writer) error
+type Builder struct {
+	ring     *lowring.Ring
+	nodes    []*BuilderNode
+	groups   []*BuilderGroup
+	randIntn func(int) int
 }
 
-type builder struct {
-	rebalanced      time.Time
-	builder         lowring.Builder
-	nodes           []*builderNode
-	tierIndexToName []string
-	tierNameToIndex map[string]int
-}
-
-// NewBuilder returns a Builder that encapsulates the information needed to
-// best balance ring assignments.
-func NewBuilder() Builder {
-	b := &builder{
-		tierNameToIndex: map[string]int{},
+func NewBuilder(replicaCount int) *Builder {
+	if replicaCount < 1 {
+		replicaCount = 1
 	}
-	b.Rebalance() // ensure all the defaults have been set
+	if replicaCount > 127 {
+		replicaCount = 127
+	}
+	b := &Builder{ring: lowring.New(replicaCount), randIntn: rand.New(rand.NewSource(0)).Intn}
+	b.groups = []*BuilderGroup{{builder: b}}
 	return b
 }
 
-func (b *builder) Rebalanced() time.Time {
-	return b.rebalanced
+func (b *Builder) Ring() *Ring {
+	ring := &Ring{
+		nodes:                    make([]*Node, len(b.nodes)),
+		groups:                   make([]*Group, len(b.groups)),
+		nodeToGroup:              make([]int, len(b.nodes)),
+		groupToGroup:             make([]int, len(b.groups)),
+		replicaToPartitionToNode: make([][]lowring.Node, len(b.ring.ReplicaToPartitionToNode)),
+		rebalanced:               b.ring.Rebalanced,
+	}
+	for i, n := range b.nodes {
+		ring.nodes[i] = &Node{
+			ring:     ring,
+			index:    i,
+			info:     n.info,
+			capacity: b.ring.NodeToCapacity[i],
+		}
+	}
+	for i, g := range b.groups {
+		ring.groups[i] = &Group{
+			ring:  ring,
+			index: i,
+			info:  g.info,
+		}
+	}
+	copy(ring.nodeToGroup, b.ring.NodeToGroup)
+	copy(ring.groupToGroup, b.ring.GroupToGroup)
+	replicaCount := len(b.ring.ReplicaToPartitionToNode)
+	partitionCount := len(b.ring.ReplicaToPartitionToNode[0])
+	for replica := 0; replica < replicaCount; replica++ {
+		ring.replicaToPartitionToNode[replica] = make([]lowring.Node, partitionCount)
+		copy(ring.replicaToPartitionToNode[replica], b.ring.ReplicaToPartitionToNode[replica])
+	}
+	return ring
 }
 
-func (b *builder) Nodes() []BuilderNode {
-	nodes := make([]BuilderNode, len(b.nodes))
-	for i, n := range b.nodes {
-		nodes[i] = n
-	}
+func (b *Builder) Nodes() []*BuilderNode {
+	nodes := make([]*BuilderNode, len(b.nodes))
+	copy(nodes, b.nodes)
 	return nodes
 }
 
-func (b *builder) AddNode() BuilderNode {
-	if len(b.builder.Nodes) == int(lowring.NodeIndexNil) {
-		return nil
+func (b *Builder) AddNode(info string, capacity int, group *BuilderGroup) *BuilderNode {
+	groupIndex := 0
+	if group != nil {
+		groupIndex = group.index
 	}
-	n := &builderNode{builder: b}
-	b.nodes = append(b.nodes, n)
-	b.builder.Nodes = append(b.builder.Nodes, &n.node)
-	return n
+	node := &BuilderNode{builder: b, index: int(b.ring.AddNode(capacity, groupIndex)), info: info}
+	b.nodes = append(b.nodes, node)
+	return node
 }
 
-func (b *builder) RemoveNode(n BuilderNode) {
-	if bn, ok := n.(*builderNode); ok {
-		for i, bn2 := range b.nodes {
-			if bn2 == bn {
-				b.builder.RemoveNode(lowring.NodeIndexType(i))
-				copy(b.nodes[i:], b.nodes[i+1:])
-				b.nodes = b.nodes[:len(b.nodes)-1]
-				return
+func (b *Builder) Groups() []*BuilderGroup {
+	groups := make([]*BuilderGroup, len(b.groups))
+	copy(groups, b.groups)
+	return groups
+}
+
+func (b *Builder) AddGroup(info string, parent *BuilderGroup) *BuilderGroup {
+	parentIndex := 0
+	if parent != nil {
+		parentIndex = parent.index
+	}
+	index := len(b.ring.GroupToGroup)
+	b.ring.GroupToGroup = append(b.ring.GroupToGroup, parentIndex)
+	group := &BuilderGroup{builder: b, index: index, info: info}
+	b.groups = append(b.groups, group)
+	return group
+}
+
+func (b *Builder) ReplicaCount() int {
+	return len(b.ring.ReplicaToPartitionToNode)
+}
+
+func (b *Builder) SetReplicaCount(v int) {
+	if v < 1 {
+		v = 1
+	}
+	if v > 127 {
+		v = 127
+	}
+	b.ring.SetReplicaCount(v)
+}
+
+func (b *Builder) PartitionCount() int {
+	return len(b.ring.ReplicaToPartitionToNode[0])
+}
+
+func (b *Builder) MaxPartitionCount() int {
+	return b.ring.MaxPartitionCount
+}
+
+func (b *Builder) SetMaxPartitionCount(v int) {
+	if v < 1 {
+		v = 1
+	}
+	b.ring.MaxPartitionCount = v
+}
+
+func (b *Builder) AssignmentCount() int {
+	return len(b.ring.ReplicaToPartitionToNode) * len(b.ring.ReplicaToPartitionToNode[0])
+}
+
+func (b *Builder) Rebalanced() time.Time {
+	return b.ring.Rebalanced
+}
+
+func (b *Builder) Rebalance() {
+	b.ring.Rebalance(b.randIntn)
+}
+
+func (b *Builder) PretendElapsed(d time.Duration) {
+	minutesElapsed := int64(d / time.Minute)
+	replicaCount := len(b.ring.ReplicaToPartitionToNode)
+	partitionCount := len(b.ring.ReplicaToPartitionToNode[0])
+	if minutesElapsed >= int64(b.ring.ReassignmentWait) || minutesElapsed >= int64(math.MaxUint16) {
+		for replica := 0; replica < replicaCount; replica++ {
+			partitionToWait := b.ring.ReplicaToPartitionToWait[replica]
+			for partition := 0; partition < partitionCount; partition++ {
+				partitionToWait[partition] = 0
+			}
+		}
+	} else if minutesElapsed > 0 {
+		for replica := 0; replica < replicaCount; replica++ {
+			partitionToWait := b.ring.ReplicaToPartitionToWait[replica]
+			for partition := 0; partition < partitionCount; partition++ {
+				wait64 := int64(partitionToWait[0]) - minutesElapsed
+				if wait64 < 0 {
+					wait64 = 0
+				}
+				partitionToWait[partition] = uint16(wait64)
 			}
 		}
 	}
 }
 
-func (b *builder) MaxNodeCount() int {
-	return int(lowring.NodeIndexNil - 1)
+func (b *Builder) KeyNodes(key int) []*BuilderNode {
+	nodes := make([]*BuilderNode, 0, len(b.ring.ReplicaToPartitionToNode))
+	partition := key % len(b.ring.ReplicaToPartitionToNode[0])
+	for _, partitionToNode := range b.ring.ReplicaToPartitionToNode {
+		nodes = append(nodes, b.nodes[partitionToNode[partition]])
+	}
+	return nodes
 }
 
-func (b *builder) ReplicaCount() int {
-	return b.builder.ReplicaCount()
+func (b *Builder) ResponsibleForReplicaPartition(replica, partition int) *BuilderNode {
+	return b.nodes[b.ring.ReplicaToPartitionToNode[replica][partition]]
 }
 
-func (b *builder) SetReplicaCount(v int) {
-	b.builder.SetReplicaCount(v)
-	b.rebalanced = time.Now()
+func (b *Builder) IsMoving(replica, partition int) bool {
+	return b.ring.ReplicaToPartitionToWait[replica][partition] > 0
 }
 
-func (b *builder) PartitionCount() int {
-	return b.builder.PartitionCount()
-}
-
-func (b *builder) LastMovedUnit() time.Duration {
-	return b.builder.LastMovedUnit
-}
-
-func (b *builder) SetLastMovedUnit(v time.Duration) {
-	b.builder.LastMovedUnit = v
-}
-
-func (b *builder) MoveWait() time.Duration {
-	return b.builder.MoveWait
-}
-
-func (b *builder) SetMoveWait(v time.Duration) {
-	b.builder.MoveWait = v
-}
-
-func (b *builder) MovesPerPartition() int {
-	return b.builder.MovesPerPartition
-}
-
-func (b *builder) SetMovesPerPartition(v int) {
-	b.builder.MovesPerPartition = v
-}
-
-func (b *builder) PointsAllowed() int {
-	return b.builder.PointsAllowed
-}
-
-func (b *builder) SetPointsAllowed(v int) {
-	b.builder.PointsAllowed = v
-}
-
-func (b *builder) MaxPartitionCount() int {
-	return b.builder.MaxPartitionCount
-}
-
-func (b *builder) SetMaxPartitionCount(v int) {
-	b.builder.MaxPartitionCount = v
-}
-
-func (b *builder) Rebalance() {
-	b.builder.Rebalance()
-	b.rebalanced = time.Now()
-}
-
-func (b *builder) Ring() Ring {
-	nodes := make([]*node, len(b.nodes))
-	for i, n := range b.nodes {
-		nodes[i] = &node{
-			disabled: n.node.Disabled,
-			capacity: n.node.Capacity,
-			tiers:    n.Tiers(),
-			info:     n.info,
+func (b *Builder) MovingAssignmentCount() int {
+	replicaCount := len(b.ring.ReplicaToPartitionToNode)
+	partitionCount := len(b.ring.ReplicaToPartitionToNode[0])
+	moving := 0
+	for replica := 0; replica < replicaCount; replica++ {
+		partitionToWait := b.ring.ReplicaToPartitionToWait[replica]
+		for partition := 0; partition < partitionCount; partition++ {
+			if partitionToWait[partition] > 0 {
+				moving++
+			}
 		}
 	}
-	return &rring{rebalanced: b.rebalanced, ring: b.builder.Ring.Copy(), nodes: nodes}
+	return moving
+}
+
+func (b *Builder) ReassignmentWait() time.Duration {
+	return time.Duration(b.ring.ReassignmentWait) * time.Minute
+}
+
+func (b *Builder) SetReassignmentWait(v time.Duration) {
+	i := int(v / time.Minute)
+	if i < 1 {
+		i = 1
+	}
+	if i > math.MaxUint16 {
+		i = math.MaxUint16
+	}
+	b.ring.ReassignmentWait = uint16(i)
+}
+
+func (b *Builder) MaxReplicaReassignableCount() int {
+	return int(b.ring.MaxReplicaReassignableCount)
+}
+
+func (b *Builder) SetMaxReplicaReassignableCount(v int) {
+	if v < 1 {
+		v = 1
+	}
+	if v > 127 {
+		v = 127
+	}
+	b.ring.MaxReplicaReassignableCount = int8(v)
+}
+
+func (b *Builder) Assign(replica, partition int, node *BuilderNode) {
+	b.ring.ReplicaToPartitionToNode[replica][partition] = lowring.Node(node.index)
+	b.ring.ReplicaToPartitionToWait[replica][partition] = 0
 }
 
 type builderJSON struct {
-	MarshalVersion    int
-	NodeIndexType     int
-	LastMovedType     int
-	Rebalanced        int64
-	ReplicaCount      int
-	PartitionCount    int
-	LastMovedBase     int64
-	LastMovedUnit     int64
-	MoveWait          int64
-	MovesPerPartition int
-	PointsAllowed     int
-	MaxPartitionCount int
-	TierIndexToName   []string
-	Nodes             []*builderNodeJSON
+	MarshalVersion              int
+	NodeType                    int
+	ReplicaCount                int
+	PartitionCount              int
+	Nodes                       []*builderNodeJSON
+	Groups                      []*builderGroupJSON
+	MaxPartitionCount           int
+	Rebalanced                  int64
+	ReassignmentWait            int
+	MaxReplicaReassignableCount int
 }
 
 type builderNodeJSON struct {
-	Disabled    bool
-	Capacity    int
-	TierIndexes []int
-	Info        string
+	Info     string
+	Capacity int
+	Group    int
 }
 
-func (b *builder) Marshal(w io.Writer) error {
-	var nit lowring.NodeIndexType
-	var lmt lowring.LastMovedType
+type builderGroupJSON struct {
+	Info   string
+	Parent int
+}
+
+func (b *Builder) Marshal(w io.Writer) error {
+	var nodeType lowring.Node
 	j := &builderJSON{
-		MarshalVersion:    0,
-		NodeIndexType:     int(unsafe.Sizeof(nit)) * 8,
-		LastMovedType:     int(unsafe.Sizeof(lmt)) * 8,
-		Rebalanced:        b.rebalanced.UnixNano(),
-		ReplicaCount:      b.ReplicaCount(),
-		PartitionCount:    b.PartitionCount(),
-		LastMovedBase:     b.builder.LastMovedBase.UnixNano(),
-		LastMovedUnit:     int64(b.builder.LastMovedUnit),
-		MoveWait:          int64(b.builder.MoveWait),
-		MovesPerPartition: b.builder.MovesPerPartition,
-		PointsAllowed:     b.builder.PointsAllowed,
-		MaxPartitionCount: b.builder.MaxPartitionCount,
-		TierIndexToName:   b.tierIndexToName,
-		Nodes:             make([]*builderNodeJSON, len(b.nodes)),
+		MarshalVersion:              0,
+		NodeType:                    int(unsafe.Sizeof(nodeType)) * 8,
+		ReplicaCount:                len(b.ring.ReplicaToPartitionToNode),
+		PartitionCount:              len(b.ring.ReplicaToPartitionToNode[0]),
+		Nodes:                       make([]*builderNodeJSON, len(b.nodes)),
+		Groups:                      make([]*builderGroupJSON, len(b.groups)),
+		MaxPartitionCount:           b.ring.MaxPartitionCount,
+		Rebalanced:                  b.ring.Rebalanced.UnixNano(),
+		ReassignmentWait:            int(b.ring.ReassignmentWait),
+		MaxReplicaReassignableCount: int(b.ring.MaxReplicaReassignableCount),
 	}
 	for i, n := range b.nodes {
 		j.Nodes[i] = &builderNodeJSON{
-			Disabled:    n.node.Disabled,
-			Capacity:    n.node.Capacity,
-			TierIndexes: n.node.TierIndexes,
-			Info:        n.info,
+			Info:     n.info,
+			Capacity: b.ring.NodeToCapacity[n.index],
+			Group:    b.ring.NodeToGroup[n.index],
+		}
+	}
+	for i, g := range b.groups {
+		j.Groups[i] = &builderGroupJSON{
+			Info:   g.info,
+			Parent: b.ring.GroupToGroup[g.index],
 		}
 	}
 	if err := json.NewEncoder(w).Encode(j); err != nil {
@@ -316,25 +293,21 @@ func (b *builder) Marshal(w io.Writer) error {
 	if _, err := w.Write([]byte{0}); err != nil {
 		return err
 	}
-	for _, partitionToNodeIndex := range b.builder.Ring {
-		if err := binary.Write(w, binary.LittleEndian, partitionToNodeIndex); err != nil {
+	for _, partitionToNode := range b.ring.ReplicaToPartitionToNode {
+		if err := binary.Write(w, binary.LittleEndian, partitionToNode); err != nil {
 			return err
 		}
 	}
-	for _, partitionToLastMoved := range b.builder.LastMoved {
-		if err := binary.Write(w, binary.LittleEndian, partitionToLastMoved); err != nil {
+	for _, partitionToWait := range b.ring.ReplicaToPartitionToWait {
+		if err := binary.Write(w, binary.LittleEndian, partitionToWait); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// UnmarshalBuilder will return a builder created from data stored in the
-// reader. You can persist a builder to a writer with the builder's Marshal
-// method.
-func UnmarshalBuilder(b io.Reader) (Builder, error) {
-	var nit lowring.NodeIndexType
-	var lmt lowring.LastMovedType
+func UnmarshalBuilder(b io.Reader) (*Builder, error) {
+	var nodeType lowring.Node
 	j := &builderJSON{}
 	jsonDecoder := json.NewDecoder(b)
 	if err := jsonDecoder.Decode(j); err != nil {
@@ -358,46 +331,42 @@ func UnmarshalBuilder(b io.Reader) (Builder, error) {
 	if j.MarshalVersion != 0 {
 		return nil, fmt.Errorf("unable to interpret data with MarshalVersion %d", j.MarshalVersion)
 	}
-	if j.NodeIndexType != int(unsafe.Sizeof(nit))*8 {
-		return nil, fmt.Errorf("builder data does not match compiled builder format. NodeIndexType is %d bits in the data and %d bits compiled.", j.NodeIndexType, int(unsafe.Sizeof(nit))*8)
+	if j.NodeType != int(unsafe.Sizeof(nodeType))*8 {
+		return nil, fmt.Errorf("builder data does not match compiled builder format. NodeType is %d bits in the data and %d bits compiled.", j.NodeType, int(unsafe.Sizeof(nodeType))*8)
 	}
-	if j.LastMovedType != int(unsafe.Sizeof(lmt))*8 {
-		return nil, fmt.Errorf("builder data does not match compiled builder format. LastMovedType is %d bits in the data and %d bits compiled.", j.LastMovedType, int(unsafe.Sizeof(lmt))*8)
+	rv := &Builder{
+		ring:     &lowring.Ring{},
+		nodes:    make([]*BuilderNode, len(j.Nodes)),
+		groups:   make([]*BuilderGroup, len(j.Groups)),
+		randIntn: rand.New(rand.NewSource(0)).Intn,
 	}
-	rv := &builder{
-		rebalanced:      time.Unix(0, j.Rebalanced),
-		nodes:           make([]*builderNode, len(j.Nodes)),
-		tierIndexToName: j.TierIndexToName,
-		tierNameToIndex: map[string]int{},
-	}
-	rv.builder.LastMovedBase = time.Unix(0, j.LastMovedBase)
-	rv.builder.LastMovedUnit = time.Duration(j.LastMovedUnit)
-	rv.builder.MoveWait = time.Duration(j.MoveWait)
-	rv.builder.MovesPerPartition = j.MovesPerPartition
-	rv.builder.PointsAllowed = j.PointsAllowed
-	rv.builder.MaxPartitionCount = j.MaxPartitionCount
-	for i, n := range rv.tierIndexToName {
-		rv.tierNameToIndex[n] = i
-	}
+	rv.ring.NodeToCapacity = make([]int, len(j.Nodes))
+	rv.ring.NodeToGroup = make([]int, len(j.Nodes))
+	rv.ring.GroupToGroup = make([]int, len(j.Groups))
+	rv.ring.MaxPartitionCount = j.MaxPartitionCount
+	rv.ring.Rebalanced = time.Unix(0, j.Rebalanced)
+	rv.ring.ReassignmentWait = uint16(j.ReassignmentWait)
+	rv.ring.MaxReplicaReassignableCount = int8(j.MaxReplicaReassignableCount)
 	for i, jn := range j.Nodes {
-		rn := &builderNode{}
-		rn.node.Disabled = jn.Disabled
-		rn.node.Capacity = jn.Capacity
-		rn.node.TierIndexes = jn.TierIndexes
-		rn.info = jn.Info
-		rv.nodes[i] = rn
+		rv.nodes[i] = &BuilderNode{builder: rv, index: i, info: jn.Info}
+		rv.ring.NodeToCapacity[i] = jn.Capacity
+		rv.ring.NodeToGroup[i] = jn.Group
 	}
-	rv.builder.Ring = make(lowring.Ring, j.ReplicaCount)
+	for i, jg := range j.Groups {
+		rv.groups[i] = &BuilderGroup{builder: rv, index: i, info: jg.Info}
+		rv.ring.GroupToGroup[i] = jg.Parent
+	}
+	rv.ring.ReplicaToPartitionToNode = make([][]lowring.Node, j.ReplicaCount)
 	for replica := 0; replica < j.ReplicaCount; replica++ {
-		rv.builder.Ring[replica] = make([]lowring.NodeIndexType, j.PartitionCount)
-		if err := binary.Read(b, binary.LittleEndian, rv.builder.Ring[replica]); err != nil {
+		rv.ring.ReplicaToPartitionToNode[replica] = make([]lowring.Node, j.PartitionCount)
+		if err := binary.Read(b, binary.LittleEndian, rv.ring.ReplicaToPartitionToNode[replica]); err != nil {
 			return nil, err
 		}
 	}
-	rv.builder.LastMoved = make([][]lowring.LastMovedType, j.ReplicaCount)
+	rv.ring.ReplicaToPartitionToWait = make([][]uint16, j.ReplicaCount)
 	for replica := 0; replica < j.ReplicaCount; replica++ {
-		rv.builder.LastMoved[replica] = make([]lowring.LastMovedType, j.PartitionCount)
-		if err := binary.Read(b, binary.LittleEndian, rv.builder.LastMoved[replica]); err != nil {
+		rv.ring.ReplicaToPartitionToWait[replica] = make([]uint16, j.PartitionCount)
+		if err := binary.Read(b, binary.LittleEndian, rv.ring.ReplicaToPartitionToWait[replica]); err != nil {
 			return nil, err
 		}
 	}
