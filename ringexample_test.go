@@ -7,7 +7,7 @@ import (
 	"github.com/gholt/ring"
 )
 
-func Example_ringMarshal() {
+func ExampleRing_Marshal() {
 	// Build a ring to marshal...
 	b := ring.NewBuilder(2)
 	b.AddNode("Node One", 1, nil)
