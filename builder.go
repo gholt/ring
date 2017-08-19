@@ -104,7 +104,8 @@ func (b *Builder) Groups() []*BuilderGroup {
 // and is not used directly by the builder. The parent group offers a way to
 // tier groups; the builder will do its best to keep similar assignments in
 // dissimilar groups at each tier level. The parent may be nil. Cycles are not
-// allowed, where the parent of a group ends up being a child of the group.
+// allowed, where the parent of a group would end up being a child of the same
+// group.
 func (b *Builder) AddGroup(info string, parent *BuilderGroup) *BuilderGroup {
 	parentIndex := 0
 	if parent != nil {

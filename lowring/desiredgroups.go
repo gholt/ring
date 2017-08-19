@@ -1,4 +1,4 @@
-// Copied from github.com/gholt/holdme
+// Automatically generated with: gastly ../../holdme/internal/keysorderedbyvalues.go desiredgroups.go lowring NumericKeyType=droptype:int NumericValueType=droptype:int32 KeysOrderedByValues=desiredGroups Newd=newD Keys=byDesire Values=toDesire
 
 package lowring
 
@@ -7,13 +7,13 @@ import "fmt"
 // desiredGroups keeps byDesire in order by toDesire[byDesire[i]] value.
 //
 // It assumes a relatively static set in byDesire that you want to keep sorted as
-// their values in toDesire change. You first add all the keys using Add and then
-// use Move to change the values. As you do so, byDesire will be kept in order.
+// their toDesire change. You first add all the keys using Add and then use Move
+// to change the values. As you do so, byDesire will be kept in order.
 //
 // Note that the values of the keys are simply stored in a slice and not a map,
-// so wildly varying min/max keys will use a lot of memory. It should be easy
-// to modify to use a map if desired though; for my use, a slice was fine and
-// much faster than a map.
+// so if you have a high key, it will use a lot of memory. It should be easy to
+// modify to use a map if desired though; for my use, a slice was fine and much
+// faster than a map.
 //
 // The RandIntn function may be set to randomize key locations whose values are
 // the same. Even if RandIntn is nil, the order of keys whose values are the

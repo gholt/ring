@@ -1,4 +1,4 @@
-// Copied from github.com/gholt/holdme
+// Automatically generated with: gastly ../../holdme/internal/keysorderedbyvalues_test.go desiredgroups_test.go lowring NumericKeyType=droptype:int NumericValueType=droptype:int32 KeysOrderedByValues=desiredGroups Newd=newD Keys=byDesire Values=toDesire
 
 package lowring
 
@@ -150,6 +150,21 @@ func Test_desiredGroups_Move(t *testing.T) {
 		}
 	}
 	if i3 == i || i3 == i2 {
+		t.Fatal("expected positions to change", x)
+	}
+	x.RandIntn = rand.New(rand.NewSource(2)).Intn
+	x.Move(7, 5)
+	i = helperdesiredGroupsFind(t, x, 7)
+	i2 = i
+	for j := 0; j < 100; j++ {
+		x.Move(7, 5)
+		helperdesiredGroupsInOrder(t, x)
+		i2 = helperdesiredGroupsFind(t, x, 7)
+		if i2 != i {
+			break
+		}
+	}
+	if i2 == i {
 		t.Fatal("expected positions to change", x)
 	}
 }
