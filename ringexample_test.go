@@ -29,7 +29,7 @@ func ExampleRing_Marshal() {
 	// {"MarshalVersion":0,"NodeType":16,"ReplicaCount":2,"PartitionCount":2,"Nodes":[{"Info":"Node One","Capacity":1,"Group":0},{"Info":"Node Two","Capacity":1,"Group":0}],"Groups":[{"Info":"","Parent":0}],"Rebalanced": ...
 }
 
-func ExampleUnmarshalRing() {
+func ExampleUnmarshal() {
 	// Build a ring to marshal...
 	b := ring.NewBuilder(2)
 	b.AddNode("Node One", 1, nil)
